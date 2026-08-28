@@ -28,3 +28,38 @@ export type ActionStatus = (typeof actionStatuses)[number];
 
 export const caseTaskStatuses = ['pending', 'completed', 'not_available'] as const;
 export type CaseTaskStatus = (typeof caseTaskStatuses)[number];
+
+export interface NormalizedAlert {
+  source: AlertSourceName;
+  sourceReference: string;
+  sourceUrl: string;
+  title: string;
+  description: string;
+  risk: string;
+  productName: string;
+  brand?: string;
+  ean?: string;
+  batch?: string;
+  category?: string;
+  publishedAt: string;
+}
+
+export interface ScoreBreakdown {
+  total: number;
+  ean: number;
+  name: number;
+  brand: number;
+  batch: number;
+  hasHardConflict: boolean;
+  reasons: string[];
+  requestedEvidence: string[];
+}
+
+export interface AlertSource {
+  getNewAlerts(existingReferences: Set<string>): Promise<NormalizedAlert[]>;
+}
+
+export interface FuzzyMatcher {
+  ratio(left: string, right: string): number;
+  tokenSetRatio(left: string, right: string): number;
+}

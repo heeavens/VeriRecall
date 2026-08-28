@@ -6,6 +6,7 @@ import { db } from '$lib/server/db/connection';
 import { products } from '$lib/server/db/schema';
 import { importCatalogue, importPurchases } from '$lib/server/imports/importer';
 import { completeSetup, getSetupState, useDemoData } from '$lib/server/imports/setup';
+import { runMonitoringCycle } from '$lib/server/workflow/monitoring';
 
 import type { Actions, PageServerLoad } from './$types';
 
@@ -93,6 +94,7 @@ export const actions: Actions = {
 
     try {
       completeSetup(db, threshold.data);
+      await runMonitoringCycle(db);
     } catch {
       return fail(500, {
         kind: 'complete' as const,
