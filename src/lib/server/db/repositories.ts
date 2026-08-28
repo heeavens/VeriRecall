@@ -76,3 +76,29 @@ export function clearDemoData(database: RecallDatabase): void {
     transaction.delete(schema.settings).run();
   });
 }
+
+export function replaceWithDemoData(database: RecallDatabase, fixtures: DemoFixtures): void {
+  database.transaction((transaction) => {
+    transaction.delete(schema.auditEvents).run();
+    transaction.delete(schema.actionDrafts).run();
+    transaction.delete(schema.evidenceRequests).run();
+    transaction.delete(schema.caseTasks).run();
+    transaction.delete(schema.caseItems).run();
+    transaction.delete(schema.cases).run();
+    transaction.delete(schema.matches).run();
+    transaction.delete(schema.alerts).run();
+    transaction.delete(schema.purchases).run();
+    transaction.delete(schema.customers).run();
+    transaction.delete(schema.products).run();
+    transaction.delete(schema.settings).run();
+
+    transaction.insert(schema.settings).values(fixtures.settings).run();
+    transaction.insert(schema.products).values(fixtures.products).run();
+    transaction.insert(schema.customers).values(fixtures.customers).run();
+    transaction.insert(schema.purchases).values(fixtures.purchases).run();
+    transaction.insert(schema.alerts).values(fixtures.alerts).run();
+    transaction.insert(schema.matches).values(fixtures.matches).run();
+    transaction.insert(schema.cases).values(fixtures.cases).run();
+    transaction.insert(schema.caseItems).values(fixtures.caseItems).run();
+  });
+}

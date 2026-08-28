@@ -16,8 +16,13 @@
   function isActive(href: string): boolean {
     return page.url.pathname === href || page.url.pathname.startsWith(`${href}/`);
   }
+
+  const isOnboarding = $derived(page.url.pathname === '/onboarding');
 </script>
 
+{#if isOnboarding}
+  {@render children()}
+{:else}
 <div class="min-h-screen lg:grid lg:grid-cols-[17rem_1fr]">
   <aside class="border-b border-slate-200 bg-slate-950 px-5 py-5 text-white lg:sticky lg:top-0 lg:h-screen lg:border-r lg:border-b-0 lg:px-6 lg:py-7">
     <a href="/dashboard" class="flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-400" aria-label="RecallOps AI overview">
@@ -75,3 +80,4 @@
     </main>
   </div>
 </div>
+{/if}
