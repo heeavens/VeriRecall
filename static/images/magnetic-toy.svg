@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-labelledby="title description">
+  <title id="title">Magnetic building set placeholder</title>
+  <desc id="description">Abstract purple and amber magnetic building pieces.</desc>
+  <rect width="640" height="420" rx="32" fill="#f8f4ff"/>
+  <circle cx="195" cy="206" r="96" fill="#8452e7" opacity=".18"/>
+  <path d="M154 269V151l102 59-102 59Z" fill="#8452e7"/>
+  <rect x="292" y="116" width="128" height="128" rx="22" transform="rotate(14 292 116)" fill="#f6b94d"/>
+  <circle cx="437" cy="278" r="65" fill="#6330c8"/>
+  <circle cx="437" cy="278" r="25" fill="#f8f4ff"/>
+</svg>

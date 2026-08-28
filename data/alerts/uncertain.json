@@ -1,0 +1,15 @@
+{
+  "source": "safety_gate",
+  "sourceReference": "A12/01159/24",
+  "sourceUrl": "https://ec.europa.eu/safety-gate-alerts/screen/webReport/alertDetail/10012936",
+  "title": "Plastic soother holder can release small parts",
+  "description": "The holder lacks required ventilation holes and its fastening can break, releasing small parts that a child may put in the mouth.",
+  "risk": "Choking",
+  "imageUrl": "/images/soother-holder.svg",
+  "brand": "Bohin France",
+  "productName": "Plastic soother holder",
+  "ean": "3073646035009",
+  "batch": null,
+  "category": "Childcare articles",
+  "publishedAt": "2024-05-10T00:00:00.000Z"
+}

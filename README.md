@@ -1,6 +1,6 @@
 # RecallOps AI
 
-RecallOps AI is a local SvelteKit dashboard skeleton for a catalogue-aware product recall workflow. Stage 0 provides the application shell and local SQLite infrastructure only; workflow features are intentionally not implemented yet.
+RecallOps AI is a local SvelteKit dashboard for a catalogue-aware product recall workflow. The current demo database includes deterministic high-confidence, uncertain, and not-relevant recall scenarios.
 
 ## Requirements
 
@@ -27,4 +27,12 @@ npm run test
 npm run build
 ```
 
-The SQLite database is local-only and ignored by Git. `db:seed` is intentionally a no-op until the demo fixtures are introduced in a later stage.
+The SQLite database is local-only and ignored by Git. Seeding is idempotent, so `npm run db:seed` can be run more than once without creating duplicates.
+
+To restore the deterministic fixtures in development, explicitly confirm the reset:
+
+```bash
+npm run db:reset -- --confirm
+```
+
+The reset utility refuses to run when `NODE_ENV=production`.

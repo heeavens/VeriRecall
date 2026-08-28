@@ -1,0 +1,9 @@
+[
+  { "id": "20000000-0000-4000-8000-000000000001", "externalId": "C-1001", "name": "Aoife Murphy", "email": "aoife@example.test" },
+  { "id": "20000000-0000-4000-8000-000000000002", "externalId": "C-1002", "name": "Liam Byrne", "email": "liam@example.test" },
+  { "id": "20000000-0000-4000-8000-000000000003", "externalId": "C-1003", "name": "Niamh Kelly", "email": "niamh@example.test" },
+  { "id": "20000000-0000-4000-8000-000000000004", "externalId": "C-1004", "name": "Conor Walsh", "email": "conor@example.test" },
+  { "id": "20000000-0000-4000-8000-000000000005", "externalId": "C-1005", "name": "Saoirse Ryan", "email": "saoirse@example.test" },
+  { "id": "20000000-0000-4000-8000-000000000006", "externalId": "C-1006", "name": "Darragh O'Brien", "email": "darragh@example.test" },
+  { "id": "20000000-0000-4000-8000-000000000007", "externalId": "C-1007", "name": "Demo Customer", "email": "customer@example.test" }
+]

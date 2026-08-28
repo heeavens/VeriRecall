@@ -1,0 +1,15 @@
+{
+  "source": "rasff",
+  "sourceReference": "2024.2029",
+  "sourceUrl": "https://webgate.ec.europa.eu/rasff-window/screen/notification/671456",
+  "title": "Listeria monocytogenes in smoked salmon from Denmark",
+  "description": "Listeria monocytogenes matching the outbreak strain was detected in an official sample of chilled cold-smoked Norwegian salmon that was dry salted and sliced.",
+  "risk": "Serious microbiological risk",
+  "imageUrl": "/images/smoked-salmon.svg",
+  "brand": null,
+  "productName": "Chilled cold-smoked Norwegian salmon, dry salted and sliced",
+  "ean": null,
+  "batch": null,
+  "category": "Fish and fish products",
+  "publishedAt": "2024-03-18T00:00:00.000Z"
+}

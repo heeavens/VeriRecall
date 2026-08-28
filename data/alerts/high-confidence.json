@@ -1,0 +1,15 @@
+{
+  "source": "safety_gate",
+  "sourceReference": "A12/01366/24",
+  "sourceUrl": "https://ec.europa.eu/safety-gate-alerts/screen/webReport/alertDetail/10013168",
+  "title": "Magnetic toy set with high-powered small magnets",
+  "description": "The toy contains small parts with a high magnetic flux. If swallowed, the magnets can attract one another and cause intestinal blockage or perforation.",
+  "risk": "Choking and injuries",
+  "imageUrl": "/images/magnetic-toy.svg",
+  "brand": "JC Toy",
+  "productName": "Magnetic - Magnetic Construction Toy",
+  "ean": "6420650066059",
+  "batch": "MFT24",
+  "category": "Toys",
+  "publishedAt": "2024-05-24T00:00:00.000Z"
+}

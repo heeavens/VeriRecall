@@ -10,7 +10,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "db:migrate": "node --import tsx src/lib/server/db/migrate.ts",
-    "db:seed": "node --import tsx src/lib/server/db/seed.ts"
+    "db:seed": "node --import tsx src/lib/server/db/seed.ts",
+    "db:reset": "node --import tsx src/lib/server/db/reset.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

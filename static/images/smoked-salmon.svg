@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-labelledby="title description">
+  <title id="title">Smoked salmon placeholder</title>
+  <desc id="description">Abstract salmon-coloured fish product package.</desc>
+  <rect width="640" height="420" rx="32" fill="#f5f3f6"/>
+  <rect x="116" y="82" width="408" height="256" rx="28" fill="#ffffff" stroke="#eae4f2" stroke-width="8"/>
+  <path d="M192 221c67-86 174-93 257-25-33 83-162 109-257 25Z" fill="#f28b82"/>
+  <path d="m449 196 62-47-9 83 9 65-68-41" fill="#df6f68"/>
+  <circle cx="244" cy="205" r="8" fill="#4c4654"/>
+  <path d="M265 232c43 18 95 12 132-16" fill="none" stroke="#ffd1cd" stroke-width="10" stroke-linecap="round"/>
+</svg>
