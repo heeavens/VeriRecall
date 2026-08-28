@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recall Agent — Product Recall Dashboard</title>
+  <meta name="description" content="Catalogue-aware product recall agent dashboard mockup" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#17151C', muted: '#716B7B', line: '#EAE4F2', canvas: '#FCFBFE',
+            violet: { 50: '#F8F4FF', 100: '#F1E9FF', 200: '#E4D3FF', 500: '#8452E7', 600: '#7542DD', 700: '#6330C8' }
+          },
+          boxShadow: { card: '0 1px 2px rgba(40, 24, 65, .03)' },
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html { background: #fcfbfe; }
+    body { margin: 0; color: #17151c; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button, input, select, textarea { font: inherit; }
+    button { -webkit-tap-highlight-color: transparent; }
+    .card { border: 1px solid #eae4f2; background: #fff; border-radius: 13px; box-shadow: 0 1px 2px rgba(40,24,65,.025); }
+    .page { display: none; animation: pageIn .18s ease-out; }
+    .page.active { display: block; }
+    @keyframes pageIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+    .nav-item { display: flex; width: 100%; align-items: center; gap: 11px; border-radius: 8px; padding: 10px 12px; color: #625d6b; font-size: 13px; font-weight: 500; transition: .16s ease; }
+    .nav-item:hover { background: #faf7ff; color: #7542dd; }
+    .nav-item.active { background: #8150e4; color: white; box-shadow: 0 5px 14px rgba(117,66,221,.19); }
+    .nav-item svg { width: 17px; height: 17px; stroke-width: 1.8; }
+    .sub-nav { margin-left: 38px; display: none; padding-top: 3px; }
+    .sub-nav.show { display: block; }
+    .sub-nav button { display: block; width: 100%; padding: 7px 0; text-align: left; color: #817b89; font-size: 12px; }
+    .sub-nav button.active, .sub-nav button:hover { color: #7542dd; font-weight: 600; }
+    .input-ui { width: 100%; height: 39px; border: 1px solid #ded8e7; border-radius: 8px; background: #fff; padding: 0 12px; color: #29252f; font-size: 12px; outline: none; transition: .15s ease; }
+    .input-ui:focus { border-color: #9d78eb; box-shadow: 0 0 0 3px #f1e9ff; }
+    textarea.input-ui { min-height: 108px; resize: vertical; padding-top: 10px; }
+    .btn { display: inline-flex; height: 38px; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; padding: 0 15px; font-size: 12px; font-weight: 600; transition: .15s ease; white-space: nowrap; }
+    .btn-primary { background: #7b49df; color: #fff; box-shadow: 0 4px 10px rgba(123,73,223,.18); }
+    .btn-primary:hover { background: #6c38d2; transform: translateY(-1px); }
+    .btn-secondary { border: 1px solid #e2dbea; background: #fff; color: #4c4654; }
+    .btn-secondary:hover { border-color: #cbb9ec; background: #faf7ff; color: #7542dd; }
+    .btn-ghost { color: #7542dd; background: #f8f4ff; }
+    .label { display: block; margin-bottom: 7px; color: #5f5968; font-size: 11px; font-weight: 600; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 650; line-height: 1; white-space: nowrap; }
+    .badge::before { content: ''; width: 5px; height: 5px; border-radius: 999px; background: currentColor; }
+    .badge-red { background: #fff0f0; color: #e14f55; }
+    .badge-orange { background: #fff6e9; color: #df8b31; }
+    .badge-yellow { background: #fff8dc; color: #be8420; }
+    .badge-blue { background: #edf4ff; color: #4c80df; }
+    .badge-green { background: #ecfbf3; color: #2aa96b; }
+    .badge-purple { background: #f2eaff; color: #7845dc; }
+    .badge-gray { background: #f3f2f5; color: #787280; }
+    .filter-chip { display: inline-flex; height: 31px; align-items: center; gap: 7px; border: 1px solid #e5dfea; border-radius: 7px; background: #fff; padding: 0 11px; color: #625d69; font-size: 10px; font-weight: 600; transition: .15s ease; }
+    .filter-chip:hover, .filter-chip.active { border-color: #cfb9f5; background: #f7f1ff; color: #7542dd; }
+    .count-dot { display: inline-grid; min-width: 18px; height: 18px; place-items: center; border-radius: 99px; padding: 0 5px; background: #f3eef9; font-size: 9px; }
+    .table-wrap { overflow: hidden; border: 1px solid #eae4f2; border-radius: 12px; background: #fff; }
+    .data-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .data-table th { height: 43px; border-bottom: 1px solid #ebe6f1; padding: 0 11px; color: #85808a; font-size: 9px; font-weight: 600; letter-spacing: .01em; text-align: left; }
+    .data-table td { height: 57px; border-bottom: 1px solid #f0ecf4; padding: 7px 11px; color: #4d4853; font-size: 10px; vertical-align: middle; }
+    .data-table tbody tr { cursor: pointer; transition: background .12s ease; }
+    .data-table tbody tr:hover { background: #fcfaff; }
+    .data-table tbody tr:last-child td { border-bottom: 0; }
+    .metric-divider > div + div { border-left: 1px solid #eee9f4; }
+    .ring-chart { position: relative; border-radius: 999px; }
+    .ring-chart::after { content: ''; position: absolute; inset: 25%; border-radius: 999px; background: white; }
+    .ring-center { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; text-align: center; }
+    .timeline-line { position: absolute; left: 13px; top: 27px; bottom: 28px; width: 2px; background: #ebe2fa; }
+    .timeline-step { position: relative; padding-left: 43px; min-height: 62px; }
+    .timeline-dot { position: absolute; left: 0; top: 0; display: grid; width: 28px; height: 28px; place-items: center; border-radius: 999px; background: #eadcff; color: #7845dc; }
+    .timeline-dot.pending { background: #eef0f4; color: #9aa0aa; }
+    .toast { position: fixed; right: 25px; bottom: 25px; z-index: 90; display: flex; align-items: center; gap: 10px; border: 1px solid #dfd4ee; border-radius: 10px; background: #fff; padding: 13px 16px; box-shadow: 0 14px 35px rgba(49,31,77,.16); color: #332e3a; font-size: 12px; opacity: 0; pointer-events: none; transform: translateY(12px); transition: .2s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center; background: rgba(24,18,31,.38); padding: 24px; backdrop-filter: blur(3px); }
+    .modal-backdrop.show { display: flex; }
+    .modal-panel { width: min(660px, 100%); max-height: calc(100vh - 48px); overflow: auto; border-radius: 16px; background: white; box-shadow: 0 28px 80px rgba(38,22,60,.24); }
+    .setup-panel { width: min(880px, 100%); }
+    .upload-zone { border: 1.5px dashed #d9cbea; border-radius: 12px; background: #fdfbff; transition: .15s ease; }
+    .upload-zone:hover { border-color: #9d78eb; background: #faf6ff; }
+    .progress-track { height: 4px; overflow: hidden; border-radius: 999px; background: #eeeaf1; }
+    .progress-value { height: 100%; border-radius: inherit; background: #8050e2; }
+    .scrollbar::-webkit-scrollbar { width: 7px; height: 7px; }
+    .scrollbar::-webkit-scrollbar-thumb { border-radius: 99px; background: #d9d2e2; }
+    @media (max-width: 1180px) {
+      #app-root { min-width: 1080px; }
+      .header-task { display: none; }
+    }
+  </style>
+</head>
+<body class="bg-canvas antialiased">
+  <div id="app-root" class="min-h-screen bg-canvas">
+    <!-- Global header -->
+    <header class="sticky top-0 z-50 h-[66px] border-t-[4px] border-violet-700 border-b border-line bg-white/95 backdrop-blur">
+      <div class="grid h-full grid-cols-[208px_minmax(0,1fr)] items-center gap-5 px-5">
+        <button class="flex items-center gap-10px" onclick="showPage('overview')" aria-label="Go to overview">
+          <span class="relative mr-2 block h-8 w-8">
+            <span class="absolute left-1 top-1 h-6 w-5 -rotate-6 rounded-[5px] bg-violet-700"></span>
+            <span class="absolute left-3 top-0 h-6 w-5 rotate-6 rounded-[5px] bg-violet-500 opacity-80"></span>
+          </span>
+          <span class="text-[17px] font-bold tracking-[-.025em]">Recall Agent</span>
+        </button>
+        <div class="flex items-center justify-between gap-5">
+          <div class="flex min-w-0 flex-1 items-center gap-5">
+            <div class="relative w-[350px] max-w-[38vw]">
+              <i data-lucide="search" class="absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-[#9c96a4]"></i>
+              <input id="global-search" class="input-ui pl-9" placeholder="Alerts, EAN, products, suppliers, cases..." />
+            </div>
+            <button class="header-task flex min-w-0 max-w-[370px] items-center rounded-full border border-[#f6d99c] bg-[#fffaf0] py-1.5 pl-2 pr-3 text-left text-[10px] text-[#a77026]" onclick="showPage('match-review')">
+              <span class="mr-2 rounded-full bg-white px-3 py-1 font-semibold shadow-sm">Critical review due today</span>
+              <span class="truncate">Confirm BabyDream Soother match</span>
+            </button>
+            <button class="hidden text-[10px] font-semibold text-[#55505c] xl:block" onclick="showPage('review')">View all</button>
+          </div>
+          <div class="flex items-center gap-3">
+            <button class="grid h-9 w-9 place-items-center rounded-lg text-[#6d6775] hover:bg-violet-50" aria-label="Notifications" onclick="toast('You have 3 items requiring review')"><i data-lucide="bell" class="h-[17px] w-[17px]"></i></button>
+            <button class="grid h-9 w-9 place-items-center rounded-lg text-[#817a89] hover:bg-violet-50" aria-label="Help" onclick="toast('Help centre opened')"><i data-lucide="circle-help" class="h-[18px] w-[18px]"></i></button>
+            <div class="h-7 w-px bg-line"></div>
+            <button class="flex items-center gap-2.5 rounded-lg px-1.5 py-1 text-left hover:bg-violet-50" onclick="showPage('settings')">
+              <span class="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-[#eddcff] to-[#c3a0ff] text-[10px] font-bold text-violet-700">HS</span>
+              <span class="hidden leading-tight lg:block"><span class="block text-[11px] font-semibold">Herman</span><span class="block text-[9px] text-muted">Compliance operator</span></span>
+              <i data-lucide="chevron-down" class="h-3 w-3 text-[#9b95a2]"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-[208px_minmax(0,1fr)] gap-5 p-5 pt-4">
+      <!-- Sidebar -->
+      <aside class="card sticky top-[82px] h-[calc(100vh-102px)] min-h-[650px] self-start p-3">
+        <nav class="flex h-full flex-col">
+          <div class="space-y-1">
+            <button class="nav-item active" data-page-target="overview" onclick="showPage('overview')"><i data-lucide="layout-dashboard"></i><span>Overview</span></button>
+            <button class="nav-item" data-page-target="review" onclick="showPage('review')"><i data-lucide="scan-search"></i><span>Review Queue</span><span class="ml-auto rounded-full bg-[#fff0f0] px-1.5 py-0.5 text-[9px] font-bold text-[#e14f55]">8</span></button>
+            <div id="review-subnav" class="sub-nav"><button onclick="showPage('review')" class="active">Needs Review</button><button onclick="setReviewFilter('Awaiting Evidence')">Awaiting Evidence</button><button onclick="setReviewFilter('Rejected')">Rejected Matches</button></div>
+            <button class="nav-item" data-page-target="cases" onclick="showPage('cases')"><i data-lucide="briefcase-business"></i><span>Cases</span></button>
+            <button class="nav-item" data-page-target="catalogue" onclick="showPage('catalogue')"><i data-lucide="package-search"></i><span>Catalogue</span></button>
+            <button class="nav-item" data-page-target="actions" onclick="showPage('actions')"><i data-lucide="send"></i><span>Action Drafts</span><span class="ml-auto text-[9px] text-muted">4</span></button>
+            <button class="nav-item" data-page-target="audit" onclick="showPage('audit')"><i data-lucide="scroll-text"></i><span>Audit Log</span></button>
+          </div>
+          <div class="mt-auto space-y-1 border-t border-line pt-3">
+            <button class="nav-item" onclick="openSetup()"><i data-lucide="sparkles"></i><span>Demo Setup</span></button>
+            <button class="nav-item" data-page-target="settings" onclick="showPage('settings')"><i data-lucide="settings"></i><span>Settings</span></button>
+            <div class="mx-1 mt-3 rounded-xl bg-violet-50 p-3">
+              <div class="flex items-center gap-2 text-[10px] font-semibold text-violet-700"><i data-lucide="shield-check" class="h-4 w-4"></i>Human approval active</div>
+              <p class="mt-1.5 text-[9px] leading-4 text-muted">Critical actions cannot be sent without confirmation.</p>
+            </div>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="min-w-0 pb-10">
+        <!-- OVERVIEW -->
+        <section id="page-overview" class="page active">
+          <div class="mb-4 flex items-start justify-between">
+            <div><h1 class="text-[24px] font-bold tracking-[-.035em]">Product Recall Overview</h1><p class="mt-1 text-[12px] text-muted">Monitor official alerts and catalogue matches requiring your attention.</p></div>
+            <button class="btn btn-primary" onclick="showPage('match-review')"><i data-lucide="scan-search" class="h-4 w-4"></i>Review Next Match</button>
+          </div>
+
+          <div class="card metric-divider mb-4 grid grid-cols-5 overflow-hidden">
+            <div class="p-4"><div class="flex items-center gap-2 text-[10px] font-semibold text-violet-600"><i data-lucide="radio-tower" class="h-4 w-4 text-[#58515f]"></i>New Alerts Today</div><div class="mt-2 text-[21px] font-bold">12</div><div class="mt-1 text-[10px] text-[#e14f55]">3 critical risk</div></div>
+            <div class="p-4"><div class="flex items-center gap-2 text-[10px] font-semibold text-violet-600"><i data-lucide="scan-search" class="h-4 w-4 text-[#58515f]"></i>Waiting for Review</div><div class="mt-2 text-[21px] font-bold">8</div><div class="mt-1 text-[10px] text-muted">2 hard conflicts</div></div>
+            <div class="p-4"><div class="flex items-center gap-2 text-[10px] font-semibold text-violet-600"><i data-lucide="circle-check-big" class="h-4 w-4 text-[#58515f]"></i>Confirmed Matches</div><div class="mt-2 text-[21px] font-bold">5</div><div class="mt-1 text-[10px] text-muted">since last import</div></div>
+            <div class="p-4"><div class="flex items-center gap-2 text-[10px] font-semibold text-violet-600"><i data-lucide="briefcase-business" class="h-4 w-4 text-[#58515f]"></i>Open Cases</div><div class="mt-2 text-[21px] font-bold">4</div><div class="mt-1 text-[10px] text-[#df8b31]">1 needs approval</div></div>
+            <div class="p-4"><div class="flex items-center gap-2 text-[10px] font-semibold text-violet-600"><i data-lucide="archive-check" class="h-4 w-4 text-[#58515f]"></i>Closed This Month</div><div class="mt-2 text-[21px] font-bold">17</div><div class="mt-1 text-[10px] text-[#2aa96b]">+4 vs last month</div></div>
+          </div>
+
+          <div class="grid grid-cols-12 gap-4">
+            <div class="card col-span-4 p-4">
+              <div class="flex items-center justify-between"><h2 class="text-[15px] font-bold">Match Status Overview</h2><button class="text-[10px] font-semibold text-violet-600" onclick="showPage('review')">View Queue</button></div>
+              <div class="mt-5 flex items-center justify-center gap-5">
+                <div class="ring-chart h-[126px] w-[126px] shrink-0" style="background:conic-gradient(#8150e4 0 25%,#50318d 25% 40%,#b992fa 40% 65%,#ede3fb 65% 100%)"><div class="ring-center"><span class="text-[20px] font-bold">32</span><span class="text-[9px] text-muted">Total</span></div></div>
+                <div class="space-y-2 text-[9px]">
+                  <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-sm bg-[#8150e4]"></span><span class="w-[94px] text-muted">Needs Review</span><b>8</b></div>
+                  <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-sm bg-[#50318d]"></span><span class="w-[94px] text-muted">Confirmed</span><b>5</b></div>
+                  <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-sm bg-[#b992fa]"></span><span class="w-[94px] text-muted">Awaiting Evidence</span><b>8</b></div>
+                  <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-sm bg-[#ede3fb]"></span><span class="w-[94px] text-muted">Not Relevant</span><b>11</b></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card col-span-5 p-4">
+              <div class="flex items-center justify-between"><div><h2 class="text-[15px] font-bold">Alerts Processed</h2><p class="mt-1 text-[9px] text-muted">Official alerts compared with your catalogue</p></div><select class="h-8 rounded-lg border border-line bg-white px-2 text-[9px] text-muted"><option>Last 7 months</option></select></div>
+              <div class="mt-3 h-[148px] w-full">
+                <svg viewBox="0 0 520 175" class="h-full w-full" preserveAspectRatio="none" aria-label="Alerts processed trend">
+                  <defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#A982F0" stop-opacity=".26"/><stop offset="1" stop-color="#A982F0" stop-opacity="0"/></linearGradient></defs>
+                  <g stroke="#eee9f3" stroke-width="1"><line x1="34" y1="20" x2="510" y2="20"/><line x1="34" y1="62" x2="510" y2="62"/><line x1="34" y1="104" x2="510" y2="104"/><line x1="34" y1="146" x2="510" y2="146"/></g>
+                  <path d="M34 125 C72 112 98 120 130 102 S188 96 220 83 S276 92 310 65 S374 50 408 58 S465 46 510 24 L510 146 L34 146 Z" fill="url(#area)"/>
+                  <path d="M34 125 C72 112 98 120 130 102 S188 96 220 83 S276 92 310 65 S374 50 408 58 S465 46 510 24" fill="none" stroke="#8b5be8" stroke-width="3" stroke-linecap="round"/>
+                  <g fill="#8d8795" font-size="10"><text x="45" y="166">Feb</text><text x="122" y="166">Mar</text><text x="201" y="166">Apr</text><text x="280" y="166">May</text><text x="360" y="166">Jun</text><text x="440" y="166">Jul</text></g>
+                </svg>
+              </div>
+            </div>
+
+            <div class="card col-span-3 row-span-1 p-4">
+              <div class="flex items-center justify-between"><h2 class="text-[15px] font-bold">Critical Alerts</h2><button class="text-[9px] font-semibold text-violet-600" onclick="showPage('review')">View all</button></div>
+              <div class="mt-3 divide-y divide-[#f0ecf4]">
+                <button class="flex w-full items-start justify-between py-2.5 text-left" onclick="showPage('match-review')"><span><b class="block text-[10px]">Choking risk — baby soother</b><span class="mt-1 block text-[9px] text-muted">Safety Gate · 92% candidate</span></span><i data-lucide="chevron-right" class="mt-1 h-3.5 w-3.5"></i></button>
+                <button class="flex w-full items-start justify-between py-2.5 text-left" onclick="showPage('review')"><span><b class="block text-[10px]">Listeria — soft cheese batch</b><span class="mt-1 block text-[9px] text-muted">RASFF · hard batch conflict</span></span><i data-lucide="chevron-right" class="mt-1 h-3.5 w-3.5"></i></button>
+                <button class="flex w-full items-start justify-between py-2.5 text-left" onclick="showPage('cases')"><span><b class="block text-[10px]">Containment approval overdue</b><span class="mt-1 block text-[9px] text-muted">CASE-0024 · 14 units</span></span><i data-lucide="chevron-right" class="mt-1 h-3.5 w-3.5"></i></button>
+              </div>
+            </div>
+
+            <div class="col-span-9 mt-1">
+              <div class="mb-2.5 flex items-center justify-between">
+                <div class="flex items-center gap-2"><span class="mr-1 text-[11px] font-bold">Quick Filters</span><button class="filter-chip active">All</button><button class="filter-chip">Critical Risk</button><button class="filter-chip">Needs Review</button><button class="filter-chip">Awaiting Evidence</button><button class="filter-chip">Hard Conflicts</button></div>
+                <button class="text-[10px] font-semibold text-muted" onclick="toast('Dashboard filters cleared')">Clear Filters</button>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th style="width:24px"><input type="checkbox" /></th><th>Official Product</th><th>Catalogue Candidate</th><th style="width:92px">Source</th><th style="width:78px">Risk</th><th style="width:110px">Confidence</th><th style="width:105px">Status</th><th style="width:30px"></th></tr></thead>
+                  <tbody>
+                    <tr onclick="showPage('match-review')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b class="text-[#302b35]">BabyDream Silicone Soother</b><span class="block text-[8px] text-muted">A12/00972/26</span></td><td>BabyDream Comfort Pacifier</td><td>Safety Gate</td><td><span class="badge badge-red">Critical</span></td><td><div class="font-semibold">92%</div><div class="progress-track mt-1"><div class="progress-value" style="width:92%"></div></div></td><td><span class="badge badge-blue">Needs Review</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr>
+                    <tr onclick="showPage('match-review')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b class="text-[#302b35]">Maison Brie 250g</b><span class="block text-[8px] text-muted">2026.4851</span></td><td>Maison Brie Soft Cheese</td><td>RASFF</td><td><span class="badge badge-red">High</span></td><td><div class="font-semibold">78%</div><div class="progress-track mt-1"><div class="progress-value bg-[#dc8f34]" style="width:78%"></div></div></td><td><span class="badge badge-yellow">Awaiting Evidence</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr>
+                    <tr onclick="showPage('case-detail')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b class="text-[#302b35]">KidsLab Wooden Blocks</b><span class="block text-[8px] text-muted">A12/00831/26</span></td><td>KidsLab 24pc Block Set</td><td>Safety Gate</td><td><span class="badge badge-orange">Medium</span></td><td><div class="font-semibold">96%</div><div class="progress-track mt-1"><div class="progress-value bg-[#2aa96b]" style="width:96%"></div></div></td><td><span class="badge badge-purple">Confirmed</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr>
+                    <tr onclick="showPage('review')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b class="text-[#302b35]">GlowPro USB Charger</b><span class="block text-[8px] text-muted">A12/00640/26</span></td><td>GlowPro Dual USB Plug</td><td>Safety Gate</td><td><span class="badge badge-red">High</span></td><td><div class="font-semibold">61%</div><div class="progress-track mt-1"><div class="progress-value bg-[#dc8f34]" style="width:61%"></div></div></td><td><span class="badge badge-blue">Needs Review</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr>
+                  </tbody>
+                </table>
+                <div class="flex h-12 items-center justify-between border-t border-line px-3 text-[9px] text-muted"><span>Showing 1 to 4 of 32 matches</span><div class="flex items-center gap-1"><button class="grid h-7 w-7 place-items-center rounded-md border border-line"><i data-lucide="chevron-left" class="h-3 w-3"></i></button><button class="grid h-7 w-7 place-items-center rounded-md bg-violet-100 font-bold text-violet-700">1</button><button class="grid h-7 w-7 place-items-center rounded-md">2</button><button class="grid h-7 w-7 place-items-center rounded-md">3</button><button class="grid h-7 w-7 place-items-center rounded-md border border-line"><i data-lucide="chevron-right" class="h-3 w-3"></i></button></div></div>
+              </div>
+            </div>
+
+            <div class="card col-span-3 mt-1 p-4">
+              <div class="flex items-center justify-between"><h2 class="text-[15px] font-bold">Recent Activity</h2><button class="text-[9px] font-semibold text-violet-600" onclick="showPage('audit')">View all</button></div>
+              <div class="mt-3 space-y-3">
+                <div><div class="flex justify-between"><b class="text-[10px]">Evidence uploaded</b><span class="text-[8px] text-muted">2h ago</span></div><p class="mt-1 text-[9px] text-muted">EuroBaby Imports · MATCH-1042</p></div>
+                <div><div class="flex justify-between"><b class="text-[10px]">Match confirmed</b><span class="text-[8px] text-muted">5h ago</span></div><p class="mt-1 text-[9px] text-muted">KidsLab 24pc Block Set</p></div>
+                <div><div class="flex justify-between"><b class="text-[10px]">Action draft approved</b><span class="text-[8px] text-muted">1d ago</span></div><p class="mt-1 text-[9px] text-muted">CASE-0024 · Stock containment</p></div>
+                <div><div class="flex justify-between"><b class="text-[10px]">RASFF import completed</b><span class="text-[8px] text-muted">2d ago</span></div><p class="mt-1 text-[9px] text-muted">148 archived alerts processed</p></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- REVIEW QUEUE -->
+        <section id="page-review" class="page">
+          <div class="mb-5 flex items-start justify-between"><div><h1 class="text-[24px] font-bold tracking-[-.035em]">Review Queue</h1><p class="mt-1 text-[12px] text-muted">Review uncertain catalogue matches before opening a recall case.</p></div><button class="btn btn-primary" onclick="showPage('match-review')"><i data-lucide="scan-search" class="h-4 w-4"></i>Review Next Match</button></div>
+          <div class="grid grid-cols-12 gap-4">
+            <div class="col-span-9">
+              <div class="card mb-3 bg-[#fdfbff] p-4">
+                <div class="grid grid-cols-[1.35fr_.8fr_.8fr_.9fr_1.05fr] gap-3">
+                  <label><span class="label">Search alert or product</span><span class="relative block"><i data-lucide="search" class="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2"></i><input id="review-search" class="input-ui pr-9" placeholder="EAN, product, alert ID..." oninput="filterReviewRows()" /></span></label>
+                  <label><span class="label">Match Status</span><select class="input-ui"><option>All statuses</option><option>Needs Review</option><option>Awaiting Evidence</option></select></label>
+                  <label><span class="label">Risk Level</span><select class="input-ui"><option>All risks</option><option>Critical</option><option>High</option></select></label>
+                  <label><span class="label">Official Source</span><select class="input-ui"><option>All sources</option><option>Safety Gate</option><option>RASFF</option></select></label>
+                  <label><span class="label">Date Range</span><span class="relative block"><i data-lucide="calendar-days" class="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2"></i><input class="input-ui pl-9" value="Aug 1 – Aug 28, 2026" /></span></label>
+                </div>
+                <div class="mt-4 flex items-end justify-between">
+                  <div><span class="label">Quick Filters</span><div class="flex flex-wrap gap-2"><button class="filter-chip active review-chip" onclick="activateChip(this)">All</button><button class="filter-chip review-chip" onclick="activateChip(this)">Needs Review <span class="count-dot text-blue-600">8</span></button><button class="filter-chip review-chip" onclick="activateChip(this)">Awaiting Evidence <span class="count-dot text-[#be8420]">3</span></button><button class="filter-chip review-chip" onclick="activateChip(this)">Hard Conflict <span class="count-dot text-red-500">2</span></button><button class="filter-chip review-chip" onclick="activateChip(this)">Critical Risk <span class="count-dot text-red-500">3</span></button></div></div>
+                  <div class="flex gap-2"><button class="btn h-[31px] px-3 text-muted" onclick="clearReviewFilters()"><i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>Clear all</button><button class="btn btn-ghost h-[31px] px-3" onclick="toast('Review queue exported')"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button></div>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <div class="flex h-11 items-center justify-between border-b border-line px-4"><b class="text-[11px]">32 Catalogue Matches</b><span class="text-[9px] text-muted">Sorted by risk and confidence</span></div>
+                <table class="data-table" id="review-table">
+                  <thead><tr><th style="width:24px"><input type="checkbox" /></th><th style="width:90px">Alert ID</th><th>Official Product</th><th>Catalogue Candidate</th><th style="width:78px">Risk</th><th style="width:100px">Confidence</th><th style="width:110px">Status</th><th style="width:36px"></th></tr></thead>
+                  <tbody>
+                    <tr data-search="a12 00972 babydream silicone soother pacifier eurobaby safety gate" onclick="showPage('match-review')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b>A12/00972</b><span class="block text-[8px] text-muted">Safety Gate</span></td><td>BabyDream Silicone Soother</td><td>Comfort Pacifier 0–6m</td><td><span class="badge badge-red">Critical</span></td><td><b>92%</b><div class="progress-track mt-1"><div class="progress-value" style="width:92%"></div></div></td><td><span class="badge badge-blue">Needs Review</span></td><td><button class="grid h-7 w-7 place-items-center rounded-md border-2 border-violet-500" onclick="event.stopPropagation(); showPage('match-review')"><i data-lucide="more-vertical" class="h-4 w-4"></i></button></td></tr>
+                    <tr data-search="2026 4851 maison brie soft cheese listeria raff foodbridge" onclick="showPage('match-review')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b>2026.4851</b><span class="block text-[8px] text-muted">RASFF</span></td><td>Maison Brie 250g</td><td>Maison Brie Soft Cheese</td><td><span class="badge badge-red">High</span></td><td><b>78%</b><div class="progress-track mt-1"><div class="progress-value bg-[#dc8f34]" style="width:78%"></div></div></td><td><span class="badge badge-yellow">Awaiting Evidence</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr>
+                    <tr data-search="a12 00640 glowpro usb charger plug safety gate" onclick="showPage('match-review')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b>A12/00640</b><span class="block text-[8px] text-muted">Safety Gate</span></td><td>GlowPro USB Charger</td><td>GlowPro Dual USB Plug</td><td><span class="badge badge-red">High</span></td><td><b>61%</b><div class="progress-track mt-1"><div class="progress-value bg-[#dc8f34]" style="width:61%"></div></div></td><td><span class="badge badge-blue">Hard Conflict</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr>
+                    <tr data-search="2026 4610 fresh valley smoked salmon rasff coldstream" onclick="showPage('match-review')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b>2026.4610</b><span class="block text-[8px] text-muted">RASFF</span></td><td>Fresh Valley Salmon</td><td>Coldstream Smoked Salmon</td><td><span class="badge badge-orange">Medium</span></td><td><b>68%</b><div class="progress-track mt-1"><div class="progress-value bg-[#dc8f34]" style="width:68%"></div></div></td><td><span class="badge badge-blue">Needs Review</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr>
+                    <tr data-search="a12 00514 rainbow slime toy chemical safety gate playwise" onclick="showPage('match-review')"><td><input type="checkbox" onclick="event.stopPropagation()" /></td><td><b>A12/00514</b><span class="block text-[8px] text-muted">Safety Gate</span></td><td>Rainbow Slime Kit</td><td>PlayWise Colour Slime</td><td><span class="badge badge-orange">Medium</span></td><td><b>84%</b><div class="progress-track mt-1"><div class="progress-value" style="width:84%"></div></div></td><td><span class="badge badge-yellow">Awaiting Evidence</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr>
+                  </tbody>
+                </table>
+                <div class="flex h-12 items-center justify-between border-t border-line px-4 text-[9px] text-muted"><span>Showing 1 to 5 of 32 matches</span><div class="flex items-center gap-1"><button class="grid h-7 w-7 place-items-center"><i data-lucide="chevron-left" class="h-3 w-3"></i></button><button class="grid h-7 w-7 place-items-center rounded-md bg-violet-100 font-bold text-violet-700">1</button><button class="grid h-7 w-7 place-items-center rounded-md">2</button><button class="grid h-7 w-7 place-items-center rounded-md">3</button><span>...</span><button class="grid h-7 w-7 place-items-center rounded-md">7</button><button class="grid h-7 w-7 place-items-center"><i data-lucide="chevron-right" class="h-3 w-3"></i></button></div><select class="h-7 rounded-md border border-line px-2"><option>10 / page</option></select></div>
+              </div>
+            </div>
+            <aside class="col-span-3 space-y-3">
+              <div class="card p-4"><h2 class="text-[13px] font-bold">Match Status Overview</h2><div class="mt-4 flex items-center gap-4"><div class="ring-chart h-[116px] w-[116px] shrink-0" style="background:conic-gradient(#8150e4 0 25%,#50318d 25% 47%,#b992fa 47% 72%,#eee6f8 72% 100%)"><div class="ring-center"><b class="text-[16px]">32</b><span class="text-[8px] text-muted">Total</span></div></div><div class="space-y-2 text-[8px]"><div><span class="mr-2 inline-block h-2 w-2 rounded-sm bg-[#8150e4]"></span>Needs Review&nbsp; <b>8</b></div><div><span class="mr-2 inline-block h-2 w-2 rounded-sm bg-[#50318d]"></span>Confirmed&nbsp; <b>7</b></div><div><span class="mr-2 inline-block h-2 w-2 rounded-sm bg-[#b992fa]"></span>Evidence&nbsp; <b>8</b></div><div><span class="mr-2 inline-block h-2 w-2 rounded-sm bg-[#eee6f8]"></span>Rejected&nbsp; <b>9</b></div></div></div></div>
+              <div class="card p-4"><h2 class="text-[13px] font-bold">Review Overview</h2><div class="mt-3 divide-y divide-line text-[10px]"><button class="flex w-full items-center justify-between py-2.5"><span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-red-500"></span>Critical reviews</span><b>3 ›</b></button><button class="flex w-full items-center justify-between py-2.5"><span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-amber-400"></span>Evidence overdue</span><b>2 ›</b></button><button class="flex w-full items-center justify-between py-2.5"><span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-blue-400"></span>Hard conflicts</span><b>2 ›</b></button><button class="flex w-full items-center justify-between py-2.5"><span class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-green-500"></span>Ready to confirm</span><b>6 ›</b></button></div></div>
+              <div class="card p-4"><h2 class="text-[13px] font-bold">Top Affected Suppliers</h2><div class="mt-3 space-y-3 text-[9px]"><div class="flex justify-between"><span>EuroBaby Imports</span><span class="badge badge-red">5</span></div><div class="flex justify-between"><span>FoodBridge Ireland</span><span class="badge badge-orange">4</span></div><div class="flex justify-between"><span>BrightHome Trading</span><span class="badge badge-orange">4</span></div><div class="flex justify-between"><span>PlayWise Distribution</span><span class="badge badge-green">2</span></div></div><button class="mt-4 h-9 w-full rounded-lg bg-violet-50 text-[10px] font-semibold text-violet-600" onclick="showPage('catalogue')">View all suppliers</button></div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- MATCH REVIEW -->
+        <section id="page-match-review" class="page">
+          <div class="mb-3 text-[10px] font-semibold text-violet-600">Review Queue → MATCH-1042</div>
+          <div class="mb-5 flex items-start justify-between gap-5">
+            <div><div class="flex items-center gap-2"><button class="mr-1 text-muted" onclick="showPage('review')"><i data-lucide="arrow-left" class="h-5 w-5"></i></button><h1 class="text-[23px] font-bold tracking-[-.03em]">BabyDream Silicone Soother</h1><span class="badge badge-blue">Needs Review</span><span class="badge badge-red">Critical</span></div><div class="ml-8 mt-2 flex gap-8 text-[10px] text-muted"><span>Alert: <b class="text-ink">A12/00972/26</b></span><span>Source: <b class="text-ink">EU Safety Gate</b></span><span>Published: <b class="text-ink">26 Aug 2026</b></span><span>Reviewer: <b class="text-ink">Unassigned</b></span></div></div>
+            <div class="flex gap-2"><button class="btn btn-secondary" onclick="rejectMatch()"><i data-lucide="x" class="h-4 w-4"></i>Reject Match</button><button class="btn btn-ghost" onclick="openEvidence()"><i data-lucide="file-question" class="h-4 w-4"></i>Request Evidence</button><button class="btn btn-primary" onclick="confirmMatch()"><i data-lucide="check" class="h-4 w-4"></i>Confirm Match</button></div>
+          </div>
+
+          <div class="grid grid-cols-12 gap-4">
+            <div class="col-span-8 space-y-4">
+              <div class="grid grid-cols-2 gap-4">
+                <article class="card overflow-hidden">
+                  <div class="flex items-center justify-between border-b border-line bg-[#fffafb] px-4 py-3"><div><span class="text-[9px] font-semibold uppercase tracking-[.14em] text-[#e14f55]">Official Alert</span><h2 class="mt-1 text-[14px] font-bold">EU Safety Gate Record</h2></div><span class="badge badge-red">Choking Risk</span></div>
+                  <div class="p-4">
+                    <div class="mb-4 flex gap-3"><div class="grid h-20 w-24 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#f5e9fb] to-[#e2d2ff]"><i data-lucide="baby" class="h-9 w-9 text-violet-600"></i></div><div><h3 class="text-[13px] font-bold">BabyDream Silicone Soother</h3><p class="mt-1 text-[9px] leading-4 text-muted">The teat may detach from the shield and create a small part.</p><a class="mt-2 inline-flex items-center gap-1 text-[9px] font-semibold text-violet-600" href="#">View official source <i data-lucide="external-link" class="h-3 w-3"></i></a></div></div>
+                    <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-[10px]"><div><dt class="text-muted">Brand</dt><dd class="mt-1 font-semibold">BabyDream</dd></div><div><dt class="text-muted">Model</dt><dd class="mt-1 font-semibold">BD-COMFORT-01</dd></div><div><dt class="text-muted">EAN / GTIN</dt><dd class="mt-1 font-semibold">5901234123457</dd></div><div><dt class="text-muted">Batch / Lot</dt><dd class="mt-1 font-semibold">L2406-BD</dd></div><div><dt class="text-muted">Category</dt><dd class="mt-1 font-semibold">Childcare articles</dd></div><div><dt class="text-muted">Country</dt><dd class="mt-1 font-semibold">Poland</dd></div></dl>
+                  </div>
+                </article>
+                <article class="card overflow-hidden">
+                  <div class="flex items-center justify-between border-b border-line bg-violet-50 px-4 py-3"><div><span class="text-[9px] font-semibold uppercase tracking-[.14em] text-violet-600">Catalogue Candidate</span><h2 class="mt-1 text-[14px] font-bold">Your Product Record</h2></div><span class="badge badge-purple">SKU-BB-1290</span></div>
+                  <div class="p-4">
+                    <div class="mb-4 flex gap-3"><div class="grid h-20 w-24 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#eee5ff] to-[#d1b8ff]"><i data-lucide="package" class="h-9 w-9 text-violet-700"></i></div><div><h3 class="text-[13px] font-bold">BabyDream Comfort Pacifier 0–6m</h3><p class="mt-1 text-[9px] leading-4 text-muted">Imported by EuroBaby Imports. 42 units currently registered.</p><button class="mt-2 inline-flex items-center gap-1 text-[9px] font-semibold text-violet-600" onclick="showPage('catalogue')">Open catalogue item <i data-lucide="arrow-up-right" class="h-3 w-3"></i></button></div></div>
+                    <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-[10px]"><div><dt class="text-muted">Brand</dt><dd class="mt-1 font-semibold">BabyDream</dd></div><div><dt class="text-muted">Internal model</dt><dd class="mt-1 font-semibold">Comfort 01</dd></div><div><dt class="text-muted">EAN / GTIN</dt><dd class="mt-1 font-semibold">5901234123457</dd></div><div><dt class="text-muted">Batch / Lot</dt><dd class="mt-1 font-semibold text-[#e14f55]">Missing</dd></div><div><dt class="text-muted">Supplier</dt><dd class="mt-1 font-semibold">EuroBaby Imports</dd></div><div><dt class="text-muted">Available stock</dt><dd class="mt-1 font-semibold">42 units</dd></div></dl>
+                  </div>
+                </article>
+              </div>
+
+              <div class="card p-5">
+                <div class="flex items-center justify-between"><div><h2 class="text-[15px] font-bold">Match Explanation</h2><p class="mt-1 text-[10px] text-muted">Weighted identity comparison used by the matching engine.</p></div><div class="text-right"><span class="text-[26px] font-bold text-violet-700">92%</span><span class="ml-1 text-[10px] text-muted">confidence</span></div></div>
+                <div class="mt-5 grid grid-cols-[1fr_1fr] gap-x-8 gap-y-4">
+                  <div><div class="mb-1.5 flex justify-between text-[10px]"><span class="font-semibold">EAN / GTIN</span><span class="text-[#2aa96b]">Exact match · 45/45</span></div><div class="progress-track h-[6px]"><div class="progress-value bg-[#2aa96b]" style="width:100%"></div></div></div>
+                  <div><div class="mb-1.5 flex justify-between text-[10px]"><span class="font-semibold">Product name / model</span><span class="text-violet-600">Strong match · 22/25</span></div><div class="progress-track h-[6px]"><div class="progress-value" style="width:88%"></div></div></div>
+                  <div><div class="mb-1.5 flex justify-between text-[10px]"><span class="font-semibold">Brand</span><span class="text-[#2aa96b]">Exact match · 20/20</span></div><div class="progress-track h-[6px]"><div class="progress-value bg-[#2aa96b]" style="width:100%"></div></div></div>
+                  <div><div class="mb-1.5 flex justify-between text-[10px]"><span class="font-semibold">Batch / lot</span><span class="text-[#e14f55]">Missing evidence · 5/10</span></div><div class="progress-track h-[6px]"><div class="progress-value bg-[#e14f55]" style="width:50%"></div></div></div>
+                </div>
+                <div class="mt-5 flex items-start gap-3 rounded-xl border border-[#f5d8a7] bg-[#fffaf0] p-4"><span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#ffedc9] text-[#bf7f19]"><i data-lucide="triangle-alert" class="h-4 w-4"></i></span><div><b class="text-[11px]">Human confirmation required</b><p class="mt-1 text-[10px] leading-4 text-[#7b6848]">The catalogue record has no batch number. The matching score is high, but the exact affected lot cannot be confirmed without a batch-label photo or supplier invoice.</p></div></div>
+              </div>
+            </div>
+
+            <aside class="col-span-4 space-y-4">
+              <div class="card p-4"><div class="flex items-center justify-between"><h2 class="text-[14px] font-bold">Decision Summary</h2><span class="badge badge-blue">Needs Review</span></div><div class="mt-4 rounded-xl bg-violet-50 p-4 text-center"><div class="mx-auto grid h-16 w-16 place-items-center rounded-full border-[7px] border-violet-200 border-t-violet-600 text-[16px] font-bold text-violet-700">92%</div><p class="mt-2 text-[10px] font-semibold">High-confidence candidate</p></div><dl class="mt-4 space-y-3 text-[10px]"><div class="flex justify-between"><dt class="text-muted">Threshold</dt><dd class="font-semibold">85%</dd></div><div class="flex justify-between"><dt class="text-muted">Review reason</dt><dd class="font-semibold text-[#e14f55]">Missing batch</dd></div><div class="flex justify-between"><dt class="text-muted">Potentially affected</dt><dd class="font-semibold">42 units</dd></div><div class="flex justify-between"><dt class="text-muted">Customer records</dt><dd class="font-semibold">17 found</dd></div></dl></div>
+              <div class="card p-4"><div class="flex items-center justify-between"><h2 class="text-[14px] font-bold">Recommended Evidence</h2><button class="text-[9px] font-semibold text-violet-600" onclick="openEvidence()">Request</button></div><div class="mt-3 space-y-2"><button class="flex w-full items-center gap-3 rounded-lg border border-line p-3 text-left hover:border-violet-200 hover:bg-violet-50" onclick="openEvidence('Batch-label photo')"><span class="grid h-8 w-8 place-items-center rounded-lg bg-violet-50 text-violet-600"><i data-lucide="camera" class="h-4 w-4"></i></span><span><b class="block text-[10px]">Batch-label photo</b><span class="text-[9px] text-muted">Confirm affected lot number</span></span><i data-lucide="chevron-right" class="ml-auto h-3.5 w-3.5"></i></button><button class="flex w-full items-center gap-3 rounded-lg border border-line p-3 text-left hover:border-violet-200 hover:bg-violet-50" onclick="openEvidence('Supplier invoice')"><span class="grid h-8 w-8 place-items-center rounded-lg bg-violet-50 text-violet-600"><i data-lucide="file-text" class="h-4 w-4"></i></span><span><b class="block text-[10px]">Supplier invoice</b><span class="text-[9px] text-muted">Verify delivery and quantity</span></span><i data-lucide="chevron-right" class="ml-auto h-3.5 w-3.5"></i></button><button class="flex w-full items-center gap-3 rounded-lg border border-line p-3 text-left hover:border-violet-200 hover:bg-violet-50" onclick="openEvidence('Barcode photo')"><span class="grid h-8 w-8 place-items-center rounded-lg bg-violet-50 text-violet-600"><i data-lucide="scan-barcode" class="h-4 w-4"></i></span><span><b class="block text-[10px]">Barcode photo</b><span class="text-[9px] text-muted">Reconfirm EAN from packaging</span></span><i data-lucide="chevron-right" class="ml-auto h-3.5 w-3.5"></i></button></div></div>
+              <div class="card p-4"><h2 class="text-[14px] font-bold">Catalogue Supplier</h2><div class="mt-3 flex items-center gap-3"><span class="grid h-11 w-11 place-items-center rounded-lg bg-[#eee5ff] text-violet-700"><i data-lucide="warehouse" class="h-5 w-5"></i></span><div><b class="text-[11px]">EuroBaby Imports Ltd.</b><p class="mt-1 text-[9px] text-muted">SUP-00129 · Dublin, Ireland</p></div></div><div class="mt-4 grid grid-cols-3 divide-x divide-line text-center"><div><b class="block text-[15px]">87%</b><span class="text-[8px] text-muted">Evidence rate</span></div><div><b class="block text-[15px]">2</b><span class="text-[8px] text-muted">Open cases</span></div><div><b class="block text-[15px]">1.4d</b><span class="text-[8px] text-muted">Avg. reply</span></div></div></div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- CASES -->
+        <section id="page-cases" class="page">
+          <div class="mb-5 flex items-start justify-between"><div><h1 class="text-[24px] font-bold tracking-[-.035em]">Recall Cases</h1><p class="mt-1 text-[12px] text-muted">Track confirmed incidents through containment and closure.</p></div><button class="btn btn-primary" onclick="toast('Cases are created from confirmed matches')"><i data-lucide="plus" class="h-4 w-4"></i>Open Case</button></div>
+          <div class="grid grid-cols-12 gap-4">
+            <div class="col-span-9"><div class="card mb-3 bg-[#fdfbff] p-4"><div class="grid grid-cols-[1.4fr_.8fr_.8fr_.9fr_1fr] gap-3"><label><span class="label">Search Cases</span><input class="input-ui" placeholder="Case ID, product, supplier..." /></label><label><span class="label">Case Status</span><select class="input-ui"><option>All statuses</option><option>Open</option><option>Contained</option></select></label><label><span class="label">Risk</span><select class="input-ui"><option>All risks</option></select></label><label><span class="label">Action Status</span><select class="input-ui"><option>All actions</option></select></label><label><span class="label">Date Range</span><input class="input-ui" value="Aug 1 – Aug 28, 2026" /></label></div><div class="mt-4 flex items-center justify-between"><div class="flex gap-2"><button class="filter-chip active">All</button><button class="filter-chip">Critical</button><button class="filter-chip">Awaiting Approval</button><button class="filter-chip">Contained</button><button class="filter-chip">Closed</button></div><button class="btn btn-ghost h-[31px]" onclick="toast('Cases exported')"><i data-lucide="download" class="h-3.5 w-3.5"></i>Export</button></div></div>
+              <div class="table-wrap"><div class="flex h-11 items-center px-4"><b class="text-[11px]">12 Cases</b></div><table class="data-table"><thead><tr><th>Case ID</th><th>Product</th><th>Supplier</th><th>Risk</th><th>Affected</th><th>Workflow</th><th>Updated</th><th style="width:32px"></th></tr></thead><tbody><tr onclick="showPage('case-detail')"><td><b>CASE-0024</b></td><td>KidsLab Wooden Blocks</td><td>PlayWise Distribution</td><td><span class="badge badge-red">High</span></td><td>14 units · 6 customers</td><td><span class="badge badge-yellow">Awaiting Approval</span></td><td>28 Aug · 14:32</td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr><tr onclick="showPage('case-detail')"><td><b>CASE-0021</b></td><td>Maison Brie Soft Cheese</td><td>FoodBridge Ireland</td><td><span class="badge badge-red">Critical</span></td><td>26 units · 18 customers</td><td><span class="badge badge-blue">Evidence Review</span></td><td>28 Aug · 10:15</td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr><tr onclick="showPage('case-detail')"><td><b>CASE-0019</b></td><td>GlowPro USB Charger</td><td>BrightHome Trading</td><td><span class="badge badge-red">High</span></td><td>38 units · 11 customers</td><td><span class="badge badge-green">Contained</span></td><td>27 Aug · 16:40</td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr><tr onclick="showPage('case-detail')"><td><b>CASE-0016</b></td><td>Rainbow Slime Kit</td><td>PlayWise Distribution</td><td><span class="badge badge-orange">Medium</span></td><td>9 units · 4 customers</td><td><span class="badge badge-gray">Closed</span></td><td>24 Aug · 09:30</td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr></tbody></table></div>
+            </div>
+            <aside class="col-span-3 space-y-3"><div class="card p-4"><h2 class="text-[13px] font-bold">Cases by Status</h2><div class="mt-4 flex justify-center"><div class="ring-chart h-[134px] w-[134px]" style="background:conic-gradient(#8150e4 0 33%,#47b87b 33% 58%,#e8a03f 58% 75%,#eae5ef 75% 100%)"><div class="ring-center"><b class="text-[18px]">12</b><span class="text-[8px] text-muted">Cases</span></div></div></div></div><div class="card p-4"><h2 class="text-[13px] font-bold">Containment Overview</h2><div class="mt-3 space-y-3 text-[10px]"><div class="flex justify-between"><span class="text-muted">Affected units</span><b>87</b></div><div class="flex justify-between"><span class="text-muted">Units isolated</span><b class="text-[#2aa96b]">63</b></div><div class="flex justify-between"><span class="text-muted">Customers identified</span><b>39</b></div><div class="flex justify-between"><span class="text-muted">Drafts awaiting approval</span><b class="text-[#df8b31]">4</b></div></div></div><div class="card border-[#f1d5d7] bg-[#fffafb] p-4"><div class="flex gap-3"><span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-50 text-red-500"><i data-lucide="triangle-alert" class="h-4 w-4"></i></span><div><h2 class="text-[11px] font-bold">1 approval overdue</h2><p class="mt-1 text-[9px] leading-4 text-muted">Customer notice for CASE-0024 requires review.</p><button class="mt-2 text-[9px] font-semibold text-violet-600" onclick="showPage('case-detail')">Open case →</button></div></div></div></aside>
+          </div>
+        </section>
+
+        <!-- CASE DETAIL -->
+        <section id="page-case-detail" class="page">
+          <div class="mb-3 text-[10px] font-semibold text-violet-600">Cases → CASE-0024</div>
+          <div class="flex items-start justify-between"><div><div class="flex items-center gap-2"><button class="mr-1" onclick="showPage('cases')"><i data-lucide="arrow-left" class="h-5 w-5 text-muted"></i></button><h1 class="text-[23px] font-bold tracking-[-.03em]">CASE-0024 — KidsLab Wooden Blocks</h1><span class="badge badge-yellow">Awaiting Approval</span><span class="badge badge-red">High</span></div><div class="ml-8 mt-2 flex gap-8 text-[10px] text-muted"><span>Supplier: <b class="text-ink">PlayWise Distribution</b></span><span>Opened by: <b class="text-ink">Herman</b></span><span>Opened: <b class="text-ink">27 Aug 2026</b></span><span>Affected: <b class="text-ink">14 units</b></span></div></div><div class="flex gap-2"><button class="btn btn-ghost" onclick="toast('Case escalated to compliance lead')">Escalate</button><button class="btn btn-primary" onclick="toast('Containment marked as complete')"><i data-lucide="shield-check" class="h-4 w-4"></i>Mark as Contained</button></div></div>
+          <div class="mt-5 flex gap-7 border-b border-line text-[11px] font-semibold text-[#8b8592]"><button class="border-b-2 border-violet-600 px-1 pb-3 text-violet-600">Overview</button><button class="px-1 pb-3">Evidence <span class="text-[9px]">(3)</span></button><button class="px-1 pb-3" onclick="showPage('actions')">Actions</button><button class="px-1 pb-3">Audit History</button><button class="px-1 pb-3">Timeline</button></div>
+          <div class="mt-5 grid grid-cols-12 gap-4">
+            <div class="col-span-5"><h2 class="mb-3 text-[16px] font-bold">Conversation & Updates</h2><div class="relative space-y-4 pl-1 before:absolute before:left-[14px] before:top-4 before:bottom-0 before:w-[2px] before:bg-violet-100">
+              <div class="relative flex gap-3"><span class="z-10 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#d7bcff] text-[9px] font-bold text-violet-700">HS</span><div class="min-w-0 flex-1"><div class="flex justify-between text-[9px]"><b>Herman (You)</b><span class="text-muted">27 Aug, 10:30</span></div><div class="mt-2 rounded-lg bg-[#dbc2ff] p-4 text-[10px] leading-5 text-[#3f3158]">The catalogue match has been confirmed. Please isolate all units of batch <b>KL-24-061</b> and upload a stock count.</div></div></div>
+              <div class="relative flex gap-3"><span class="z-10 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#ffc8c8] text-[9px] font-bold text-red-700">PW</span><div class="min-w-0 flex-1"><div class="flex justify-between text-[9px]"><b>PlayWise (Supplier)</b><span class="text-muted">27 Aug, 12:15</span></div><div class="mt-2 rounded-lg bg-[#ffd0ce] p-4 text-[10px] leading-5 text-[#633937]">Stock count attached. We can confirm 14 units from the affected batch were delivered. Six units were sold before the alert.</div><div class="mt-2 flex items-center gap-2 rounded-lg border border-line bg-white p-2.5 text-[9px]"><i data-lucide="file-text" class="h-4 w-4 text-violet-600"></i><b>stock-count-KL24061.pdf</b><span class="ml-auto text-muted">1.8 MB</span></div></div></div>
+              <div class="relative flex gap-3"><span class="z-10 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#d7bcff] text-[9px] font-bold text-violet-700">HS</span><div class="min-w-0 flex-1"><div class="flex justify-between text-[9px]"><b>Herman (You)</b><span class="text-muted">28 Aug, 09:45</span></div><div class="mt-2 rounded-lg bg-[#dbc2ff] p-4 text-[10px] leading-5 text-[#3f3158]">Stock is isolated. Customer notification draft is ready for approval.</div></div></div>
+            </div><div class="mt-4 rounded-lg border border-line bg-white p-2"><textarea class="h-20 w-full resize-none border-0 p-2 text-[10px] outline-none" placeholder="Write an internal update..."></textarea><div class="flex items-center justify-between"><span class="text-[8px] text-muted">Internal team only</span><button class="btn btn-primary h-8" onclick="toast('Internal update added')">Add Update</button></div></div></div>
+            <div class="card col-span-3 p-4"><div class="flex justify-between"><h2 class="text-[14px] font-bold">Case Timeline</h2><button class="text-[9px] font-semibold text-violet-600">View all</button></div><div class="relative mt-5"><div class="timeline-line"></div><div class="timeline-step"><span class="timeline-dot"><i data-lucide="radio-tower" class="h-3.5 w-3.5"></i></span><b class="text-[10px]">Official alert detected</b><p class="mt-1 text-[9px] text-muted">27 Aug · Safety Gate</p></div><div class="timeline-step"><span class="timeline-dot"><i data-lucide="scan-search" class="h-3.5 w-3.5"></i></span><b class="text-[10px]">Catalogue match confirmed</b><p class="mt-1 text-[9px] text-muted">96% confidence</p></div><div class="timeline-step"><span class="timeline-dot"><i data-lucide="package-check" class="h-3.5 w-3.5"></i></span><b class="text-[10px]">Stock isolated</b><p class="mt-1 text-[9px] text-muted">14 affected units</p></div><div class="timeline-step"><span class="timeline-dot"><i data-lucide="file-check-2" class="h-3.5 w-3.5"></i></span><b class="text-[10px]">Drafts prepared</b><p class="mt-1 text-[9px] text-muted">Awaiting human approval</p></div><div class="timeline-step"><span class="timeline-dot pending"><i data-lucide="send" class="h-3.5 w-3.5"></i></span><b class="text-[10px] text-muted">Actions simulated</b></div><div class="timeline-step"><span class="timeline-dot pending"><i data-lucide="archive-check" class="h-3.5 w-3.5"></i></span><b class="text-[10px] text-muted">Case closed</b></div></div></div>
+            <aside class="col-span-4 space-y-3"><div class="card p-4"><div class="flex justify-between"><h2 class="text-[14px] font-bold">Product Snapshot</h2><button class="text-[9px] font-semibold text-violet-600" onclick="showPage('catalogue')">View item</button></div><div class="mt-3 flex gap-3"><div class="grid h-[70px] w-[78px] place-items-center rounded-lg bg-[#eee5ff]"><i data-lucide="blocks" class="h-8 w-8 text-violet-700"></i></div><div><b class="text-[11px] text-violet-600">KidsLab Wooden Blocks</b><p class="mt-1 text-[9px] font-semibold">SKU-KL-2401</p><span class="badge badge-red mt-2">High Risk</span></div></div><div class="mt-4 grid grid-cols-3 divide-x divide-line text-center"><div><span class="block text-[9px] text-violet-600">Match</span><b class="mt-1 block text-[17px]">96%</b></div><div><span class="block text-[9px] text-violet-600">Units</span><b class="mt-1 block text-[17px]">14</b></div><div><span class="block text-[9px] text-violet-600">Customers</span><b class="mt-1 block text-[17px]">6</b></div></div></div><div class="card p-4"><div class="flex justify-between"><h2 class="text-[14px] font-bold">Containment Overview</h2><button class="text-[9px] font-semibold text-violet-600">Details</button></div><div class="mt-3 divide-y divide-line text-[10px]"><div class="flex justify-between py-2"><span>Units received</span><b>14</b></div><div class="flex justify-between py-2"><span class="text-[#2aa96b]">Units isolated</span><b class="text-[#2aa96b]">8</b></div><div class="flex justify-between py-2"><span class="text-[#df8b31]">Units sold</span><b class="text-[#df8b31]">6</b></div><div class="flex justify-between py-2"><span>Customers identified</span><b>6</b></div></div></div><div class="card p-4"><div class="flex justify-between"><h2 class="text-[14px] font-bold">Action Status</h2><button class="text-[9px] font-semibold text-violet-600" onclick="showPage('actions')">View drafts</button></div><div class="mt-3 space-y-2.5 text-[10px]"><div class="flex justify-between"><span>Supplier notification</span><span class="badge badge-green">Completed</span></div><div class="flex justify-between"><span>Stock containment</span><span class="badge badge-green">Completed</span></div><div class="flex justify-between"><span>Customer notification</span><span class="badge badge-yellow">Approval</span></div><div class="flex justify-between"><span>Internal incident report</span><span class="badge badge-gray">Draft</span></div></div></div></aside>
+          </div>
+        </section>
+
+        <!-- ACTION DRAFTS -->
+        <section id="page-actions" class="page">
+          <div class="mb-5 flex items-start justify-between"><div><h1 class="text-[24px] font-bold tracking-[-.035em]">Action Drafts</h1><p class="mt-1 text-[12px] text-muted">Review containment, supplier and customer actions before simulated sending.</p></div><button class="btn btn-secondary" onclick="toast('Draft created')"><i data-lucide="plus" class="h-4 w-4"></i>New Draft</button></div>
+          <div class="grid grid-cols-12 gap-4"><div class="col-span-8 space-y-3"><div class="card overflow-hidden border-violet-200"><div class="flex items-center justify-between border-b border-line bg-violet-50 px-5 py-4"><div class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-lg bg-violet-600 text-white"><i data-lucide="mail" class="h-4 w-4"></i></span><div><h2 class="text-[13px] font-bold">Customer Safety Notification</h2><p class="mt-1 text-[9px] text-muted">CASE-0024 · 6 recipients</p></div></div><span class="badge badge-yellow">Awaiting Approval</span></div><div class="p-5"><div class="grid grid-cols-2 gap-3"><label><span class="label">Action Type</span><select class="input-ui"><option>Customer notification</option></select></label><label><span class="label">Related Case</span><select class="input-ui"><option>CASE-0024 — KidsLab Wooden Blocks</option></select></label></div><label class="mt-4 block"><span class="label">Subject</span><input class="input-ui" value="Important safety recall: KidsLab Wooden Blocks" /></label><label class="mt-4 block"><span class="label">Message</span><textarea class="input-ui min-h-[180px]">We are contacting you because our records show that you purchased KidsLab Wooden Blocks from the affected batch KL-24-061. Please stop using the product immediately and keep it away from children.\n\nThis message is a simulation for the hackathon prototype and will not be sent.</textarea></label><div class="mt-4 flex items-center justify-between rounded-lg bg-[#fff9e9] px-4 py-3 text-[9px] text-[#8a6a2d]"><span class="flex items-center gap-2"><i data-lucide="shield-alert" class="h-4 w-4"></i>Human approval is required before this action can be simulated.</span><span>Last edited 14 min ago</span></div><div class="mt-5 flex justify-end gap-2"><button class="btn btn-secondary" onclick="toast('Draft saved')">Save Draft</button><button class="btn btn-ghost" onclick="toast('Preview opened')">Preview</button><button class="btn btn-primary" onclick="approveDraft()"><i data-lucide="check" class="h-4 w-4"></i>Approve Action</button></div></div></div><div class="card flex items-center justify-between p-4"><div class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-lg bg-violet-50 text-violet-600"><i data-lucide="warehouse" class="h-4 w-4"></i></span><div><b class="block text-[11px]">Stock containment instruction</b><span class="text-[9px] text-muted">CASE-0021 · FoodBridge Ireland</span></div></div><span class="badge badge-gray">Draft</span></div><div class="card flex items-center justify-between p-4"><div class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-lg bg-green-50 text-green-600"><i data-lucide="send" class="h-4 w-4"></i></span><div><b class="block text-[11px]">Supplier recall confirmation</b><span class="text-[9px] text-muted">CASE-0019 · BrightHome Trading</span></div></div><span class="badge badge-green">Simulated Sent</span></div></div><aside class="col-span-4 space-y-3"><div class="card p-4"><h2 class="text-[14px] font-bold">Suggested Action Templates</h2><p class="mt-1 text-[10px] text-muted">Choose a template to auto-fill the action.</p><div class="mt-4 space-y-2"><button class="flex w-full justify-between rounded-lg border border-line p-3 text-left hover:border-violet-200"><span><b class="block text-[10px]">Customer Recall Notice</b><span class="mt-1 block text-[9px] text-muted">Stop-use and return instructions.</span></span><i data-lucide="chevron-right" class="h-4 w-4"></i></button><button class="flex w-full justify-between rounded-lg border border-line p-3 text-left hover:border-violet-200"><span><b class="block text-[10px]">Supplier Evidence Request</b><span class="mt-1 block text-[9px] text-muted">Request label and invoice proof.</span></span><i data-lucide="chevron-right" class="h-4 w-4"></i></button><button class="flex w-full justify-between rounded-lg border border-line p-3 text-left hover:border-violet-200"><span><b class="block text-[10px]">Internal Containment Task</b><span class="mt-1 block text-[9px] text-muted">Isolate stock and record counts.</span></span><i data-lucide="chevron-right" class="h-4 w-4"></i></button><button class="flex w-full justify-between rounded-lg border border-line p-3 text-left hover:border-violet-200"><span><b class="block text-[10px]">Incident Summary</b><span class="mt-1 block text-[9px] text-muted">Create a defensible case record.</span></span><i data-lucide="chevron-right" class="h-4 w-4"></i></button></div><button class="mt-3 h-9 w-full rounded-lg bg-violet-50 text-[10px] font-semibold text-violet-600">View All Templates</button></div><div class="card p-4"><h2 class="text-[14px] font-bold">Draft Overview</h2><div class="mt-4 space-y-3 text-[10px]"><div class="flex justify-between"><span class="text-muted">Draft</span><b>2</b></div><div class="flex justify-between"><span class="text-muted">Awaiting approval</span><b class="text-[#df8b31]">1</b></div><div class="flex justify-between"><span class="text-muted">Approved</span><b>0</b></div><div class="flex justify-between"><span class="text-muted">Simulated sent</span><b class="text-[#2aa96b]">1</b></div></div></div></aside></div>
+        </section>
+
+        <!-- CATALOGUE -->
+        <section id="page-catalogue" class="page">
+          <div class="mb-5 flex items-start justify-between"><div><h1 class="text-[24px] font-bold tracking-[-.035em]">Product Catalogue</h1><p class="mt-1 text-[12px] text-muted">Manage imported products, suppliers and traceability data.</p></div><button class="btn btn-primary" onclick="openSetup()"><i data-lucide="upload" class="h-4 w-4"></i>Import Catalogue</button></div>
+          <div class="card mb-4 grid grid-cols-4 divide-x divide-line overflow-hidden"><div class="p-4"><span class="text-[10px] font-semibold text-muted">Total Products</span><b class="mt-2 block text-[22px]">1,248</b></div><div class="p-4"><span class="text-[10px] font-semibold text-muted">With Complete EAN</span><b class="mt-2 block text-[22px]">1,106</b><span class="text-[9px] text-green-600">89% coverage</span></div><div class="p-4"><span class="text-[10px] font-semibold text-muted">Missing Batch Data</span><b class="mt-2 block text-[22px]">142</b><span class="text-[9px] text-orange-600">needs attention</span></div><div class="p-4"><span class="text-[10px] font-semibold text-muted">Active Suppliers</span><b class="mt-2 block text-[22px]">36</b></div></div>
+          <div class="card mb-3 flex items-end gap-3 p-4"><label class="flex-1"><span class="label">Search Catalogue</span><input class="input-ui" placeholder="Product, SKU, EAN, brand..." /></label><label class="w-48"><span class="label">Category</span><select class="input-ui"><option>All categories</option></select></label><label class="w-48"><span class="label">Supplier</span><select class="input-ui"><option>All suppliers</option></select></label><button class="btn btn-ghost" onclick="toast('Catalogue exported')"><i data-lucide="download" class="h-4 w-4"></i>Export</button></div>
+          <div class="table-wrap"><table class="data-table"><thead><tr><th>Product</th><th>Internal SKU</th><th>Brand</th><th>EAN / GTIN</th><th>Batch Data</th><th>Supplier</th><th>Stock</th><th>Recall Matches</th><th style="width:32px"></th></tr></thead><tbody><tr><td><b>BabyDream Comfort Pacifier</b></td><td>SKU-BB-1290</td><td>BabyDream</td><td>5901234123457</td><td><span class="badge badge-red">Missing</span></td><td>EuroBaby Imports</td><td>42</td><td><span class="badge badge-blue">1 Review</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr><tr><td><b>KidsLab 24pc Block Set</b></td><td>SKU-KL-2401</td><td>KidsLab</td><td>5019824103874</td><td><span class="badge badge-green">Complete</span></td><td>PlayWise Distribution</td><td>14</td><td><span class="badge badge-purple">1 Case</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr><tr><td><b>Maison Brie Soft Cheese</b></td><td>SKU-FB-0774</td><td>Maison</td><td>3564700892176</td><td><span class="badge badge-orange">Partial</span></td><td>FoodBridge Ireland</td><td>26</td><td><span class="badge badge-yellow">Evidence</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr><tr><td><b>GlowPro Dual USB Plug</b></td><td>SKU-BH-3108</td><td>GlowPro</td><td>8437014932018</td><td><span class="badge badge-green">Complete</span></td><td>BrightHome Trading</td><td>38</td><td><span class="badge badge-blue">1 Review</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr><tr><td><b>PlayWise Colour Slime</b></td><td>SKU-PW-4412</td><td>PlayWise</td><td>4897012389412</td><td><span class="badge badge-green">Complete</span></td><td>PlayWise Distribution</td><td>9</td><td><span class="badge badge-gray">None</span></td><td><i data-lucide="more-vertical" class="h-4 w-4"></i></td></tr></tbody></table></div>
+        </section>
+
+        <!-- AUDIT -->
+        <section id="page-audit" class="page">
+          <div class="mb-5 flex items-start justify-between"><div><h1 class="text-[24px] font-bold tracking-[-.035em]">Audit Log</h1><p class="mt-1 text-[12px] text-muted">A chronological, defensible record of every system and human decision.</p></div><button class="btn btn-ghost" onclick="toast('Audit log exported as CSV')"><i data-lucide="download" class="h-4 w-4"></i>Export Log</button></div>
+          <div class="card mb-3 grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1fr] gap-3 p-4"><label><span class="label">Search Events</span><input class="input-ui" placeholder="Actor, event, object ID..." /></label><label><span class="label">Event Type</span><select class="input-ui"><option>All events</option></select></label><label><span class="label">Actor</span><select class="input-ui"><option>All actors</option></select></label><label><span class="label">Object Type</span><select class="input-ui"><option>All objects</option></select></label><label><span class="label">Date Range</span><input class="input-ui" value="Aug 1 – Aug 28, 2026" /></label></div>
+          <div class="table-wrap"><div class="flex h-11 items-center justify-between border-b border-line px-4"><b class="text-[11px]">248 Immutable Events</b><span class="flex items-center gap-2 text-[9px] text-green-600"><i data-lucide="lock-keyhole" class="h-3.5 w-3.5"></i>Append-only record</span></div><table class="data-table"><thead><tr><th style="width:120px">Timestamp</th><th style="width:130px">Actor</th><th>Event</th><th style="width:120px">Object</th><th>Details</th><th style="width:38px"></th></tr></thead><tbody><tr><td>28 Aug 2026<br><span class="text-[8px] text-muted">14:32:18 UTC</span></td><td><b>Herman</b><span class="block text-[8px] text-muted">Human operator</span></td><td><span class="badge badge-yellow">Action Approved</span></td><td>CASE-0024</td><td>Approved customer safety notification draft</td><td><i data-lucide="chevron-right" class="h-4 w-4"></i></td></tr><tr><td>28 Aug 2026<br><span class="text-[8px] text-muted">14:21:06 UTC</span></td><td><b>Recall Agent</b><span class="block text-[8px] text-muted">System</span></td><td><span class="badge badge-purple">Draft Created</span></td><td>ACT-0062</td><td>Generated action draft from approved template</td><td><i data-lucide="chevron-right" class="h-4 w-4"></i></td></tr><tr><td>28 Aug 2026<br><span class="text-[8px] text-muted">09:45:41 UTC</span></td><td><b>Herman</b><span class="block text-[8px] text-muted">Human operator</span></td><td><span class="badge badge-green">Stock Contained</span></td><td>CASE-0024</td><td>Marked 8 unsold units as isolated</td><td><i data-lucide="chevron-right" class="h-4 w-4"></i></td></tr><tr><td>27 Aug 2026<br><span class="text-[8px] text-muted">12:15:03 UTC</span></td><td><b>PlayWise</b><span class="block text-[8px] text-muted">Supplier</span></td><td><span class="badge badge-blue">Evidence Added</span></td><td>CASE-0024</td><td>Uploaded supplier stock-count document</td><td><i data-lucide="chevron-right" class="h-4 w-4"></i></td></tr><tr><td>27 Aug 2026<br><span class="text-[8px] text-muted">10:24:55 UTC</span></td><td><b>Herman</b><span class="block text-[8px] text-muted">Human operator</span></td><td><span class="badge badge-purple">Match Confirmed</span></td><td>MATCH-1038</td><td>Confirmed 96% candidate after reviewing batch data</td><td><i data-lucide="chevron-right" class="h-4 w-4"></i></td></tr></tbody></table></div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="page-settings" class="page">
+          <div class="mb-5"><h1 class="text-[24px] font-bold tracking-[-.035em]">Settings</h1><p class="mt-1 text-[12px] text-muted">Configure matching behaviour and demo data.</p></div>
+          <div class="grid grid-cols-12 gap-4"><div class="col-span-8 space-y-4"><div class="card p-5"><h2 class="text-[15px] font-bold">Matching Thresholds</h2><p class="mt-1 text-[10px] text-muted">Control which candidates require human review.</p><div class="mt-5"><div class="flex justify-between text-[11px]"><b>Automatic match threshold</b><span class="rounded-md bg-violet-100 px-2 py-1 font-bold text-violet-700"><span id="threshold-value">85</span>%</span></div><input id="threshold" type="range" min="70" max="95" value="85" class="mt-4 w-full accent-[#7b49df]" oninput="document.getElementById('threshold-value').textContent=this.value" /><div class="mt-1 flex justify-between text-[9px] text-muted"><span>70% — more automated matches</span><span>95% — more human reviews</span></div></div><div class="mt-6 grid grid-cols-4 gap-3"><label><span class="label">EAN Weight</span><input class="input-ui" value="45%" /></label><label><span class="label">Name / Model</span><input class="input-ui" value="25%" /></label><label><span class="label">Brand Weight</span><input class="input-ui" value="20%" /></label><label><span class="label">Batch Weight</span><input class="input-ui" value="10%" /></label></div><div class="mt-5 flex items-start gap-3 rounded-lg bg-[#fff9e9] p-3 text-[9px] text-[#7b6848]"><i data-lucide="triangle-alert" class="h-4 w-4 shrink-0"></i>Hard identifier conflicts always enter the Review Queue, regardless of the total score.</div><div class="mt-5 flex justify-end"><button class="btn btn-primary" onclick="toast('Matching settings saved')">Save Changes</button></div></div><div class="card p-5"><h2 class="text-[15px] font-bold">Data Sources</h2><div class="mt-4 divide-y divide-line"><div class="flex items-center justify-between py-3"><div class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-lg bg-blue-50 text-blue-600"><i data-lucide="landmark" class="h-4 w-4"></i></span><span><b class="block text-[11px]">EU Safety Gate</b><span class="text-[9px] text-muted">Archived consumer product alerts</span></span></div><span class="badge badge-green">Ready</span></div><div class="flex items-center justify-between py-3"><div class="flex items-center gap-3"><span class="grid h-9 w-9 place-items-center rounded-lg bg-green-50 text-green-600"><i data-lucide="wheat" class="h-4 w-4"></i></span><span><b class="block text-[11px]">RASFF</b><span class="text-[9px] text-muted">Archived food and feed alerts</span></span></div><span class="badge badge-green">Ready</span></div></div></div></div><aside class="col-span-4 space-y-4"><div class="card p-5"><h2 class="text-[15px] font-bold">Demo Workspace</h2><p class="mt-2 text-[10px] leading-5 text-muted">Reload the guided catalogue setup or reset the synthetic prototype data.</p><button class="btn btn-primary mt-4 w-full" onclick="openSetup()"><i data-lucide="sparkles" class="h-4 w-4"></i>Run Demo Setup</button><button class="btn btn-secondary mt-2 w-full" onclick="toast('Demo data reset')"><i data-lucide="rotate-ccw" class="h-4 w-4"></i>Reset Demo Data</button></div><div class="card p-5"><h2 class="text-[15px] font-bold">Safety Controls</h2><div class="mt-4 space-y-3 text-[10px]"><label class="flex items-center justify-between"><span>Human approval for critical actions</span><input type="checkbox" checked class="h-4 w-4 accent-[#7b49df]" /></label><label class="flex items-center justify-between"><span>Immutable audit events</span><input type="checkbox" checked disabled class="h-4 w-4 accent-[#7b49df]" /></label><label class="flex items-center justify-between"><span>Real external sending</span><input type="checkbox" disabled class="h-4 w-4" /></label></div></div></aside></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Evidence modal -->
+  <div id="evidence-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="evidence-title" onclick="if(event.target===this) closeEvidence()">
+    <div class="modal-panel">
+      <div class="flex items-start justify-between border-b border-line p-5"><div><h2 id="evidence-title" class="text-[18px] font-bold">Request Supplier Evidence</h2><p class="mt-1 text-[10px] text-muted">Resolve uncertainty without confirming the recall match.</p></div><button class="grid h-8 w-8 place-items-center rounded-lg hover:bg-violet-50" onclick="closeEvidence()"><i data-lucide="x" class="h-4 w-4"></i></button></div>
+      <div class="p-5"><div class="mb-5 flex items-center gap-3 rounded-xl bg-violet-50 p-3"><span class="grid h-10 w-10 place-items-center rounded-lg bg-white text-violet-600"><i data-lucide="package" class="h-5 w-5"></i></span><div><b class="block text-[11px]">BabyDream Comfort Pacifier</b><span class="text-[9px] text-muted">MATCH-1042 · EuroBaby Imports</span></div><span class="badge badge-red ml-auto">Critical</span></div><div class="grid grid-cols-2 gap-4"><label><span class="label">Evidence Type</span><select id="evidence-type" class="input-ui"><option>Batch-label photo</option><option>Supplier invoice</option><option>Barcode photo</option><option>Product packaging photo</option></select></label><label><span class="label">Due Date</span><input type="date" class="input-ui" value="2026-08-30" /></label></div><label class="mt-4 block"><span class="label">Supplier</span><select class="input-ui"><option>EuroBaby Imports Ltd.</option></select></label><label class="mt-4 block"><span class="label">Message</span><textarea class="input-ui">Please upload a clear photo of the batch label for SKU-BB-1290. We need to confirm whether the affected batch L2406-BD is present in the delivered stock.</textarea></label><div class="upload-zone mt-4 flex h-[110px] flex-col items-center justify-center text-center"><i data-lucide="cloud-upload" class="h-5 w-5 text-violet-600"></i><b class="mt-2 text-[10px]">Drag and drop supporting files</b><span class="mt-1 text-[8px] text-muted">JPEG, PNG or PDF · up to 50 MB</span></div></div>
+      <div class="flex items-center justify-between border-t border-line bg-[#fdfbff] px-5 py-4"><span class="flex items-center gap-2 text-[9px] text-muted"><i data-lucide="shield-check" class="h-4 w-4 text-violet-600"></i>Recipient and message require confirmation.</span><div class="flex gap-2"><button class="btn btn-secondary" onclick="closeEvidence(); toast('Evidence request saved as draft')">Save as Draft</button><button class="btn btn-primary" onclick="sendEvidence()">Confirm Request</button></div></div>
+    </div>
+  </div>
+
+  <!-- Onboarding modal -->
+  <div id="setup-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+    <div class="modal-panel setup-panel">
+      <div class="grid grid-cols-[215px_1fr]">
+        <aside class="rounded-l-2xl bg-[#211833] p-6 text-white"><div class="flex items-center gap-2"><span class="relative block h-7 w-7"><span class="absolute left-1 top-1 h-5 w-4 -rotate-6 rounded bg-violet-500"></span><span class="absolute left-2.5 top-0 h-5 w-4 rotate-6 rounded bg-[#b284ff]"></span></span><b class="text-[14px]">Recall Agent</b></div><p class="mt-6 text-[10px] leading-5 text-[#cfc2e6]">Prepare the local demo workspace and matching rules.</p><div class="mt-8 space-y-5" id="setup-steps"><div class="setup-step flex gap-3" data-step="1"><span class="grid h-6 w-6 place-items-center rounded-full bg-violet-500 text-[9px] font-bold">1</span><span><b class="block text-[10px]">Catalogue Upload</b><small class="text-[8px] text-[#a99aba]">CSV or Excel</small></span></div><div class="setup-step flex gap-3 opacity-50" data-step="2"><span class="grid h-6 w-6 place-items-center rounded-full border border-[#736287] text-[9px] font-bold">2</span><span><b class="block text-[10px]">Data Preview</b><small class="text-[8px] text-[#a99aba]">Validate columns</small></span></div><div class="setup-step flex gap-3 opacity-50" data-step="3"><span class="grid h-6 w-6 place-items-center rounded-full border border-[#736287] text-[9px] font-bold">3</span><span><b class="block text-[10px]">Matching Settings</b><small class="text-[8px] text-[#a99aba]">Review threshold</small></span></div><div class="setup-step flex gap-3 opacity-50" data-step="4"><span class="grid h-6 w-6 place-items-center rounded-full border border-[#736287] text-[9px] font-bold">4</span><span><b class="block text-[10px]">Ready</b><small class="text-[8px] text-[#a99aba]">Launch dashboard</small></span></div></div></aside>
+        <div class="min-h-[510px] p-7"><div class="flex items-start justify-between"><div><span class="text-[9px] font-semibold uppercase tracking-[.15em] text-violet-600">Workspace setup</span><h2 id="setup-title" class="mt-1 text-[20px] font-bold">Import your product catalogue</h2><p id="setup-subtitle" class="mt-1 text-[10px] text-muted">Upload CSV or Excel data to create catalogue records.</p></div><button onclick="closeSetup()" class="grid h-8 w-8 place-items-center rounded-lg hover:bg-violet-50"><i data-lucide="x" class="h-4 w-4"></i></button></div><div id="setup-content" class="mt-7"><div class="upload-zone flex h-[210px] flex-col items-center justify-center"><span class="grid h-12 w-12 place-items-center rounded-full bg-violet-100 text-violet-600"><i data-lucide="file-up" class="h-5 w-5"></i></span><b class="mt-3 text-[12px]">Drag and drop your catalogue</b><span class="mt-1 text-[9px] text-muted">CSV, XLS or XLSX · up to 25 MB</span><button class="btn btn-secondary mt-4" onclick="event.stopPropagation(); toast('Demo catalogue selected')">Select File</button></div><div class="mt-4 rounded-lg border border-line p-3"><div class="flex items-center gap-3"><i data-lucide="file-spreadsheet" class="h-5 w-5 text-green-600"></i><span><b class="block text-[10px]">demo-catalogue-eu.csv</b><span class="text-[8px] text-muted">1,248 rows · 384 KB</span></span><span class="badge badge-green ml-auto">Ready</span></div></div></div><div class="mt-7 flex items-center justify-between"><button id="setup-back" class="btn btn-secondary invisible" onclick="setupBack()"><i data-lucide="arrow-left" class="h-4 w-4"></i>Back</button><button id="setup-next" class="btn btn-primary" onclick="setupNext()">Continue<i data-lucide="arrow-right" class="h-4 w-4"></i></button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"><span class="grid h-7 w-7 place-items-center rounded-full bg-green-50 text-green-600"><i data-lucide="check" class="h-4 w-4"></i></span><span id="toast-message">Done</span></div>
+
+  <script>
+    const pageMap = {
+      'overview':'overview', 'review':'review', 'match-review':'review', 'cases':'cases', 'case-detail':'cases',
+      'actions':'actions', 'catalogue':'catalogue', 'audit':'audit', 'settings':'settings'
+    };
+
+    function showPage(page) {
+      document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+      const target = document.getElementById('page-' + page);
+      if (!target) return;
+      target.classList.add('active');
+      document.querySelectorAll('.nav-item[data-page-target]').forEach(el => el.classList.toggle('active', el.dataset.pageTarget === pageMap[page]));
+      document.getElementById('review-subnav').classList.toggle('show', pageMap[page] === 'review');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      history.replaceState(null, '', '#' + page);
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function toast(message) {
+      const el = document.getElementById('toast');
+      document.getElementById('toast-message').textContent = message;
+      el.classList.add('show');
+      clearTimeout(window.toastTimer);
+      window.toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+    }
+
+    function activateChip(button) {
+      document.querySelectorAll('.review-chip').forEach(el => el.classList.remove('active'));
+      button.classList.add('active');
+      toast('Filter applied: ' + button.textContent.trim());
+    }
+
+    function clearReviewFilters() {
+      document.getElementById('review-search').value = '';
+      document.querySelectorAll('.review-chip').forEach((el, i) => el.classList.toggle('active', i === 0));
+      filterReviewRows();
+      toast('Review filters cleared');
+    }
+
+    function filterReviewRows() {
+      const q = document.getElementById('review-search').value.toLowerCase().trim();
+      document.querySelectorAll('#review-table tbody tr').forEach(row => row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none');
+    }
+
+    function setReviewFilter(filter) {
+      showPage('review');
+      setTimeout(() => toast('Filter applied: ' + filter), 80);
+    }
+
+    function openEvidence(type) {
+      document.getElementById('evidence-modal').classList.add('show');
+      if (type) document.getElementById('evidence-type').value = type;
+      document.body.style.overflow = 'hidden';
+    }
+    function closeEvidence() { document.getElementById('evidence-modal').classList.remove('show'); document.body.style.overflow = ''; }
+    function sendEvidence() { closeEvidence(); toast('Evidence request confirmed and added to the audit log'); }
+    function confirmMatch() { toast('Match confirmed — case CASE-0025 created'); setTimeout(() => showPage('case-detail'), 900); }
+    function rejectMatch() { toast('Match rejected and recorded in the audit log'); setTimeout(() => showPage('review'), 900); }
+    function approveDraft() { toast('Action approved — ready for simulated sending'); }
+
+    let setupStep = 1;
+    function openSetup() { setupStep = 1; renderSetup(); document.getElementById('setup-modal').classList.add('show'); document.body.style.overflow='hidden'; }
+    function closeSetup() { document.getElementById('setup-modal').classList.remove('show'); document.body.style.overflow=''; }
+    function setupNext() { if (setupStep < 4) { setupStep++; renderSetup(); } else { closeSetup(); showPage('overview'); toast('Demo workspace is ready'); } }
+    function setupBack() { if (setupStep > 1) { setupStep--; renderSetup(); } }
+
+    function renderSetup() {
+      const title = document.getElementById('setup-title');
+      const subtitle = document.getElementById('setup-subtitle');
+      const content = document.getElementById('setup-content');
+      const next = document.getElementById('setup-next');
+      const back = document.getElementById('setup-back');
+      const data = [
+        null,
+        ['Import your product catalogue','Upload CSV or Excel data to create catalogue records.',`<div class="upload-zone flex h-[210px] flex-col items-center justify-center"><span class="grid h-12 w-12 place-items-center rounded-full bg-violet-100 text-violet-600"><i data-lucide="file-up" class="h-5 w-5"></i></span><b class="mt-3 text-[12px]">Drag and drop your catalogue</b><span class="mt-1 text-[9px] text-muted">CSV, XLS or XLSX · up to 25 MB</span><button class="btn btn-secondary mt-4" onclick="event.stopPropagation(); toast('Demo catalogue selected')">Select File</button></div><div class="mt-4 rounded-lg border border-line p-3"><div class="flex items-center gap-3"><i data-lucide="file-spreadsheet" class="h-5 w-5 text-green-600"></i><span><b class="block text-[10px]">demo-catalogue-eu.csv</b><span class="text-[8px] text-muted">1,248 rows · 384 KB</span></span><span class="badge badge-green ml-auto">Ready</span></div></div>`],
+        ['Preview imported data','Check column mapping and validation before continuing.',`<div class="rounded-xl border border-line overflow-hidden"><div class="grid grid-cols-4 bg-violet-50 px-3 py-2 text-[9px] font-bold"><span>Product</span><span>Brand</span><span>EAN</span><span>Batch</span></div><div class="grid grid-cols-4 border-t border-line px-3 py-3 text-[9px]"><span>Comfort Pacifier</span><span>BabyDream</span><span>5901234123457</span><span class="text-red-500">Missing</span></div><div class="grid grid-cols-4 border-t border-line px-3 py-3 text-[9px]"><span>Wooden Blocks</span><span>KidsLab</span><span>5019824103874</span><span>KL-24-061</span></div><div class="grid grid-cols-4 border-t border-line px-3 py-3 text-[9px]"><span>Soft Cheese</span><span>Maison</span><span>3564700892176</span><span>MB-2026-88</span></div></div><div class="mt-4 grid grid-cols-3 gap-3"><div class="rounded-lg bg-green-50 p-3"><span class="text-[9px] text-green-700">Accepted</span><b class="mt-1 block text-[18px]">1,224</b></div><div class="rounded-lg bg-red-50 p-3"><span class="text-[9px] text-red-700">Rejected</span><b class="mt-1 block text-[18px]">24</b></div><div class="rounded-lg bg-violet-50 p-3"><span class="text-[9px] text-violet-700">Total rows</span><b class="mt-1 block text-[18px]">1,248</b></div></div>`],
+        ['Set matching confidence','Choose when candidates require human review.',`<div class="rounded-xl border border-line p-5"><div class="flex justify-between"><b class="text-[12px]">Confidence threshold</b><span class="rounded-md bg-violet-100 px-2 py-1 text-[11px] font-bold text-violet-700">85%</span></div><input type="range" min="70" max="95" value="85" class="mt-5 w-full accent-[#7b49df]"/><div class="mt-2 flex justify-between text-[9px] text-muted"><span>70%</span><span>95%</span></div><p class="mt-5 rounded-lg bg-[#fff9e9] p-3 text-[9px] leading-4 text-[#7b6848]">Candidates between 55% and 85%, plus every hard identifier conflict, will enter the Review Queue.</p></div><label class="mt-4 flex items-center justify-between rounded-xl border border-line p-4 text-[10px]"><span><b class="block">Optional customer purchase data</b><span class="mt-1 block text-muted">Use synthetic customer records for containment demos.</span></span><input type="checkbox" checked class="h-4 w-4 accent-[#7b49df]"/></label>`],
+        ['Your demo workspace is ready','The catalogue and archived official alerts can now be reviewed.',`<div class="flex flex-col items-center py-6 text-center"><span class="grid h-16 w-16 place-items-center rounded-full bg-green-50 text-green-600"><i data-lucide="check" class="h-8 w-8"></i></span><h3 class="mt-4 text-[16px] font-bold">Setup complete</h3><p class="mt-2 max-w-[360px] text-[10px] leading-5 text-muted">1,224 products imported, 32 catalogue candidates generated and 8 items added to human review.</p><div class="mt-6 grid w-full grid-cols-3 gap-3 text-left"><div class="rounded-lg bg-violet-50 p-3"><span class="text-[9px] text-muted">Products</span><b class="mt-1 block text-[18px]">1,224</b></div><div class="rounded-lg bg-violet-50 p-3"><span class="text-[9px] text-muted">Candidates</span><b class="mt-1 block text-[18px]">32</b></div><div class="rounded-lg bg-violet-50 p-3"><span class="text-[9px] text-muted">Review Queue</span><b class="mt-1 block text-[18px]">8</b></div></div></div>`]
+      ];
+      title.textContent = data[setupStep][0]; subtitle.textContent = data[setupStep][1]; content.innerHTML = data[setupStep][2];
+      back.classList.toggle('invisible', setupStep === 1); next.innerHTML = setupStep === 4 ? 'Launch Dashboard <i data-lucide="arrow-right" class="h-4 w-4"></i>' : 'Continue <i data-lucide="arrow-right" class="h-4 w-4"></i>';
+      document.querySelectorAll('.setup-step').forEach((el, idx) => { const active = idx + 1 <= setupStep; el.classList.toggle('opacity-50', !active); const bubble = el.querySelector('span'); if (active) { bubble.classList.add('bg-violet-500'); bubble.classList.remove('border','border-[#736287]'); } else { bubble.classList.remove('bg-violet-500'); bubble.classList.add('border','border-[#736287]'); } });
+      if (window.lucide) lucide.createIcons();
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeEvidence(); closeSetup(); } });
+    document.getElementById('global-search').addEventListener('keydown', e => { if (e.key === 'Enter') { showPage('review'); document.getElementById('review-search').value = e.target.value; filterReviewRows(); } });
+    window.addEventListener('DOMContentLoaded', () => { if (window.lucide) lucide.createIcons(); const hash = location.hash.slice(1); if (hash && document.getElementById('page-' + hash)) showPage(hash); });
+  </script>
+</body>
+</html>
