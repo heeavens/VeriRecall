@@ -30,9 +30,9 @@
   <meta name="description" content="Import product catalogue data and configure recall matching." />
 </svelte:head>
 
-<div class="setup-page min-h-screen px-5 py-8">
+<div class="setup-page min-h-screen p-6">
   <div class="setup-panel mx-auto overflow-hidden rounded-2xl bg-white">
-    <div class="grid min-h-[610px] md:grid-cols-[215px_1fr]">
+    <div class="grid min-h-[510px] grid-cols-[215px_minmax(0,1fr)]">
       <aside class="setup-sidebar p-6 text-white">
         <a href="/dashboard" class="flex items-center gap-2" aria-label="Recall Agent dashboard">
           <span class="relative block h-7 w-7" aria-hidden="true">
@@ -62,7 +62,7 @@
           {/each}
         </ol>
 
-        <div class="mt-10 border-t border-[#403352] pt-5 text-[9px] leading-4 text-[#b8abc9] md:mt-auto">
+        <div class="mt-auto border-t border-[#403352] pt-5 text-[9px] leading-4 text-[#b8abc9]">
           <div class="flex items-center gap-2 font-semibold text-[#ddccf5]">
             <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <path d="M12 3 5 6v5c0 4.5 2.8 8 7 10 4.2-2 7-5.5 7-10V6l-7-3Zm-3 8 2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
@@ -99,8 +99,8 @@
           {#if step === 1}
             <FileUpload
               id="catalogue-file"
-              title="Upload product catalogue"
-              description="Required headers: sku, name, brand"
+              title="Drag and drop your catalogue"
+              description="CSV or XLSX · up to 5 MB · required: sku, name, brand"
               action="?/uploadCatalog"
               buttonLabel="Upload & validate"
             />
@@ -120,8 +120,8 @@
           {:else if step === 2}
             <FileUpload
               id="purchase-file"
-              title="Upload customer purchases (optional)"
-              description="Required headers: customer_id, sku, purchased_at"
+              title="Drag and drop customer purchases"
+              description="CSV or XLSX · up to 5 MB · required: customer_id, sku, purchased_at"
               action="?/uploadCustomers"
               buttonLabel="Upload & validate"
             />
@@ -270,15 +270,4 @@
     accent-color: #7b49df;
   }
 
-  @media (max-width: 767px) {
-    .setup-panel {
-      max-height: none;
-    }
-
-    .setup-sidebar ol {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-    }
-  }
 </style>

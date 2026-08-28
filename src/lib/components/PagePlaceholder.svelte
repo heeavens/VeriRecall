@@ -1,30 +1,42 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
+
   let {
     eyebrow,
     title,
     description
   }: { eyebrow: string; title: string; description: string } = $props();
+
+  const icon = $derived(
+    title === 'Review Queue'
+      ? 'scan-search'
+      : title === 'Action Drafts'
+        ? 'send'
+        : 'briefcase-business'
+  );
 </script>
 
 <svelte:head>
-  <title>{title} · RecallOps AI</title>
+  <title>{title} · Recall Agent</title>
   <meta name="description" content={description} />
 </svelte:head>
 
-<header class="mb-8">
-  <p class="mb-2 text-xs font-bold tracking-[0.16em] text-blue-700 uppercase">{eyebrow}</p>
-  <h1 class="text-3xl font-semibold tracking-tight text-slate-950">{title}</h1>
-  <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
+<header class="mb-5">
+  <h1 class="text-[24px] font-bold tracking-[-.035em]">{title}</h1>
+  <p class="mt-1 text-[12px] text-muted">{description}</p>
 </header>
 
-<section class="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm shadow-slate-200/60">
-  <div class="flex size-11 items-center justify-center rounded-xl bg-slate-100 text-slate-500" aria-hidden="true">
-    <svg viewBox="0 0 24 24" fill="none" class="size-5" stroke="currentColor" stroke-width="1.8">
-      <path d="M12 8v4m0 4h.01M4.9 19h14.2a2 2 0 0 0 1.73-3L13.73 3.7a2 2 0 0 0-3.46 0L3.17 16A2 2 0 0 0 4.9 19Z" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
+<section class="card grid min-h-[430px] place-items-center p-8 text-center">
+  <div class="max-w-[390px]">
+    <span class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-violet-100 text-violet-600" aria-hidden="true">
+      <Icon name={icon} size={20} />
+    </span>
+    <p class="mt-4 text-[9px] font-semibold tracking-[.15em] text-violet-600 uppercase">{eyebrow}</p>
+    <h2 class="mt-1.5 text-[16px] font-bold">Ready for the next workflow stage</h2>
+    <p class="mt-2 text-[10px] leading-5 text-muted">
+      This area becomes active in the next workflow stage. The current monitoring and matching
+      features remain available from Overview.
+    </p>
+    <a class="btn btn-ghost mt-5" href="/dashboard">Return to Overview</a>
   </div>
-  <h2 class="mt-5 text-base font-semibold text-slate-900">Ready for the next workflow stage</h2>
-  <p class="mt-2 max-w-xl text-sm leading-6 text-slate-500">
-    This foundation route is connected and ready. Product recall data and actions will be added in their dedicated implementation stages.
-  </p>
 </section>

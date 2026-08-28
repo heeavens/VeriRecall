@@ -22,7 +22,7 @@
 </script>
 
 <form method="POST" action={action} enctype="multipart/form-data">
-  <label for={id} class="upload-zone flex min-h-[188px] cursor-pointer flex-col items-center justify-center px-5 text-center">
+  <label for={id} class="upload-zone flex min-h-[210px] cursor-pointer flex-col items-center justify-center px-5 text-center">
     <span class="grid h-12 w-12 place-items-center rounded-full bg-[#f1e9ff] text-[#7542dd]">
       <svg viewBox="0 0 24 24" fill="none" class="h-5 w-5" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
         <path d="M12 16V4m0 0L8 8m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" stroke-linecap="round" stroke-linejoin="round" />
