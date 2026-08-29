@@ -114,6 +114,36 @@ textarea:focus-visible {
 
 /* Application shell */
 
+.route-progress {
+  position: fixed;
+  z-index: 100;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  overflow: hidden;
+  background: #e4d3ff;
+}
+
+.route-progress::after {
+  position: absolute;
+  width: 38%;
+  height: 100%;
+  background: linear-gradient(90deg, #9d78eb, #6330c8);
+  content: '';
+  animation: route-progress 0.85s ease-in-out infinite;
+}
+
+@keyframes route-progress {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(365%);
+  }
+}
+
 .app-root {
   min-height: 100vh;
   background: var(--canvas);
@@ -173,32 +203,6 @@ textarea:focus-visible {
 .app-header__tools {
   flex: 0 0 auto;
   gap: 12px;
-}
-
-.global-search {
-  position: relative;
-  width: 350px;
-  max-width: 38vw;
-  flex: 0 1 350px;
-}
-
-.global-search__icon {
-  position: absolute;
-  top: 50%;
-  left: 12px;
-  z-index: 1;
-  color: #9c96a4;
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.global-search .input-ui {
-  padding-right: 12px;
-  padding-left: 36px;
-}
-
-.global-search input[type='search']::-webkit-search-cancel-button {
-  display: none;
 }
 
 .header-task {
@@ -278,16 +282,10 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 0;
   border-radius: 8px;
   background: transparent;
   padding: 4px 6px;
   text-align: left;
-  transition: background 0.15s ease;
-}
-
-.user-menu:hover {
-  background: var(--violet-50);
 }
 
 .user-avatar {
@@ -321,10 +319,6 @@ textarea:focus-visible {
   margin-top: 3px;
   color: var(--muted);
   font-size: 9px;
-}
-
-.user-chevron {
-  color: #9b95a2;
 }
 
 .app-layout {

@@ -1,0 +1,26 @@
+services:
+  app:
+    build:
+      context: .
+    environment:
+      DATABASE_URL: /app/runtime/recallops.db
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6}
+    init: true
+    ports:
+      - "4173:4173"
+    volumes:
+      - recallops_data:/app/runtime
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:4173/dashboard').then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  recallops_data:

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/state';
+  import { navigating, page } from '$app/state';
   import type { Snippet } from 'svelte';
 
   import Icon from '$lib/components/Icon.svelte';
@@ -45,6 +45,7 @@
   const isOnboarding = $derived(
     page.url.pathname === '/onboarding' || page.url.pathname.startsWith('/onboarding/')
   );
+  const isNavigating = $derived(navigating.to !== null);
 
   function isActive(item: NavigationItem): boolean {
     return item.activePrefixes.some(
@@ -52,6 +53,12 @@
     );
   }
 </script>
+
+{#if isNavigating}
+  <div class="route-progress" role="status" aria-live="polite">
+    <span class="sr-only">Loading the next screen…</span>
+  </div>
+{/if}
 
 {#if isOnboarding}
   {@render children()}
@@ -66,44 +73,26 @@
 
         <div class="app-header__content">
           <div class="app-header__primary">
-            <form class="global-search" action="/dashboard" method="GET" role="search">
-              <label class="sr-only" for="global-search">Search alerts and catalogue records</label>
-              <Icon class="global-search__icon" name="search" size={15} />
-              <input
-                id="global-search"
-                class="input-ui"
-                type="search"
-                name="q"
-                value={page.url.searchParams.get('q') ?? ''}
-                placeholder="Alerts, EAN, products, suppliers, cases..."
-                autocomplete="off"
-              />
-            </form>
-
             <a class="header-task" href="/review">
-              <span class="header-task__label">Critical review due today</span>
-              <span class="header-task__copy">Review the next uncertain catalogue match</span>
+              <span class="header-task__label">Demo workflow</span>
+              <span class="header-task__copy">Review the uncertain catalogue match</span>
             </a>
 
             <a class="header-view-all" href="/review">View all</a>
           </div>
 
           <div class="app-header__tools">
-            <button class="icon-button" type="button" aria-label="Notifications" title="Notifications">
-              <Icon name="bell" size={17} />
-            </button>
             <a class="icon-button" href="/onboarding" aria-label="Help and demo setup" title="Help and demo setup">
               <Icon name="circle-help" size={18} />
             </a>
             <span class="header-divider" aria-hidden="true"></span>
-            <button class="user-menu" type="button" aria-label="Demo user menu">
+            <div class="user-menu" aria-label="Demo user">
               <span class="user-avatar" aria-hidden="true">HS</span>
               <span class="user-copy">
                 <span class="user-name">Herman</span>
                 <span class="user-role">Compliance operator</span>
               </span>
-              <Icon class="user-chevron" name="chevron-down" size={12} />
-            </button>
+            </div>
           </div>
         </div>
       </div>
@@ -145,7 +134,7 @@
         </nav>
       </aside>
 
-      <main class="app-main">
+      <main class="app-main" aria-busy={isNavigating}>
         {@render children()}
       </main>
     </div>
