@@ -2,13 +2,21 @@ import { randomUUID } from 'node:crypto';
 
 import { and, eq } from 'drizzle-orm';
 
-import type { AlertSource, FuzzyMatcher, NormalizedAlert } from '../../types/domain';
+import {
+  actionTypes,
+  type ActionType,
+  type AlertSource,
+  type FuzzyMatcher,
+  type LlmClient,
+  type NormalizedAlert
+} from '../../types/domain';
 import { normalizeAlert } from '../alerts/normalization';
 import { alertReferenceKey, ArchiveAlertSource } from '../alerts/archive-source';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { LocalFuzzyMatcher } from '../matching/fuzzy-matcher';
 import { classifyScore, findTopCandidates } from '../matching/scoring';
+import { createLlmClient } from '../llm/client';
 import { nextCaseNumber, severityForRisk } from './case-record';
 import { ensureCaseResponseRecords } from './case-setup';
 
@@ -19,10 +27,32 @@ export interface MonitoringCycleSummary {
   ignored: number;
 }
 
+async function generatedDraftBodies(
+  llmClient: LlmClient,
+  alert: NormalizedAlert,
+  candidate: ReturnType<typeof findTopCandidates>[number]
+): Promise<Partial<Record<ActionType, string>>> {
+  const context = {
+    sourceReference: alert.sourceReference,
+    sku: candidate.product.sku,
+    productName: candidate.product.name,
+    brand: candidate.product.brand,
+    batch: candidate.product.batch ?? alert.batch ?? 'Unknown',
+    stockQuantity: candidate.product.stockQuantity,
+    supplierName: candidate.product.supplierName ?? 'Unknown supplier',
+    risk: alert.risk
+  };
+  const drafts = await Promise.all(
+    actionTypes.map(async (type) => [type, await llmClient.draftAction(type, context)] as const)
+  );
+  return Object.fromEntries(drafts) as Partial<Record<ActionType, string>>;
+}
+
 export async function runMonitoringCycle(
   database: RecallDatabase,
   source: AlertSource = new ArchiveAlertSource(),
-  matcher: FuzzyMatcher = new LocalFuzzyMatcher()
+  matcher: FuzzyMatcher = new LocalFuzzyMatcher(),
+  llmClient: LlmClient = createLlmClient()
 ): Promise<MonitoringCycleSummary> {
   const existingReferences = new Set(
     database
@@ -39,7 +69,20 @@ export async function runMonitoringCycle(
   const summary: MonitoringCycleSummary = { imported: 0, matched: 0, review: 0, ignored: 0 };
 
   for (const incomingAlert of incomingAlerts) {
-    const normalizedAlert = normalizeAlert(incomingAlert);
+    const extractedAlert = await llmClient.extractAlert(JSON.stringify(incomingAlert));
+    const normalizedAlert = normalizeAlert(extractedAlert);
+    const candidates = findTopCandidates(normalizedAlert, products, matcher);
+    const bestCandidate = candidates[0];
+    if (bestCandidate) {
+      bestCandidate.explanation = await llmClient.explainMatch(bestCandidate.breakdown);
+    }
+    const alertStatus = bestCandidate
+      ? classifyScore(bestCandidate.breakdown, confidenceThreshold, reviewFloor)
+      : 'not_relevant';
+    const draftBodies =
+      alertStatus === 'matched' && bestCandidate
+        ? await generatedDraftBodies(llmClient, normalizedAlert, bestCandidate)
+        : undefined;
     const result = database.transaction((transaction) => {
       const alreadyImported = transaction
         .select({ id: schema.alerts.id })
@@ -55,12 +98,6 @@ export async function runMonitoringCycle(
 
       const now = new Date().toISOString();
       const alertId = randomUUID();
-      const candidates = findTopCandidates(normalizedAlert, products, matcher);
-      const bestCandidate = candidates[0];
-      const alertStatus = bestCandidate
-        ? classifyScore(bestCandidate.breakdown, confidenceThreshold, reviewFloor)
-        : 'not_relevant';
-
       transaction
         .insert(schema.alerts)
         .values({
@@ -95,9 +132,9 @@ export async function runMonitoringCycle(
             alertId,
             eventType: 'fields_extracted',
             actorType: 'agent',
-            actorName: 'deterministic_parser',
-            summary: 'Validated and normalized archived alert fields.',
-            metadataJson: JSON.stringify({ parser: 'deterministic', openAiUsed: false }),
+            actorName: 'extraction_adapter',
+            summary: 'Extracted, validated and normalized archived alert fields.',
+            metadataJson: JSON.stringify({ validation: 'zod', deterministicFallback: true }),
             createdAt: now
           }
         ])
@@ -193,7 +230,8 @@ export async function runMonitoringCycle(
           caseId,
           actorType: 'agent',
           actorName: 'monitoring_agent',
-          createdAt: now
+          createdAt: now,
+          draftBodies
         });
       } else {
         transaction

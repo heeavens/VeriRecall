@@ -114,6 +114,12 @@
       </div>
     </div>
     <div class="flex shrink-0 gap-2">
+      <a class="btn btn-secondary" href={`/api/cases/${data.caseRecord.id}/export.csv`}>
+        <Icon name="download" size={15} /> CSV
+      </a>
+      <a class="btn btn-secondary" href={`/api/cases/${data.caseRecord.id}/export.pdf`}>
+        <Icon name="file-text" size={15} /> PDF
+      </a>
       <a class="btn btn-secondary" href={`/actions?case=${data.caseRecord.id}`}>
         <Icon name="send" size={15} /> Action Drafts
       </a>

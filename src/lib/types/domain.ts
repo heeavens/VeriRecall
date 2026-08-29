@@ -63,3 +63,13 @@ export interface FuzzyMatcher {
   ratio(left: string, right: string): number;
   tokenSetRatio(left: string, right: string): number;
 }
+
+export interface LlmClient {
+  extractAlert(input: string): Promise<NormalizedAlert>;
+  explainMatch(input: ScoreBreakdown): Promise<string>;
+  draftAction(type: ActionType, context: Record<string, unknown>): Promise<string>;
+}
+
+export interface ReportExporter {
+  exportCase(caseId: string, format: 'csv' | 'pdf'): Promise<Uint8Array>;
+}

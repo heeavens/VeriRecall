@@ -11,6 +11,7 @@ interface CaseSetupInput {
   actorType: 'agent' | 'human';
   actorName: string;
   createdAt: string;
+  draftBodies?: Partial<Record<ActionType, string>>;
 }
 
 interface ActionDefinition {
@@ -145,7 +146,10 @@ export function ensureCaseResponseRecords(
     caseRecord.alert.sourceReference,
     itemRows,
     affectedPurchases(database, itemRows)
-  );
+  ).map((definition) => ({
+    ...definition,
+    body: input.draftBodies?.[definition.type]?.trim() || definition.body
+  }));
   const existingTaskTypes = new Set(
     database
       .select({ type: schema.caseTasks.type })
