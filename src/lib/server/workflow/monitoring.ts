@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, count, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import type { AlertSource, FuzzyMatcher, NormalizedAlert } from '../../types/domain';
 import { normalizeAlert } from '../alerts/normalization';
@@ -9,24 +9,13 @@ import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { LocalFuzzyMatcher } from '../matching/fuzzy-matcher';
 import { classifyScore, findTopCandidates } from '../matching/scoring';
+import { nextCaseNumber, severityForRisk } from './case-record';
 
 export interface MonitoringCycleSummary {
   imported: number;
   matched: number;
   review: number;
   ignored: number;
-}
-
-function nextCaseNumber(database: RecallDatabase): string {
-  const caseCount = database.select({ value: count() }).from(schema.cases).get()?.value ?? 0;
-  return `CASE-${String(caseCount + 1).padStart(4, '0')}`;
-}
-
-function severityFor(alert: NormalizedAlert): string {
-  const risk = alert.risk.toLowerCase();
-  return risk.includes('serious') || risk.includes('injur') || risk.includes('choking')
-    ? 'high'
-    : 'medium';
 }
 
 export async function runMonitoringCycle(
@@ -166,7 +155,7 @@ export async function runMonitoringCycle(
             caseNumber: nextCaseNumber(transaction),
             alertId,
             status: 'open',
-            severity: severityFor(normalizedAlert),
+            severity: severityForRisk(normalizedAlert.risk),
             openedAt: now,
             closedAt: null
           })

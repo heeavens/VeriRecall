@@ -402,8 +402,14 @@
         {/if}
 
         {#if data.alert.status === 'needs_review'}
-          <div class="mt-4 rounded-lg border border-[#eae4f2] bg-[#fdfbff] p-3 text-[9px] leading-4 text-[#716b7b]">
-            Decision controls are not available in this monitoring preview. No match decision or supplier request has been created.
+          <div class="mt-4 rounded-lg border border-[#e4d3ff] bg-[#f8f4ff] p-3 text-[9px] leading-4 text-[#716b7b]">
+            <p>Human confirmation is required before this candidate can become a recall case.</p>
+            {#if bestMatch}
+              <a class="btn btn-primary mt-3 w-full" href={`/review?match=${bestMatch.id}`}>
+                Open in Review Queue
+                <Icon name="arrow-right" size={14} />
+              </a>
+            {/if}
           </div>
         {/if}
       </article>
