@@ -31,6 +31,9 @@ export function seedDemoData(database: RecallDatabase, fixtures: DemoFixtures): 
     transaction.insert(schema.matches).values(fixtures.matches).onConflictDoNothing().run();
     transaction.insert(schema.cases).values(fixtures.cases).onConflictDoNothing().run();
     transaction.insert(schema.caseItems).values(fixtures.caseItems).onConflictDoNothing().run();
+    transaction.insert(schema.caseTasks).values(fixtures.caseTasks).onConflictDoNothing().run();
+    transaction.insert(schema.actionDrafts).values(fixtures.actionDrafts).onConflictDoNothing().run();
+    transaction.insert(schema.auditEvents).values(fixtures.auditEvents).onConflictDoNothing().run();
   });
 }
 
@@ -100,5 +103,8 @@ export function replaceWithDemoData(database: RecallDatabase, fixtures: DemoFixt
     transaction.insert(schema.matches).values(fixtures.matches).run();
     transaction.insert(schema.cases).values(fixtures.cases).run();
     transaction.insert(schema.caseItems).values(fixtures.caseItems).run();
+    transaction.insert(schema.caseTasks).values(fixtures.caseTasks).run();
+    transaction.insert(schema.actionDrafts).values(fixtures.actionDrafts).run();
+    transaction.insert(schema.auditEvents).values(fixtures.auditEvents).run();
   });
 }

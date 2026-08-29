@@ -10,6 +10,7 @@ import * as schema from '../db/schema';
 import { LocalFuzzyMatcher } from '../matching/fuzzy-matcher';
 import { classifyScore, findTopCandidates } from '../matching/scoring';
 import { nextCaseNumber, severityForRisk } from './case-record';
+import { ensureCaseResponseRecords } from './case-setup';
 
 export interface MonitoringCycleSummary {
   imported: number;
@@ -188,6 +189,12 @@ export async function runMonitoringCycle(
             createdAt: now
           })
           .run();
+        ensureCaseResponseRecords(transaction, {
+          caseId,
+          actorType: 'agent',
+          actorName: 'monitoring_agent',
+          createdAt: now
+        });
       } else {
         transaction
           .insert(schema.auditEvents)

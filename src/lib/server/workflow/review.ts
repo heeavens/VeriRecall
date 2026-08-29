@@ -5,6 +5,7 @@ import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { nextCaseNumber, severityForRisk } from './case-record';
+import { ensureCaseResponseRecords } from './case-setup';
 
 export const evidenceTypes = [
   'barcode_photo',
@@ -465,6 +466,12 @@ export function confirmReviewMatch(
         })
         .run();
     }
+    ensureCaseResponseRecords(transaction, {
+      caseId: ensuredCase.caseRecord.id,
+      actorType: 'human',
+      actorName: input.actorName,
+      createdAt
+    });
 
     return {
       matchId: record.match.id,
@@ -604,6 +611,7 @@ export function requestMatchEvidence(
     const evidenceRequestId = randomUUID();
     const draftId = randomUUID();
     const evidenceList = requestedEvidence.map(evidenceLabel).join(', ');
+    const draftBody = `Please provide ${evidenceList} for ${record.product.sku} so we can resolve catalogue match ${record.match.id}. This draft has not been sent.`;
     transaction
       .insert(schema.evidenceRequests)
       .values({
@@ -624,7 +632,7 @@ export function requestMatchEvidence(
         type: 'notify_supplier',
         recipient: record.product.supplierEmail,
         subject: draftSubject,
-        body: `Please provide ${evidenceList} for ${record.product.sku} so we can resolve catalogue match ${record.match.id}. This draft has not been sent.`,
+        body: draftBody,
         status: 'draft',
         approvedBy: null,
         approvedAt: null,
@@ -638,22 +646,42 @@ export function requestMatchEvidence(
       .run();
     transaction
       .insert(schema.auditEvents)
-      .values({
-        id: randomUUID(),
-        caseId: ensuredCase.caseRecord.id,
-        alertId: record.alert.id,
-        eventType: 'evidence_requested',
-        actorType: 'human',
-        actorName: input.actorName,
-        summary: `Requested supplier evidence for ${record.product.sku}.`,
-        metadataJson: JSON.stringify({
-          matchId: record.match.id,
-          evidenceRequestId,
-          draftId,
-          requestedEvidence
-        }),
-        createdAt
-      })
+      .values([
+        {
+          id: randomUUID(),
+          caseId: ensuredCase.caseRecord.id,
+          alertId: record.alert.id,
+          eventType: 'evidence_requested',
+          actorType: 'human',
+          actorName: input.actorName,
+          summary: `Requested supplier evidence for ${record.product.sku}.`,
+          metadataJson: JSON.stringify({
+            matchId: record.match.id,
+            evidenceRequestId,
+            draftId,
+            requestedEvidence
+          }),
+          createdAt
+        },
+        {
+          id: randomUUID(),
+          caseId: ensuredCase.caseRecord.id,
+          alertId: record.alert.id,
+          eventType: 'action_draft_created',
+          actorType: 'human',
+          actorName: input.actorName,
+          summary: 'Created notify supplier evidence draft with status draft.',
+          metadataJson: JSON.stringify({
+            draftId,
+            type: 'notify_supplier',
+            status: 'draft',
+            recipient: record.product.supplierEmail,
+            subject: draftSubject,
+            body: draftBody
+          }),
+          createdAt
+        }
+      ])
       .run();
 
     return {

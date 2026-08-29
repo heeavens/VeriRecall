@@ -7,7 +7,10 @@ import type {
   NewCustomer,
   NewProduct,
   NewPurchase,
+  actionDrafts,
+  auditEvents,
   caseItems,
+  caseTasks,
   cases,
   matches,
   settings
@@ -17,6 +20,9 @@ type NewSetting = typeof settings.$inferInsert;
 type NewMatch = typeof matches.$inferInsert;
 type NewCase = typeof cases.$inferInsert;
 type NewCaseItem = typeof caseItems.$inferInsert;
+type NewCaseTask = typeof caseTasks.$inferInsert;
+type NewActionDraft = typeof actionDrafts.$inferInsert;
+type NewAuditEvent = typeof auditEvents.$inferInsert;
 
 interface ProductFixture {
   id: string;
@@ -63,6 +69,9 @@ export interface DemoFixtures {
   matches: NewMatch[];
   cases: NewCase[];
   caseItems: NewCaseItem[];
+  caseTasks: NewCaseTask[];
+  actionDrafts: NewActionDraft[];
+  auditEvents: NewAuditEvent[];
 }
 
 const fixtureTimestamp = '2026-08-28T12:00:00.000Z';
@@ -348,6 +357,112 @@ export function loadDemoFixtures(): DemoFixtures {
         batch: 'MFT24',
         stockQuantity: 17
       }
+    ],
+    caseTasks: [
+      {
+        id: '80000000-0000-4000-8000-000000000001',
+        caseId: '60000000-0000-4000-8000-000000000001',
+        type: 'block_sale',
+        label: 'Block sale for affected inventory',
+        status: 'pending',
+        completedBy: null,
+        completedAt: null
+      },
+      {
+        id: '80000000-0000-4000-8000-000000000002',
+        caseId: '60000000-0000-4000-8000-000000000001',
+        type: 'notify_supplier',
+        label: 'Notify supplier',
+        status: 'pending',
+        completedBy: null,
+        completedAt: null
+      },
+      {
+        id: '80000000-0000-4000-8000-000000000003',
+        caseId: '60000000-0000-4000-8000-000000000001',
+        type: 'notify_customers',
+        label: 'Notify affected customers',
+        status: 'pending',
+        completedBy: null,
+        completedAt: null
+      }
+    ],
+    actionDrafts: [
+      {
+        id: '90000000-0000-4000-8000-000000000001',
+        caseId: '60000000-0000-4000-8000-000000000001',
+        type: 'block_sale',
+        recipient: 'Internal inventory control',
+        subject: 'Sales hold: CASE-0001 / TOY-1042',
+        body: 'Place an immediate internal sales hold on TOY-1042 batch MFT24, covering 17 units. Confirm the inventory-control step before closing CASE-0001.',
+        status: 'draft',
+        approvedBy: null,
+        approvedAt: null,
+        createdAt: '2026-08-28T12:00:02.000Z'
+      },
+      {
+        id: '90000000-0000-4000-8000-000000000002',
+        caseId: '60000000-0000-4000-8000-000000000001',
+        type: 'notify_supplier',
+        recipient: 'recalls@northstar.example.test',
+        subject: 'Recall action required: A12/01366/24 / TOY-1042',
+        body: 'Please confirm receipt of this recall notice for TOY-1042 batch MFT24. Quarantine affected stock and provide your containment response for CASE-0001.',
+        status: 'draft',
+        approvedBy: null,
+        approvedAt: null,
+        createdAt: '2026-08-28T12:00:03.000Z'
+      },
+      {
+        id: '90000000-0000-4000-8000-000000000003',
+        caseId: '60000000-0000-4000-8000-000000000001',
+        type: 'notify_customers',
+        recipient: 'aoife@example.test, liam@example.test, customer@example.test',
+        subject: 'Important product recall: Magnetic Construction Toy Set',
+        body: 'We are contacting you about TOY-1042 batch MFT24, linked to A12/01366/24. Stop using the affected product and follow the return instructions in this notice.',
+        status: 'draft',
+        approvedBy: null,
+        approvedAt: null,
+        createdAt: '2026-08-28T12:00:04.000Z'
+      }
+    ],
+    auditEvents: [
+      {
+        id: 'a0000000-0000-4000-8000-000000000001',
+        caseId: '60000000-0000-4000-8000-000000000001',
+        alertId: alerts[0].id,
+        eventType: 'case_opened',
+        actorType: 'agent',
+        actorName: 'monitoring_agent',
+        summary: 'Opened CASE-0001 for confirmed match TOY-1042.',
+        metadataJson: JSON.stringify({ productId: products[0].id, score: 98, threshold: 85 }),
+        createdAt: fixtureTimestamp
+      },
+      {
+        id: 'a0000000-0000-4000-8000-000000000002',
+        caseId: '60000000-0000-4000-8000-000000000001',
+        alertId: alerts[0].id,
+        eventType: 'match_confirmed',
+        actorType: 'agent',
+        actorName: 'matching_agent',
+        summary: 'Confirmed TOY-1042 at 98% confidence.',
+        metadataJson: JSON.stringify({ matchId: '50000000-0000-4000-8000-000000000001' }),
+        createdAt: '2026-08-28T12:00:01.000Z'
+      },
+      ...(['block_sale', 'notify_supplier', 'notify_customers'] as const).map((type, index) => ({
+        id: `a0000000-0000-4000-8000-${String(index + 3).padStart(12, '0')}`,
+        caseId: '60000000-0000-4000-8000-000000000001',
+        alertId: alerts[0].id,
+        eventType: 'action_draft_created',
+        actorType: 'agent',
+        actorName: 'monitoring_agent',
+        summary: `Created ${type.replaceAll('_', ' ')} draft with status draft.`,
+        metadataJson: JSON.stringify({
+          draftId: `90000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+          type,
+          status: 'draft'
+        }),
+        createdAt: `2026-08-28T12:00:0${index + 2}.000Z`
+      }))
     ]
   };
 }
