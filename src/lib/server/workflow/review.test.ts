@@ -87,7 +87,7 @@ describe('Stage 4 human review workflow', () => {
     ).toThrow('This match is not awaiting a human review decision.');
     expect(tableCount('cases')).toBe(1);
     expect(tableCount('case_items')).toBe(1);
-    expect(tableCount('audit_events')).toBe(0);
+    expect(tableCount('audit_events')).toBe(5);
     expect(connection.db.select().from(matches).where(eq(matches.id, notRelevantMatchId)).get())
       .toMatchObject({ status: 'candidate', decidedAt: null });
   });
@@ -107,7 +107,7 @@ describe('Stage 4 human review workflow', () => {
 
     expect(first).toMatchObject({ changed: true, caseNumber: 'CASE-0002' });
     expect(repeated).toMatchObject({ changed: false, caseId: first.caseId });
-    expect(afterFirst).toEqual({ cases: 2, caseItems: 2, auditEvents: 2 });
+    expect(afterFirst).toEqual({ cases: 2, caseItems: 2, auditEvents: 10 });
     expect({
       cases: tableCount('cases'),
       caseItems: tableCount('case_items'),
@@ -136,7 +136,7 @@ describe('Stage 4 human review workflow', () => {
 
     expect(first.changed).toBe(true);
     expect(repeated.changed).toBe(false);
-    expect(afterFirst).toEqual({ cases: 1, caseItems: 1, auditEvents: 1 });
+    expect(afterFirst).toEqual({ cases: 1, caseItems: 1, auditEvents: 6 });
     expect({
       cases: tableCount('cases'),
       caseItems: tableCount('case_items'),
@@ -179,8 +179,8 @@ describe('Stage 4 human review workflow', () => {
       cases: 2,
       caseItems: 1,
       evidenceRequests: 1,
-      actionDrafts: 1,
-      auditEvents: 2
+      actionDrafts: 4,
+      auditEvents: 8
     });
     expect({
       cases: tableCount('cases'),
@@ -205,6 +205,6 @@ describe('Stage 4 human review workflow', () => {
     expect(tableCount('cases')).toBe(2);
     expect(tableCount('case_items')).toBe(2);
     expect(connection.db.select().from(auditEvents).where(eq(auditEvents.caseId, first.caseId)).all())
-      .toHaveLength(3);
+      .toHaveLength(6);
   });
 });
