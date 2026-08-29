@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+.svelte-kit
+build
+.vite
+coverage
+.env
+.env.*
+!.env.example
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite-*
+.DS_Store
+npm-debug.log*
