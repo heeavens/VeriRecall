@@ -4,6 +4,6 @@
 
 <PagePlaceholder
   eyebrow="Incident response"
-  title="Cases"
-  description="Confirmed recall cases and their containment status will be available from this workspace."
+  title="Recall Cases"
+  description="Track confirmed incidents through containment and closure."
 />

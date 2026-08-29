@@ -5,5 +5,5 @@
 <PagePlaceholder
   eyebrow="Manual approval"
   title="Action Drafts"
-  description="Supplier, customer, and sale-blocking drafts will remain here until a person reviews them."
+  description="Review containment, supplier and customer actions before simulated sending."
 />

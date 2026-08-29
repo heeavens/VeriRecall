@@ -1,31 +1,107 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
+  import Icon from '$lib/components/Icon.svelte';
 
-  let { data } = $props();
+  import type { PageProps } from './$types';
+
+  let { data }: PageProps = $props();
   let monitoring = $state(false);
   let monitorMessage = $state<string | null>(null);
   let monitorFailed = $state(false);
 
-  const cards = $derived([
-    { label: 'New alerts today', value: data.counters.newAlertsToday, tone: 'blue' },
-    { label: 'Waiting for review', value: data.counters.waitingForReview, tone: 'amber' },
-    { label: 'Open cases', value: data.counters.openCases, tone: 'red' },
-    { label: 'Closed this month', value: data.counters.closedThisMonth, tone: 'green' }
+  type DashboardAlert = PageProps['data']['alerts'][number];
+
+  interface TrendPoint {
+    label: string;
+    count: number;
+    x: number;
+    y: number;
+  }
+
+  const confirmedMatches = $derived(
+    data.alerts.filter((alert) => alert.status === 'matched').length
+  );
+  const notRelevant = $derived(
+    data.alerts.filter((alert) => alert.status === 'not_relevant').length
+  );
+  const hardConflicts = $derived(
+    data.alerts.filter((alert) => alert.bestMatch?.hasHardConflict).length
+  );
+  const totalAlerts = $derived(data.alerts.length);
+  const statusGradient = $derived(
+    buildStatusGradient(totalAlerts, data.counters.waitingForReview, confirmedMatches)
+  );
+  const trendPoints = $derived(buildTrend(data.alerts));
+  const trendLine = $derived(buildLinePath(trendPoints));
+  const trendArea = $derived(buildAreaPath(trendPoints));
+  const criticalAlerts = $derived(
+    data.alerts.filter((alert) => isPriorityRisk(alert.risk)).slice(0, 3)
+  );
+  const recentAlerts = $derived(data.alerts.slice(0, 4));
+
+  const metrics = $derived([
+    {
+      label: 'New Alerts Today',
+      value: data.counters.newAlertsToday,
+      detail: `${totalAlerts} official record${totalAlerts === 1 ? '' : 's'} in the feed`,
+      detailClass: 'text-[#e14f55]',
+      icon: 'radio-tower' as const
+    },
+    {
+      label: 'Waiting for Review',
+      value: data.counters.waitingForReview,
+      detail: `${hardConflicts} hard conflict${hardConflicts === 1 ? '' : 's'}`,
+      detailClass: 'text-muted',
+      icon: 'scan-search' as const
+    },
+    {
+      label: 'Confirmed Matches',
+      value: confirmedMatches,
+      detail: 'catalogue matches',
+      detailClass: 'text-muted',
+      icon: 'circle-check-big' as const
+    },
+    {
+      label: 'Open Cases',
+      value: data.counters.openCases,
+      detail: 'active incident records',
+      detailClass: 'text-[#df8b31]',
+      icon: 'briefcase-business' as const
+    },
+    {
+      label: 'Closed This Month',
+      value: data.counters.closedThisMonth,
+      detail: 'resolved this month',
+      detailClass: 'text-[#2aa96b]',
+      icon: 'archive-check' as const
+    }
   ]);
 
-  function statusLabel(status: string): string {
-    if (status === 'matched') return 'Confirmed match';
-    if (status === 'needs_review') return 'Needs review';
-    return 'Not relevant';
+  function statusLabel(status: DashboardAlert['status']): string {
+    if (status === 'matched') return 'Confirmed';
+    if (status === 'needs_review') return 'Needs Review';
+    return 'Not Relevant';
   }
 
-  function statusClass(status: string): string {
-    if (status === 'matched') return 'bg-emerald-50 text-emerald-700 ring-emerald-600/15';
-    if (status === 'needs_review') return 'bg-amber-50 text-amber-700 ring-amber-600/20';
-    return 'bg-slate-100 text-slate-600 ring-slate-500/15';
+  function statusClass(status: DashboardAlert['status']): string {
+    if (status === 'matched') return 'badge-green';
+    if (status === 'needs_review') return 'badge-blue';
+    return 'badge-gray';
   }
 
-  function sourceLabel(source: string): string {
+  function activityDotClass(status: DashboardAlert['status']): string {
+    if (status === 'matched') return 'bg-[#2aa96b]';
+    if (status === 'needs_review') return 'bg-[#8150e4]';
+    return 'bg-[#a9a3ae]';
+  }
+
+  function progressClass(status: DashboardAlert['status']): string {
+    if (status === 'matched') return 'bg-[#2aa96b]';
+    if (status === 'needs_review') return 'bg-[#dc8f34]';
+    return 'bg-[#a9a3ae]';
+  }
+
+  function sourceLabel(source: DashboardAlert['source']): string {
     return source === 'safety_gate' ? 'Safety Gate' : 'RASFF';
   }
 
@@ -36,6 +112,70 @@
       year: 'numeric',
       timeZone: 'UTC'
     }).format(new Date(value));
+  }
+
+  function isPriorityRisk(risk: string): boolean {
+    return /(serious|choking|injur|fire|shock|danger)/i.test(risk);
+  }
+
+  function riskClass(risk: string): string {
+    return isPriorityRisk(risk) ? 'badge-red' : 'badge-orange';
+  }
+
+  function riskLabel(risk: string): string {
+    return isPriorityRisk(risk) ? 'High' : 'Medium';
+  }
+
+  function buildStatusGradient(total: number, review: number, confirmed: number): string {
+    if (total === 0) return 'conic-gradient(#ede3fb 0 100%)';
+    const reviewEnd = (review / total) * 100;
+    const confirmedEnd = reviewEnd + (confirmed / total) * 100;
+    return `conic-gradient(#8150e4 0 ${reviewEnd}%, #50318d ${reviewEnd}% ${confirmedEnd}%, #ede3fb ${confirmedEnd}% 100%)`;
+  }
+
+  function buildTrend(alerts: DashboardAlert[]): TrendPoint[] {
+    const validDates = alerts
+      .map((alert) => new Date(alert.publishedAt))
+      .filter((date) => !Number.isNaN(date.getTime()));
+    const anchor = validDates.length
+      ? new Date(Math.max(...validDates.map((date) => date.getTime())))
+      : new Date();
+    const months = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(
+        Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - (5 - index), 1)
+      );
+      const count = alerts.filter((alert) => {
+        const published = new Date(alert.publishedAt);
+        return (
+          published.getUTCFullYear() === date.getUTCFullYear() &&
+          published.getUTCMonth() === date.getUTCMonth()
+        );
+      }).length;
+      return {
+        label: new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' }).format(date),
+        count
+      };
+    });
+    const maximum = Math.max(1, ...months.map((month) => month.count));
+
+    return months.map((month, index) => ({
+      ...month,
+      x: 34 + index * (476 / 5),
+      y: 146 - (month.count / maximum) * 112
+    }));
+  }
+
+  function buildLinePath(points: TrendPoint[]): string {
+    return points
+      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+      .join(' ');
+  }
+
+  function buildAreaPath(points: TrendPoint[]): string {
+    if (points.length === 0) return '';
+    const first = points[0];
+    const last = points.at(-1);
+    return last ? `${buildLinePath(points)} L ${last.x} 146 L ${first.x} 146 Z` : '';
   }
 
   function isMonitoringResult(
@@ -69,91 +209,307 @@
   }
 </script>
 
-<svelte:head><title>Overview | RecallOps AI</title></svelte:head>
+<svelte:head>
+  <title>Overview | Recall Agent</title>
+  <meta
+    name="description"
+    content="Monitor official product alerts and catalogue matches requiring review."
+  />
+</svelte:head>
 
 <section aria-labelledby="overview-title">
-  <div class="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+  <div class="mb-4 flex items-start justify-between gap-5">
     <div>
-      <p class="text-xs font-semibold tracking-[0.16em] text-blue-600 uppercase">Workspace overview</p>
-      <h1 id="overview-title" class="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Recall monitoring</h1>
-      <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Local archive alerts are matched against your catalogue with deterministic scoring.</p>
+      <h1 id="overview-title" class="text-[24px] font-bold tracking-[-.035em]">
+        Product Recall Overview
+      </h1>
+      <p class="mt-1 text-[12px] text-muted">
+        Monitor official alerts and catalogue matches requiring your attention.
+      </p>
     </div>
     <button class="btn btn-primary" type="button" onclick={runMonitoring} disabled={monitoring}>
-      {monitoring ? 'Monitoring…' : 'Run monitoring'}
+      <Icon name="refresh-cw" size={16} class={monitoring ? 'animate-spin' : ''} />
+      {monitoring ? 'Monitoring…' : 'Run Monitoring'}
     </button>
   </div>
 
   {#if monitorMessage}
-    <p class={`mt-4 rounded-xl border px-4 py-3 text-sm ${monitorFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`} role="status">
-      {monitorMessage}
-    </p>
+    <div
+      class={`mb-4 flex items-start gap-2 rounded-[10px] border px-3.5 py-3 text-[10px] ${monitorFailed ? 'border-[#ffd9db] bg-[#fff8f8] text-[#a7353b]' : 'border-[#d7f2e3] bg-[#f4fcf7] text-[#268d5c]'}`}
+      role="status"
+    >
+      <Icon name={monitorFailed ? 'triangle-alert' : 'circle-check-big'} size={15} />
+      <span class="leading-4">{monitorMessage}</span>
+    </div>
   {/if}
 
-  <div class="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-    {#each cards as card}
-      <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40">
-        <div class={`flex size-9 items-center justify-center rounded-xl ${card.tone === 'blue' ? 'bg-blue-50 text-blue-600' : card.tone === 'amber' ? 'bg-amber-50 text-amber-600' : card.tone === 'red' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`} aria-hidden="true">
-          <span class="size-2 rounded-full bg-current"></span>
+  <div class="card metric-divider mb-4 grid grid-cols-5 overflow-hidden">
+    {#each metrics as metric}
+      <article class="p-4">
+        <div class="flex items-center gap-2 text-[10px] font-semibold text-violet-600">
+          <Icon name={metric.icon} size={16} class="text-[#58515f]" />
+          {metric.label}
         </div>
-        <p class="mt-5 text-3xl font-semibold tracking-tight text-slate-950">{card.value}</p>
-        <p class="mt-1 text-sm text-slate-500">{card.label}</p>
+        <p class="mt-2 text-[21px] font-bold">{metric.value}</p>
+        <p class={`mt-1 text-[10px] ${metric.detailClass}`}>{metric.detail}</p>
       </article>
     {/each}
   </div>
 
-  <div class="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40">
-    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
-      <div>
-        <h2 class="text-base font-semibold text-slate-900">Alert Feed</h2>
-        <p class="mt-0.5 text-xs text-slate-500">Latest official records and their best catalogue candidates</p>
+  <div class="grid grid-cols-12 gap-4">
+    <article class="card col-span-4 p-4">
+      <div class="flex items-center justify-between gap-4">
+        <h2 class="text-[15px] font-bold">Match Status Overview</h2>
+        <a class="text-[10px] font-semibold text-violet-600 hover:text-violet-700" href="/review">
+          View Queue
+        </a>
       </div>
-      <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{data.alerts.length} alerts</span>
+      <div class="mt-5 flex items-center justify-center gap-5">
+        <div
+          class="ring-chart h-[126px] w-[126px] shrink-0"
+          style:background={statusGradient}
+          aria-label={`${totalAlerts} alerts by match status`}
+        >
+          <div class="ring-center">
+            <span class="text-[20px] font-bold">{totalAlerts}</span>
+            <span class="text-[9px] text-muted">Total</span>
+          </div>
+        </div>
+        <div class="space-y-2 text-[9px]">
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-sm bg-[#8150e4]"></span>
+            <span class="w-[94px] text-muted">Needs Review</span>
+            <b>{data.counters.waitingForReview}</b>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-sm bg-[#50318d]"></span>
+            <span class="w-[94px] text-muted">Confirmed</span>
+            <b>{confirmedMatches}</b>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-sm bg-[#ede3fb]"></span>
+            <span class="w-[94px] text-muted">Not Relevant</span>
+            <b>{notRelevant}</b>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card col-span-5 p-4">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <h2 class="text-[15px] font-bold">Alerts Processed</h2>
+          <p class="mt-1 text-[9px] text-muted">Official alerts compared with your catalogue</p>
+        </div>
+        <span class="rounded-lg border border-line bg-white px-2.5 py-2 text-[9px] text-muted">
+          Six-month archive
+        </span>
+      </div>
+      <div class="mt-3 h-[148px] w-full">
+        <svg
+          viewBox="0 0 520 175"
+          class="h-full w-full"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Alerts processed by published month"
+        >
+          <defs>
+            <linearGradient id="alerts-area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#a982f0" stop-opacity=".26" />
+              <stop offset="1" stop-color="#a982f0" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+          <g stroke="#eee9f3" stroke-width="1">
+            <line x1="34" y1="20" x2="510" y2="20" />
+            <line x1="34" y1="62" x2="510" y2="62" />
+            <line x1="34" y1="104" x2="510" y2="104" />
+            <line x1="34" y1="146" x2="510" y2="146" />
+          </g>
+          <path d={trendArea} fill="url(#alerts-area)" />
+          <path
+            d={trendLine}
+            fill="none"
+            stroke="#8b5be8"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          {#each trendPoints as point}
+            <circle cx={point.x} cy={point.y} r="3.5" fill="#8b5be8">
+              <title>{point.label}: {point.count} alerts</title>
+            </circle>
+            <text x={point.x} y="166" fill="#8d8795" font-size="10" text-anchor="middle">
+              {point.label}
+            </text>
+          {/each}
+        </svg>
+      </div>
+    </article>
+
+    <article class="card col-span-3 p-4">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-[15px] font-bold">Critical Alerts</h2>
+        <span class="text-[9px] font-semibold text-violet-600">{criticalAlerts.length} active</span>
+      </div>
+      {#if criticalAlerts.length === 0}
+        <div class="grid min-h-[154px] place-items-center text-center">
+          <p class="max-w-[180px] text-[10px] leading-5 text-muted">
+            No priority risks are present in the current alert feed.
+          </p>
+        </div>
+      {:else}
+        <div class="mt-3 divide-y divide-[#f0ecf4]">
+          {#each criticalAlerts as alert}
+            <a
+              class="group flex w-full items-start justify-between gap-3 py-2.5 text-left"
+              href={`/alerts/${alert.id}`}
+            >
+              <span class="min-w-0">
+                <b class="block truncate text-[10px] group-hover:text-violet-600">
+                  {alert.risk}
+                </b>
+                <span class="mt-1 block truncate text-[9px] text-muted">
+                  {sourceLabel(alert.source)} · {alert.bestMatch ? `${alert.bestMatch.totalScore}% candidate` : 'No candidate'}
+                </span>
+              </span>
+              <Icon name="chevron-right" size={14} class="mt-0.5 shrink-0 text-muted" />
+            </a>
+          {/each}
+        </div>
+      {/if}
+    </article>
+
+    <div class="col-span-9 mt-1 min-w-0">
+      <div class="mb-2.5 flex items-end justify-between gap-4">
+        <div>
+          <h2 class="text-[15px] font-bold">Alert Feed</h2>
+          <p class="mt-1 text-[9px] text-muted">Latest official records and best catalogue candidates</p>
+        </div>
+        <span class="text-[9px] font-semibold text-muted">
+          {data.alerts.length} alert{data.alerts.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      <div class="table-wrap">
+        {#if data.alerts.length === 0}
+          <div class="grid min-h-[236px] place-items-center px-6 text-center">
+            <div>
+              <span class="mx-auto grid h-10 w-10 place-items-center rounded-full bg-violet-50 text-violet-600">
+                <Icon name="radio-tower" size={18} />
+              </span>
+              <p class="mt-3 text-[11px] font-semibold">No alerts have been imported</p>
+              <p class="mt-1 text-[9px] text-muted">Run monitoring to process the local archive.</p>
+            </div>
+          </div>
+        {:else}
+          <div class="overflow-x-auto">
+            <table class="data-table min-w-[850px]">
+              <thead>
+                <tr>
+                  <th>Official Product</th>
+                  <th>Catalogue Candidate</th>
+                  <th class="w-[104px]">Source</th>
+                  <th class="w-[118px]">Risk</th>
+                  <th class="w-[92px]">Published</th>
+                  <th class="w-[110px]">Confidence</th>
+                  <th class="w-[112px]">Status</th>
+                  <th class="w-[34px]"><span class="sr-only">Open alert</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each data.alerts as alert}
+                  <tr>
+                    <td>
+                      <a
+                        class="block truncate font-semibold text-[#302b35] hover:text-violet-600"
+                        href={`/alerts/${alert.id}`}
+                        title={alert.productName}
+                      >
+                        {alert.productName}
+                      </a>
+                      <span class="mt-1 block text-[8px] text-muted">{alert.sourceReference}</span>
+                    </td>
+                    <td>
+                      {#if alert.bestMatch}
+                        <span class="block truncate font-medium text-[#4d4853]" title={alert.bestMatch.product.name}>{alert.bestMatch.product.name}</span>
+                        <span class="mt-1 block text-[8px] text-muted">{alert.bestMatch.product.sku}</span>
+                      {:else}
+                        <span class="text-muted">No catalogue candidates</span>
+                      {/if}
+                    </td>
+                    <td>
+                      <span class="font-medium text-[#4d4853]">{sourceLabel(alert.source)}</span>
+                    </td>
+                    <td>
+                      <span class={`badge ${riskClass(alert.risk)}`} title={alert.risk}>{riskLabel(alert.risk)}</span>
+                    </td>
+                    <td class="whitespace-nowrap">{formatDate(alert.publishedAt)}</td>
+                    <td>
+                      {#if alert.bestMatch}
+                        <div class="font-semibold">{alert.bestMatch.totalScore}%</div>
+                        <div class="progress-track mt-1">
+                          <div
+                            class={`progress-value ${progressClass(alert.status)}`}
+                            style:width={`${alert.bestMatch.totalScore}%`}
+                          ></div>
+                        </div>
+                      {:else}
+                        <span class="text-muted">—</span>
+                      {/if}
+                    </td>
+                    <td><span class={`badge ${statusClass(alert.status)}`}>{statusLabel(alert.status)}</span></td>
+                    <td>
+                      <a
+                        class="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-violet-50 hover:text-violet-600"
+                        href={`/alerts/${alert.id}`}
+                        aria-label={`Open ${alert.productName}`}
+                      >
+                        <Icon name="chevron-right" size={14} />
+                      </a>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <div class="flex h-12 items-center border-t border-line px-3 text-[9px] text-muted">
+            Showing {data.alerts.length} of {data.alerts.length} alerts
+          </div>
+        {/if}
+      </div>
     </div>
 
-    {#if data.alerts.length === 0}
-      <div class="px-6 py-14 text-center">
-        <p class="text-sm font-medium text-slate-700">No alerts have been imported.</p>
-        <p class="mt-1 text-sm text-slate-500">Run monitoring to process the local archive.</p>
+    <article class="card col-span-3 mt-1 p-4">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-[15px] font-bold">Recent Activity</h2>
+        <span class="text-[9px] font-semibold text-violet-600">Live feed</span>
       </div>
-    {:else}
-      <div class="overflow-x-auto">
-        <table class="w-full min-w-[900px] border-collapse text-left">
-          <thead class="bg-slate-50/80 text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
-            <tr>
-              <th class="px-6 py-3">Alert product</th>
-              <th class="px-4 py-3">Source</th>
-              <th class="px-4 py-3">Risk</th>
-              <th class="px-4 py-3">Published</th>
-              <th class="px-4 py-3">Best catalogue match</th>
-              <th class="px-4 py-3">Confidence</th>
-              <th class="px-6 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            {#each data.alerts as alert}
-              <tr class="transition hover:bg-slate-50/70">
-                <td class="px-6 py-4">
-                  <a class="font-semibold text-slate-900 hover:text-blue-700 hover:underline" href={`/alerts/${alert.id}`}>{alert.productName}</a>
-                  <p class="mt-1 text-xs text-slate-500">{alert.sourceReference}</p>
-                </td>
-                <td class="px-4 py-4"><span class="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{sourceLabel(alert.source)}</span></td>
-                <td class="max-w-48 px-4 py-4 text-sm text-red-700">{alert.risk}</td>
-                <td class="px-4 py-4 text-sm whitespace-nowrap text-slate-600">{formatDate(alert.publishedAt)}</td>
-                <td class="px-4 py-4">
-                  {#if alert.bestMatch}
-                    <p class="text-sm font-medium text-slate-800">{alert.bestMatch.product.name}</p>
-                    <p class="mt-1 text-xs text-slate-500">{alert.bestMatch.product.sku}</p>
-                  {:else}
-                    <span class="text-sm text-slate-400">No catalogue candidates</span>
-                  {/if}
-                </td>
-                <td class="px-4 py-4 text-sm font-semibold text-slate-800">{alert.bestMatch ? `${alert.bestMatch.totalScore}%` : '—'}</td>
-                <td class="px-6 py-4"><span class={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusClass(alert.status)}`}>{statusLabel(alert.status)}</span></td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {/if}
+      {#if recentAlerts.length === 0}
+        <p class="mt-4 text-[10px] leading-5 text-muted">
+          Monitoring activity will appear after the first archive cycle.
+        </p>
+      {:else}
+        <div class="mt-3 space-y-3">
+          {#each recentAlerts as alert}
+            <a class="group block" href={`/alerts/${alert.id}`}>
+              <div class="flex items-start gap-2.5">
+                <span class={`mt-1 h-2 w-2 shrink-0 rounded-full ${activityDotClass(alert.status)}`}></span>
+                <span class="min-w-0 flex-1">
+                  <span class="flex items-start justify-between gap-2">
+                    <b class="truncate text-[10px] group-hover:text-violet-600">
+                      {statusLabel(alert.status)}
+                    </b>
+                    <span class="shrink-0 text-[8px] text-muted">{formatDate(alert.publishedAt)}</span>
+                  </span>
+                  <span class="mt-1 block truncate text-[9px] text-muted">
+                    {alert.productName} · {alert.sourceReference}
+                  </span>
+                </span>
+              </div>
+            </a>
+          {/each}
+        </div>
+      {/if}
+    </article>
   </div>
 </section>

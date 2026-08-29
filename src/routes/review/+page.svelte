@@ -5,5 +5,5 @@
 <PagePlaceholder
   eyebrow="Human review"
   title="Review Queue"
-  description="Uncertain catalogue matches will wait here for evidence requests and a human decision."
+  description="Review uncertain catalogue matches before opening a recall case."
 />
