@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lt } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
@@ -37,32 +37,34 @@ export interface AlertFeedItem {
   bestMatch: CatalogueMatchView | null;
 }
 
+export interface DashboardAttentionItem {
+  id: string;
+  kind: 'review' | 'approval' | 'case';
+  label: string;
+  title: string;
+  description: string;
+  meta: string;
+  href: string;
+  actionLabel: string;
+}
+
 export interface DashboardView {
   counters: {
-    newAlertsToday: number;
     waitingForReview: number;
+    pendingApprovals: number;
     openCases: number;
-    closedThisMonth: number;
+    unfinishedCases: number;
   };
+  archive: {
+    total: number;
+    matched: number;
+    needsReview: number;
+    notRelevant: number;
+    lastImportedAt: string | null;
+    catalogueProducts: number;
+  };
+  attention: DashboardAttentionItem[];
   alerts: AlertFeedItem[];
-}
-
-function dateBounds(now: Date): { today: string; tomorrow: string; month: string; nextMonth: string } {
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  return {
-    today: todayStart.toISOString(),
-    tomorrow: tomorrowStart.toISOString(),
-    month: monthStart.toISOString(),
-    nextMonth: nextMonthStart.toISOString()
-  };
-}
-
-function valueCount(rows: unknown[]): number {
-  return rows.length;
 }
 
 function matchView(
@@ -93,8 +95,7 @@ function matchView(
   };
 }
 
-export function getDashboardView(database: RecallDatabase, now = new Date()): DashboardView {
-  const bounds = dateBounds(now);
+export function getDashboardView(database: RecallDatabase): DashboardView {
   const rows = database
     .select({ alert: schema.alerts, match: schema.matches, product: schema.products })
     .from(schema.alerts)
@@ -118,48 +119,105 @@ export function getDashboardView(database: RecallDatabase, now = new Date()): Da
     });
   }
 
+  const alerts = [...feed.values()];
+  const unfinishedCaseRows = database
+    .select({ caseRecord: schema.cases, alert: schema.alerts })
+    .from(schema.cases)
+    .innerJoin(schema.alerts, eq(schema.alerts.id, schema.cases.alertId))
+    .where(ne(schema.cases.status, 'closed'))
+    .orderBy(desc(schema.cases.openedAt))
+    .all();
+  const unfinishedCaseIds = unfinishedCaseRows.map((row) => row.caseRecord.id);
+  const taskRows: Array<typeof schema.caseTasks.$inferSelect> = unfinishedCaseIds.length
+    ? database
+        .select()
+        .from(schema.caseTasks)
+        .where(inArray(schema.caseTasks.caseId, unfinishedCaseIds))
+        .all()
+    : [];
+  const pendingDraftRows: Array<typeof schema.actionDrafts.$inferSelect> = unfinishedCaseIds.length
+    ? database
+        .select()
+        .from(schema.actionDrafts)
+        .where(
+          and(
+            inArray(schema.actionDrafts.caseId, unfinishedCaseIds),
+            eq(schema.actionDrafts.status, 'draft')
+          )
+        )
+        .all()
+    : [];
+  const reviewAttention: DashboardAttentionItem[] = alerts
+    .filter((alert) => alert.status === 'needs_review')
+    .map((alert) => ({
+      id: `review-${alert.id}`,
+      kind: 'review',
+      label: 'Identity review',
+      title: alert.productName,
+      description: alert.bestMatch
+        ? `Compare with ${alert.bestMatch.product.name} (${alert.bestMatch.product.sku}) before deciding.`
+        : 'Review the official identifiers and decide whether this alert relates to your catalogue.',
+      meta: `${alert.sourceReference} · ${alert.bestMatch ? `${alert.bestMatch.totalScore}% confidence` : 'No catalogue candidate'}`,
+      href: '/review',
+      actionLabel: 'Review match'
+    }));
+  const caseAttention = unfinishedCaseRows.flatMap<DashboardAttentionItem>((row) => {
+    const caseTasks = taskRows.filter((task) => task.caseId === row.caseRecord.id);
+    const actionableTasks = caseTasks.filter((task) => task.status !== 'not_available');
+    const pendingTasks = actionableTasks.filter((task) => task.status === 'pending').length;
+    const draftCount = pendingDraftRows.filter((draft) => draft.caseId === row.caseRecord.id).length;
+    const items: DashboardAttentionItem[] = [];
+
+    if (draftCount > 0) {
+      items.push({
+        id: `approval-${row.caseRecord.id}`,
+        kind: 'approval',
+        label: 'Human approval',
+        title: `${draftCount} action draft${draftCount === 1 ? '' : 's'} await approval`,
+        description: `${row.caseRecord.caseNumber} · ${row.alert.productName}`,
+        meta: 'No external message has been sent.',
+        href: `/actions?case=${row.caseRecord.id}`,
+        actionLabel: 'Review drafts'
+      });
+    }
+
+    items.push({
+      id: `case-${row.caseRecord.id}`,
+      kind: 'case',
+      label: 'Containment case',
+      title: `${row.caseRecord.caseNumber} · ${row.alert.productName}`,
+      description:
+        pendingTasks > 0
+          ? `${pendingTasks} of ${actionableTasks.length} containment task${actionableTasks.length === 1 ? '' : 's'} still need action.`
+          : 'Available containment tasks are complete. Review the evidence and case status.',
+      meta: `${row.alert.sourceReference} · ${row.caseRecord.status === 'contained' ? 'Contained' : 'Open'}`,
+      href: `/cases/${row.caseRecord.id}`,
+      actionLabel: pendingTasks > 0 ? 'Continue case' : 'Review case'
+    });
+
+    return items;
+  });
+  const statusCount = (status: (typeof schema.alerts.$inferSelect)['status']): number =>
+    alerts.filter((alert) => alert.status === status).length;
+
   return {
     counters: {
-      newAlertsToday: valueCount(
-        database
-          .select({ id: schema.alerts.id })
-          .from(schema.alerts)
-          .where(
-            and(
-              gte(schema.alerts.createdAt, bounds.today),
-              lt(schema.alerts.createdAt, bounds.tomorrow)
-            )
-          )
-          .all()
-      ),
-      waitingForReview: valueCount(
-        database
-          .select({ id: schema.alerts.id })
-          .from(schema.alerts)
-          .where(eq(schema.alerts.status, 'needs_review'))
-          .all()
-      ),
-      openCases: valueCount(
-        database
-          .select({ id: schema.cases.id })
-          .from(schema.cases)
-          .where(eq(schema.cases.status, 'open'))
-          .all()
-      ),
-      closedThisMonth: valueCount(
-        database
-          .select({ id: schema.cases.id, closedAt: schema.cases.closedAt })
-          .from(schema.cases)
-          .where(
-            and(
-              gte(schema.cases.closedAt, bounds.month),
-              lt(schema.cases.closedAt, bounds.nextMonth)
-            )
-          )
-          .all()
-      )
+      waitingForReview: statusCount('needs_review'),
+      pendingApprovals: pendingDraftRows.length,
+      openCases: unfinishedCaseRows.filter((row) => row.caseRecord.status === 'open').length,
+      unfinishedCases: unfinishedCaseRows.length
     },
-    alerts: [...feed.values()]
+    archive: {
+      total: alerts.length,
+      matched: statusCount('matched'),
+      needsReview: statusCount('needs_review'),
+      notRelevant: statusCount('not_relevant'),
+      lastImportedAt: rows[0]?.alert.createdAt ?? null,
+      catalogueProducts:
+        database.select({ value: count() }).from(schema.products).get()?.value ?? 0
+    },
+    attention: [...reviewAttention, ...caseAttention],
+    alerts
   };
 }
 

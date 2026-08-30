@@ -60,7 +60,7 @@ export const actions: Actions = {
         caseId: result.caseId,
         caseNumber: result.caseNumber,
         message: result.changed
-          ? `Match confirmed. ${result.caseNumber} is ready for incident response.`
+          ? `Match confirmed. ${result.caseNumber} is ready with containment tasks and unsent action drafts.`
           : `This match was already confirmed in ${result.caseNumber}.`
       };
     } catch (error) {
@@ -88,7 +88,7 @@ export const actions: Actions = {
         kind: 'reject' as const,
         success: true as const,
         message: result.changed
-          ? 'Match rejected and recorded in the audit log.'
+          ? 'Match rejected. The alert is marked not relevant to your catalogue, and the decision was recorded.'
           : 'This match was already rejected.'
       };
     } catch (error) {
@@ -117,7 +117,7 @@ export const actions: Actions = {
         kind: 'evidence' as const,
         success: true as const,
         message: result.changed
-          ? 'Evidence request and unsent supplier draft created.'
+          ? 'Evidence request recorded. An unsent supplier draft was created; no message was sent.'
           : 'An evidence request already exists for this match.'
       };
     } catch (error) {

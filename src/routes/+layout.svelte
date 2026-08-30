@@ -23,6 +23,12 @@
       activePrefixes: ['/dashboard']
     },
     {
+      label: 'Catalogue',
+      href: '/catalogue',
+      icon: 'package',
+      activePrefixes: ['/catalogue']
+    },
+    {
       label: 'Review Queue',
       href: '/review',
       icon: 'scan-search',
@@ -71,16 +77,7 @@
           <span>Recall Agent</span>
         </a>
 
-        <div class="app-header__content">
-          <div class="app-header__primary">
-            <a class="header-task" href="/review">
-              <span class="header-task__label">Demo workflow</span>
-              <span class="header-task__copy">Review the uncertain catalogue match</span>
-            </a>
-
-            <a class="header-view-all" href="/review">View all</a>
-          </div>
-
+        <div class="app-header__content app-header__content--compact">
           <div class="app-header__tools">
             <a class="icon-button" href="/onboarding" aria-label="Help and demo setup" title="Help and demo setup">
               <Icon name="circle-help" size={18} />
@@ -120,16 +117,6 @@
               <Icon name="sparkles" size={17} />
               <span>Demo Setup</span>
             </a>
-
-            <div class="human-approval">
-              <div class="human-approval__title">
-                <Icon name="shield-check" size={16} />
-                <span>Human approval active</span>
-              </div>
-              <p class="human-approval__copy">
-                Critical actions cannot be sent without confirmation.
-              </p>
-            </div>
           </div>
         </nav>
       </aside>
