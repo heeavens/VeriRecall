@@ -4,10 +4,12 @@
   import type { PageProps } from './$types';
 
   type EvidenceType = 'barcode_photo' | 'supplier_invoice' | 'batch_label_photo';
+  type DecisionType = 'confirm' | 'reject';
 
   let { data, form }: PageProps = $props();
 
-  let actorName = $state('Herman');
+  const actorName = 'Herman';
+  let decisionOpen = $state<DecisionType | null>(null);
   let evidenceOpen = $state(false);
   let selectedEvidence = $state<EvidenceType[]>([]);
 
@@ -57,26 +59,49 @@
   }
 
   function matchStatusLabel(status: string): string {
-    return status === 'awaiting_evidence' ? 'Awaiting Evidence' : 'Needs Review';
+    return status === 'awaiting_evidence' ? 'Evidence requested' : 'Needs review';
   }
 
-  function signalTextClass(tone: string): string {
-    if (tone === 'positive') return 'text-[#2aa96b]';
-    if (tone === 'conflict') return 'text-[#e14f55]';
-    if (tone === 'missing') return 'text-[#df8b31]';
-    return 'text-[#787280]';
+  function signalToneLabel(tone: string): string {
+    if (tone === 'positive') return 'Match';
+    if (tone === 'conflict') return 'Conflict';
+    if (tone === 'missing') return 'Missing';
+    return 'Weak signal';
   }
 
-  function signalBarClass(tone: string): string {
-    if (tone === 'positive') return 'bg-[#2aa96b]';
-    if (tone === 'conflict') return 'bg-[#e14f55]';
-    if (tone === 'missing') return 'bg-[#df8b31]';
-    return 'bg-[#a9a3ae]';
+  function uncertaintySummary(): string {
+    if (!selected) return '';
+    const hasConflict = selected.signals.some((signal) => signal.tone === 'conflict');
+    const hasMissing = selected.signals.some((signal) => signal.tone === 'missing');
+    if (hasConflict && hasMissing) {
+      return 'A key identifier conflicts between the two records, and another identity value cannot be compared.';
+    }
+    if (hasConflict) {
+      return 'A key identifier conflicts between the official warning and the catalogue record.';
+    }
+    if (hasMissing) {
+      return 'One or more identity values are missing, so the records cannot be compared completely.';
+    }
+    return 'The available identity signals do not provide enough support for an automatic decision.';
   }
 
-  function openEvidence(type?: EvidenceType): void {
-    if (!selected) return;
-    selectedEvidence = type ? [type] : [...selected.recommendedEvidence];
+  function evidenceOption(type: EvidenceType) {
+    return evidenceOptions.find((option) => option.type === type);
+  }
+
+  function openDecision(type: DecisionType): void {
+    evidenceOpen = false;
+    decisionOpen = type;
+  }
+
+  function closeDecision(): void {
+    decisionOpen = null;
+  }
+
+  function openEvidence(): void {
+    if (!selected || selected.match.status === 'awaiting_evidence') return;
+    decisionOpen = null;
+    selectedEvidence = [...selected.recommendedEvidence];
     evidenceOpen = true;
   }
 
@@ -85,7 +110,9 @@
   }
 
   function handleEscape(event: KeyboardEvent): void {
-    if (event.key === 'Escape') closeEvidence();
+    if (event.key !== 'Escape') return;
+    closeDecision();
+    closeEvidence();
   }
 </script>
 
@@ -100,347 +127,321 @@
 <svelte:window onkeydown={handleEscape} />
 
 {#if form?.message}
-  <div
-    class={`mb-4 flex items-start gap-2 rounded-[10px] border px-3.5 py-3 text-[10px] ${form.success ? 'border-[#d7f2e3] bg-[#f4fcf7] text-[#268d5c]' : 'border-[#ffd9db] bg-[#fff8f8] text-[#a7353b]'}`}
-    role="status"
-  >
-    <Icon name={form.success ? 'circle-check-big' : 'triangle-alert'} size={15} />
-    <span class="leading-4">{form.message}</span>
+  <div class:review-notice--error={!form.success} class="review-notice" role="status">
+    <span class="review-notice__icon">
+      <Icon name={form.success ? 'circle-check-big' : 'triangle-alert'} size={17} />
+    </span>
+    <span>{form.message}</span>
     {#if form.success && form.kind === 'confirm' && form.caseId}
-      <a class="ml-auto shrink-0 font-semibold underline" href={`/cases/${form.caseId}`}>Open case</a>
+      <a href={`/cases/${form.caseId}`}>Open case <Icon name="arrow-right" size={14} /></a>
+    {:else if form.success && form.kind === 'evidence'}
+      <a href="/actions">Open drafts <Icon name="arrow-right" size={14} /></a>
     {/if}
   </div>
 {/if}
 
 {#if selected}
   <section aria-labelledby="review-title">
-    <nav class="mb-3 flex items-center gap-1.5 text-[10px] font-semibold text-violet-600" aria-label="Breadcrumb">
-      <span>Review Queue</span>
-      <span aria-hidden="true">→</span>
-      <span>{matchLabel(selected.match.id)}</span>
-    </nav>
-
-    <div class="mb-5 flex items-start justify-between gap-5">
+    <header class="review-heading">
       <div>
-        <div class="flex flex-wrap items-center gap-2">
-          <h1 id="review-title" class="text-[23px] font-bold tracking-[-.03em]">
-            {selected.alert.productName}
-          </h1>
-          <span class={`badge ${selected.match.status === 'awaiting_evidence' ? 'badge-yellow' : 'badge-blue'}`}>
+        <div class="review-heading__title">
+          <h1 id="review-title">Review product identity</h1>
+          <span
+            class={`badge ${selected.match.status === 'awaiting_evidence' ? 'badge-yellow' : 'badge-orange'}`}
+          >
             {matchStatusLabel(selected.match.status)}
           </span>
-          <span class="badge badge-red">{selected.alert.risk}</span>
         </div>
-        <div class="mt-2 flex flex-wrap gap-x-8 gap-y-1 text-[10px] text-muted">
-          <span>Alert: <b class="text-ink">{selected.alert.sourceReference}</b></span>
-          <span>Source: <b class="text-ink">{sourceLabel(selected.alert.source)}</b></span>
-          <span>Published: <b class="text-ink">{formatDate(selected.alert.publishedAt)}</b></span>
-          <span>Queue: <b class="text-ink">{data.selectedIndex + 1} of {data.items.length}</b></span>
+        <p>Compare the official warning with your catalogue record before taking action.</p>
+        <div class="review-heading__meta">
+          <span>{sourceLabel(selected.alert.source)} · {selected.alert.sourceReference}</span>
+          <span>Published {formatDate(selected.alert.publishedAt)}</span>
+          <span class="review-heading__reference">Internal reference · {matchLabel(selected.match.id)}</span>
         </div>
       </div>
 
-      <div class="flex shrink-0 items-center gap-2">
-        <form method="POST" action="?/reject">
-          <input type="hidden" name="matchId" value={selected.match.id} />
-          <input type="hidden" name="actorName" value={actorName} />
-          <button class="btn btn-secondary" type="submit">
-            <Icon name="x" size={16} />
-            Reject Match
-          </button>
-        </form>
-        <button
-          class="btn btn-ghost"
-          type="button"
-          onclick={() => openEvidence()}
-          disabled={selected.match.status === 'awaiting_evidence'}
-        >
-          <Icon name="file-text" size={16} />
-          {selected.match.status === 'awaiting_evidence' ? 'Evidence Requested' : 'Request Evidence'}
-        </button>
-        <form method="POST" action="?/confirm">
-          <input type="hidden" name="matchId" value={selected.match.id} />
-          <input type="hidden" name="actorName" value={actorName} />
-          <button class="btn btn-primary" type="submit">
-            <Icon name="check" size={16} />
-            Confirm Match
-          </button>
-        </form>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-12 gap-4">
-      <div class="col-span-8 space-y-4">
-        <div class="grid grid-cols-2 gap-4">
-          <article class="card overflow-hidden">
-            <header class="flex min-h-16 items-center justify-between gap-3 border-b border-line bg-[#fffafb] px-4 py-3">
-              <div>
-                <span class="text-[9px] font-semibold tracking-[.14em] text-[#e14f55] uppercase">Official Alert</span>
-                <h2 class="mt-1 text-[14px] font-bold">{sourceLabel(selected.alert.source)} Record</h2>
-              </div>
-              <span class="badge badge-red">{selected.alert.risk}</span>
-            </header>
-            <div class="p-4">
-              <div class="mb-4 flex gap-3">
-                <div class="grid h-20 w-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-[#f5e9fb] to-[#e2d2ff]">
-                  {#if selected.alert.imageUrl}
-                    <img
-                      class="h-full w-full object-contain p-2"
-                      src={selected.alert.imageUrl}
-                      alt={`${selected.alert.productName} from the official alert`}
-                    />
-                  {:else}
-                    <Icon name="triangle-alert" size={34} class="text-violet-600" />
-                  {/if}
-                </div>
-                <div class="min-w-0">
-                  <h3 class="text-[13px] font-bold">{selected.alert.productName}</h3>
-                  <p class="mt-1 line-clamp-3 text-[9px] leading-4 text-muted">{selected.alert.description}</p>
-                  <a
-                    class="mt-2 inline-flex items-center gap-1 text-[9px] font-semibold text-violet-600 hover:underline"
-                    href={selected.alert.sourceUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    View official source
-                    <Icon name="external-link" size={12} />
-                  </a>
-                </div>
-              </div>
-              <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-[10px]">
-                <div><dt class="text-muted">Brand</dt><dd class="mt-1 font-semibold">{selected.alert.brand ?? 'Not provided'}</dd></div>
-                <div><dt class="text-muted">Alert title</dt><dd class="mt-1 font-semibold">{selected.alert.title}</dd></div>
-                <div><dt class="text-muted">EAN / GTIN</dt><dd class="mt-1 font-semibold">{selected.alert.ean ?? 'Not provided'}</dd></div>
-                <div><dt class="text-muted">Batch / lot</dt><dd class="mt-1 font-semibold">{selected.alert.batch ?? 'Not provided'}</dd></div>
-                <div><dt class="text-muted">Category</dt><dd class="mt-1 font-semibold">{selected.alert.category ?? 'Not provided'}</dd></div>
-                <div><dt class="text-muted">Published</dt><dd class="mt-1 font-semibold">{formatDate(selected.alert.publishedAt)}</dd></div>
-              </dl>
-            </div>
-          </article>
-
-          <article class="card overflow-hidden">
-            <header class="flex min-h-16 items-center justify-between gap-3 border-b border-line bg-violet-50 px-4 py-3">
-              <div>
-                <span class="text-[9px] font-semibold tracking-[.14em] text-violet-600 uppercase">Catalogue Candidate</span>
-                <h2 class="mt-1 text-[14px] font-bold">Your Product Record</h2>
-              </div>
-              <span class="badge badge-purple">{selected.product.sku}</span>
-            </header>
-            <div class="p-4">
-              <div class="mb-4 flex gap-3">
-                <div class="grid h-20 w-24 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#eee5ff] to-[#d1b8ff] text-violet-700">
-                  <Icon name="package" size={34} />
-                </div>
-                <div class="min-w-0">
-                  <h3 class="text-[13px] font-bold">{selected.product.name}</h3>
-                  <p class="mt-1 text-[9px] leading-4 text-muted">
-                    {selected.product.supplierName ?? 'Supplier not provided'}. {selected.product.stockQuantity} units currently registered.
-                  </p>
-                  <span class="mt-2 inline-flex text-[9px] font-semibold text-violet-600">
-                    {selected.affectedPurchaseCount} affected purchase {selected.affectedPurchaseCount === 1 ? 'record' : 'records'}
-                  </span>
-                </div>
-              </div>
-              <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-[10px]">
-                <div><dt class="text-muted">Brand</dt><dd class="mt-1 font-semibold">{selected.product.brand}</dd></div>
-                <div><dt class="text-muted">Category</dt><dd class="mt-1 font-semibold">{selected.product.category ?? 'Not provided'}</dd></div>
-                <div><dt class="text-muted">EAN / GTIN</dt><dd class={`mt-1 font-semibold ${selected.match.hasHardConflict ? 'text-[#e14f55]' : ''}`}>{selected.product.ean ?? 'Not provided'}</dd></div>
-                <div><dt class="text-muted">Batch / lot</dt><dd class={`mt-1 font-semibold ${!selected.product.batch ? 'text-[#df8b31]' : ''}`}>{selected.product.batch ?? 'Missing'}</dd></div>
-                <div><dt class="text-muted">Supplier</dt><dd class="mt-1 font-semibold">{selected.product.supplierName ?? 'Not provided'}</dd></div>
-                <div><dt class="text-muted">Available stock</dt><dd class="mt-1 font-semibold">{selected.product.stockQuantity} units</dd></div>
-              </dl>
-            </div>
-          </article>
-        </div>
-
-        <article class="card p-5">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <h2 class="text-[15px] font-bold">Score Breakdown</h2>
-              <p class="mt-1 text-[10px] text-muted">Deterministic weighted identity comparison.</p>
-            </div>
-            <div class="text-right">
-              <span class="text-[26px] font-bold text-violet-700">{selected.match.totalScore}%</span>
-              <span class="ml-1 text-[10px] text-muted">confidence</span>
-            </div>
-          </div>
-          <div class="mt-5 grid grid-cols-2 gap-x-8 gap-y-4">
-            {#each selected.signals as signal}
-              <div>
-                <div class="mb-1.5 flex justify-between gap-3 text-[10px]">
-                  <span class="font-semibold">{signal.label}</span>
-                  <span class={signalTextClass(signal.tone)}>{signal.earned}/{signal.maximum}</span>
-                </div>
-                <div class="progress-track h-[6px]">
-                  <div
-                    class={`progress-value ${signalBarClass(signal.tone)}`}
-                    style={`width:${Math.round((signal.earned / signal.maximum) * 100)}%`}
-                  ></div>
-                </div>
-                <p class={`mt-1.5 text-[9px] ${signalTextClass(signal.tone)}`}>{signal.detail}</p>
-              </div>
-            {/each}
-          </div>
-        </article>
-
-        <article class="card p-5">
-          <div class="flex items-start gap-3">
-            <span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#ffedc9] text-[#bf7f19]">
-              <Icon name="triangle-alert" size={16} />
-            </span>
-            <div class="min-w-0 flex-1">
-              <h2 class="text-[14px] font-bold">Why the agent is uncertain</h2>
-              <p class="mt-1 text-[10px] leading-4 text-muted">{selected.match.explanation}</p>
-            </div>
-          </div>
-          <div class="mt-4 grid grid-cols-2 gap-3">
-            <div class="rounded-xl bg-[#f4fcf7] p-4">
-              <h3 class="flex items-center gap-2 text-[10px] font-bold text-[#268d5c]">
-                <Icon name="check" size={14} /> Positive signals
-              </h3>
-              <ul class="mt-2 space-y-1.5 text-[9px] leading-4 text-[#44735c]">
-                {#each selected.positiveReasons as reason}
-                  <li>• {reason}</li>
-                {/each}
-              </ul>
-            </div>
-            <div class="rounded-xl bg-[#fff9e9] p-4">
-              <h3 class="flex items-center gap-2 text-[10px] font-bold text-[#a77026]">
-                <Icon name="triangle-alert" size={14} /> Conflicting or missing
-              </h3>
-              <ul class="mt-2 space-y-1.5 text-[9px] leading-4 text-[#7b6848]">
-                {#each selected.uncertaintyReasons as reason}
-                  <li>• {reason}</li>
-                {/each}
-              </ul>
-            </div>
-          </div>
-        </article>
-      </div>
-
-      <aside class="col-span-4 space-y-4">
-        <article class="card p-4">
-          <div class="flex items-center justify-between gap-3">
-            <h2 class="text-[14px] font-bold">Decision Summary</h2>
-            <span class={`badge ${selected.match.status === 'awaiting_evidence' ? 'badge-yellow' : 'badge-blue'}`}>
-              {matchStatusLabel(selected.match.status)}
-            </span>
-          </div>
-          <div class="mt-4 rounded-xl bg-violet-50 p-4 text-center">
-            <div
-              class="mx-auto grid h-16 w-16 place-items-center rounded-full p-[7px]"
-              style={`background:conic-gradient(#7542dd ${selected.match.totalScore}%,#e4d3ff 0)`}
-            >
-              <span class="grid h-full w-full place-items-center rounded-full bg-white text-[16px] font-bold text-violet-700">{selected.match.totalScore}%</span>
-            </div>
-            <p class="mt-2 text-[10px] font-semibold">Human decision required</p>
-          </div>
-          <dl class="mt-4 space-y-3 text-[10px]">
-            <div class="flex justify-between"><dt class="text-muted">Automatic threshold</dt><dd class="font-semibold">{selected.threshold}%</dd></div>
-            <div class="flex justify-between"><dt class="text-muted">Hard conflict</dt><dd class={`font-semibold ${selected.match.hasHardConflict ? 'text-[#e14f55]' : ''}`}>{selected.match.hasHardConflict ? 'Detected' : 'No'}</dd></div>
-            <div class="flex justify-between"><dt class="text-muted">Potentially affected</dt><dd class="font-semibold">{selected.product.stockQuantity} units</dd></div>
-            <div class="flex justify-between"><dt class="text-muted">Customer records</dt><dd class="font-semibold">{selected.affectedPurchaseCount}</dd></div>
-          </dl>
-          <label class="mt-4 block border-t border-line pt-4" for="reviewer-name">
-            <span class="label">Reviewer name</span>
-            <input id="reviewer-name" class="input-ui" bind:value={actorName} maxlength="80" />
-          </label>
-        </article>
-
-        <article class="card p-4">
-          <div class="flex items-center justify-between gap-3">
-            <h2 class="text-[14px] font-bold">Recommended Evidence</h2>
-            {#if selected.evidenceRequest}
-              <span class="text-[9px] font-semibold text-[#be8420]">Request pending</span>
-            {/if}
-          </div>
-          <div class="mt-3 space-y-2">
-            {#each evidenceOptions as option}
-              <button
-                class="flex w-full items-center gap-3 rounded-lg border border-line p-3 text-left transition hover:border-violet-200 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60"
-                type="button"
-                onclick={() => openEvidence(option.type)}
-                disabled={selected.match.status === 'awaiting_evidence'}
-              >
-                <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-violet-50 text-violet-600">
-                  <Icon name={option.icon} size={16} />
-                </span>
-                <span class="min-w-0">
-                  <b class="block text-[10px]">{option.title}</b>
-                  <span class="text-[9px] text-muted">{option.detail}</span>
-                </span>
-                <Icon name="chevron-right" size={14} class="ml-auto shrink-0" />
-              </button>
-            {/each}
-          </div>
-          {#if selected.evidenceRequest}
-            <p class="mt-3 rounded-lg bg-[#fff9e9] p-3 text-[9px] leading-4 text-[#7b6848]">
-              Requested: {selected.evidenceRequest.requestedEvidence
-                .map((type) => evidenceOptions.find((option) => option.type === type)?.title ?? type)
-                .join(', ')}. The supplier draft remains unsent.
-            </p>
+      {#if data.items.length > 1}
+        <nav class="queue-switcher" aria-label="Review queue navigation">
+          {#if data.previousMatchId}
+            <a href={`/review?match=${data.previousMatchId}`} aria-label="Previous review item">
+              <Icon name="chevron-left" size={15} />
+            </a>
+          {:else}
+            <button type="button" disabled aria-label="No previous review item">
+              <Icon name="chevron-left" size={15} />
+            </button>
           {/if}
-        </article>
+          <span>{data.selectedIndex + 1} of {data.items.length}</span>
+          {#if data.nextMatchId}
+            <a href={`/review?match=${data.nextMatchId}`} aria-label="Next review item">
+              <Icon name="chevron-right" size={15} />
+            </a>
+          {:else}
+            <button type="button" disabled aria-label="No next review item">
+              <Icon name="chevron-right" size={15} />
+            </button>
+          {/if}
+        </nav>
+      {/if}
+    </header>
 
-        <article class="card p-4">
-          <div class="flex items-center justify-between">
-            <h2 class="text-[14px] font-bold">Queue Navigation</h2>
-            <span class="text-[9px] text-muted">{data.items.length} open</span>
+    <article class="card confidence-context">
+      <div class="confidence-context__score" aria-label={`${selected.match.totalScore}% match confidence`}>
+        <strong>{selected.match.totalScore}%</strong>
+        <span>match confidence</span>
+      </div>
+      <div class="confidence-context__copy">
+        <span>Why this needs review</span>
+        <h2>Identity is not certain enough for an automatic decision</h2>
+        <p>{uncertaintySummary()}</p>
+        <small>
+          The score is below the {selected.threshold}% automatic threshold. Review the signals
+          below and choose a human-controlled outcome.
+        </small>
+      </div>
+    </article>
+
+    <div class="comparison-grid">
+      <article class="card comparison-card comparison-card--official">
+        <header>
+          <div>
+            <span>Official alert</span>
+            <h2>{sourceLabel(selected.alert.source)} record</h2>
           </div>
-          <div class="mt-3 flex gap-2">
-            {#if data.previousMatchId}
-              <a class="btn btn-secondary flex-1" href={`/review?match=${data.previousMatchId}`}>
-                <Icon name="chevron-left" size={14} /> Previous
+          <span class="badge badge-red">{selected.alert.risk}</span>
+        </header>
+        <div class="comparison-card__body">
+          <div class="record-summary">
+            <div class="record-summary__image">
+              {#if selected.alert.imageUrl}
+                <img
+                  src={selected.alert.imageUrl}
+                  alt={`${selected.alert.productName} from the official alert`}
+                />
+              {:else}
+                <Icon name="triangle-alert" size={30} />
+              {/if}
+            </div>
+            <div>
+              <h3>{selected.alert.productName}</h3>
+              <p>{selected.alert.description}</p>
+              <a href={selected.alert.sourceUrl} target="_blank" rel="noreferrer">
+                View official source <Icon name="external-link" size={12} />
               </a>
-            {:else}
-              <button class="btn btn-secondary flex-1" type="button" disabled>
-                <Icon name="chevron-left" size={14} /> Previous
-              </button>
-            {/if}
-            {#if data.nextMatchId}
-              <a class="btn btn-secondary flex-1" href={`/review?match=${data.nextMatchId}`}>
-                Next <Icon name="chevron-right" size={14} />
-              </a>
-            {:else}
-              <button class="btn btn-secondary flex-1" type="button" disabled>
-                Next <Icon name="chevron-right" size={14} />
-              </button>
-            {/if}
+            </div>
           </div>
-        </article>
-      </aside>
+          <dl class="record-fields">
+            <div><dt>Brand</dt><dd>{selected.alert.brand ?? 'Not provided'}</dd></div>
+            <div><dt>Category</dt><dd>{selected.alert.category ?? 'Not provided'}</dd></div>
+            <div>
+              <dt>EAN / GTIN</dt>
+              <dd class:comparison-value--conflict={selected.match.hasHardConflict}>
+                {selected.alert.ean ?? 'Not provided'}
+              </dd>
+            </div>
+            <div><dt>Batch / lot</dt><dd>{selected.alert.batch ?? 'Not provided'}</dd></div>
+          </dl>
+        </div>
+      </article>
+
+      <article class="card comparison-card comparison-card--catalogue">
+        <header>
+          <div>
+            <span>Catalogue candidate</span>
+            <h2>Your product record</h2>
+          </div>
+          <span class="catalogue-sku">{selected.product.sku}</span>
+        </header>
+        <div class="comparison-card__body">
+          <div class="record-summary">
+            <div class="record-summary__image"><Icon name="package" size={30} /></div>
+            <div>
+              <h3>{selected.product.name}</h3>
+              <p>
+                {selected.product.supplierName ?? 'Supplier not provided'} ·
+                {selected.product.stockQuantity} units in stock
+              </p>
+              <span>
+                {selected.affectedPurchaseCount} customer purchase
+                {selected.affectedPurchaseCount === 1 ? ' record' : ' records'}
+              </span>
+            </div>
+          </div>
+          <dl class="record-fields">
+            <div><dt>Brand</dt><dd>{selected.product.brand}</dd></div>
+            <div><dt>Category</dt><dd>{selected.product.category ?? 'Not provided'}</dd></div>
+            <div>
+              <dt>EAN / GTIN</dt>
+              <dd class:comparison-value--conflict={selected.match.hasHardConflict}>
+                {selected.product.ean ?? 'Not provided'}
+              </dd>
+            </div>
+            <div>
+              <dt>Batch / lot</dt>
+              <dd class:comparison-value--missing={!selected.product.batch}>
+                {selected.product.batch ?? 'Missing from catalogue'}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </article>
     </div>
+
+    <article class="card signal-panel">
+      <header>
+        <div>
+          <h2>Identity signals</h2>
+          <p>Green supports the match; red conflicts; amber means evidence is missing.</p>
+        </div>
+        <span>Weighted total: 100 points</span>
+      </header>
+      <div class="signal-grid">
+        {#each selected.signals as signal}
+          <div class={`signal-item signal-item--${signal.tone}`}>
+            <div class="signal-item__heading">
+              <span>{signalToneLabel(signal.tone)}</span>
+              <strong>{signal.earned}/{signal.maximum}</strong>
+            </div>
+            <h3>{signal.label}</h3>
+            <p>{signal.detail}</p>
+            <div class="signal-track" aria-hidden="true">
+              <span style={`width:${Math.round((signal.earned / signal.maximum) * 100)}%`}></span>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </article>
+
+    <article class="card decision-panel">
+      <header>
+        <h2>Choose a human-controlled outcome</h2>
+        <p>Reviewer: {actorName}. Every decision is recorded with a UTC timestamp.</p>
+      </header>
+      <div class="decision-grid">
+        <section class="decision-option decision-option--reject">
+          <span class="decision-option__icon"><Icon name="x" size={18} /></span>
+          <h3>Not the same product</h3>
+          <p>Marks this alert as not relevant to your catalogue. No recall case is created.</p>
+          <button class="btn btn-danger" type="button" onclick={() => openDecision('reject')}>
+            Reject match
+          </button>
+        </section>
+
+        <section class="decision-option decision-option--evidence">
+          <span class="decision-option__icon"><Icon name="file-text" size={18} /></span>
+          <h3>{selected.evidenceRequest ? 'Evidence requested' : 'Identity still uncertain'}</h3>
+          {#if selected.evidenceRequest}
+            <p>The match stays in review. The supplier request is a draft and has not been sent.</p>
+            <div class="evidence-chips" aria-label="Requested evidence">
+              {#each selected.evidenceRequest.requestedEvidence as type}
+                <span>{evidenceOption(type)?.title ?? type}</span>
+              {/each}
+            </div>
+            <button class="btn btn-secondary" type="button" disabled>Request already recorded</button>
+          {:else}
+            <p>Creates an unsent supplier draft and keeps the product identity open for review.</p>
+            <div class="evidence-chips" aria-label="Recommended evidence">
+              {#each selected.recommendedEvidence as type}
+                <span>{evidenceOption(type)?.title ?? type}</span>
+              {/each}
+            </div>
+            <button class="btn btn-secondary" type="button" onclick={openEvidence}>
+              Request evidence
+            </button>
+          {/if}
+        </section>
+
+        <section class="decision-option decision-option--confirm">
+          <span class="decision-option__icon"><Icon name="check" size={18} /></span>
+          <h3>Same product</h3>
+          <p>Opens a recall case with affected stock, containment tasks and unsent action drafts.</p>
+          <button class="btn btn-primary" type="button" onclick={() => openDecision('confirm')}>
+            Confirm match
+          </button>
+        </section>
+      </div>
+    </article>
   </section>
 {:else}
   <section aria-labelledby="review-empty-title">
-    <header class="mb-5">
-      <h1 id="review-empty-title" class="text-[24px] font-bold tracking-[-.035em]">Review Queue</h1>
-      <p class="mt-1 text-[12px] text-muted">Review uncertain catalogue matches before opening a recall case.</p>
+    <header class="review-empty-heading">
+      <h1 id="review-empty-title">Review Queue</h1>
+      <p>Review uncertain catalogue matches before opening a recall case.</p>
     </header>
-    <div class="card grid min-h-[430px] place-items-center p-8 text-center">
-      <div class="max-w-[390px]">
-        <span class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#ecfbf3] text-[#2aa96b]">
-          <Icon name="circle-check-big" size={20} />
-        </span>
-        <h2 class="mt-4 text-[16px] font-bold">Review queue is clear</h2>
-        <p class="mt-2 text-[10px] leading-5 text-muted">
-          There are no uncertain catalogue matches waiting for a human decision.
-        </p>
-        <a class="btn btn-ghost mt-5" href="/dashboard">Return to Overview</a>
-      </div>
+    <div class="card review-empty">
+      <span><Icon name="circle-check-big" size={22} /></span>
+      <h2>Review queue is clear</h2>
+      <p>There are no uncertain catalogue matches waiting for a human decision.</p>
+      <a class="btn btn-secondary" href="/dashboard">Return to Overview</a>
     </div>
   </section>
+{/if}
+
+{#if decisionOpen && selected}
+  <div class="modal-backdrop show">
+    <button
+      class="modal-dismiss"
+      type="button"
+      aria-label="Close decision confirmation"
+      onclick={closeDecision}
+    ></button>
+    <div
+      class="modal-panel decision-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="decision-dialog-title"
+      tabindex="-1"
+    >
+      <header>
+        <span class:decision-dialog__icon--reject={decisionOpen === 'reject'}>
+          <Icon name={decisionOpen === 'confirm' ? 'check' : 'x'} size={20} />
+        </span>
+        <div>
+          <h2 id="decision-dialog-title">
+            {decisionOpen === 'confirm' ? 'Confirm this catalogue match?' : 'Reject this catalogue match?'}
+          </h2>
+          <p>This decision will be recorded as {actorName}.</p>
+        </div>
+        <button class="icon-button" type="button" aria-label="Close" onclick={closeDecision}>
+          <Icon name="x" size={16} />
+        </button>
+      </header>
+      <div class="decision-dialog__body">
+        <div class="decision-dialog__records">
+          <div><span>Official alert</span><strong>{selected.alert.productName}</strong></div>
+          <Icon name="arrow-right" size={16} />
+          <div><span>Catalogue product</span><strong>{selected.product.name}</strong></div>
+        </div>
+        <p class:decision-dialog__warning={decisionOpen === 'reject'}>
+          {decisionOpen === 'confirm'
+            ? 'A case will be opened or reused, affected stock will be added, and containment tasks plus unsent action drafts will be prepared. Nothing is sent automatically.'
+            : 'The alert will be marked not relevant to your catalogue and no new recall case will be created. This does not change the official source warning.'}
+        </p>
+      </div>
+      <footer>
+        <button class="btn btn-secondary" type="button" onclick={closeDecision}>Cancel</button>
+        <form method="POST" action={decisionOpen === 'confirm' ? '?/confirm' : '?/reject'}>
+          <input type="hidden" name="matchId" value={selected.match.id} />
+          <input type="hidden" name="actorName" value={actorName} />
+          <button class={decisionOpen === 'confirm' ? 'btn btn-primary' : 'btn btn-danger'} type="submit">
+            {decisionOpen === 'confirm' ? 'Confirm and open case' : 'Reject match'}
+          </button>
+        </form>
+      </footer>
+    </div>
+  </div>
 {/if}
 
 {#if evidenceOpen && selected}
   <div class="modal-backdrop show">
     <button
-      class="absolute inset-0 cursor-default"
+      class="modal-dismiss"
       type="button"
       aria-label="Close evidence request"
       onclick={closeEvidence}
     ></button>
     <div
-      class="modal-panel relative z-[1]"
+      class="modal-panel evidence-dialog"
       role="dialog"
       aria-modal="true"
       aria-labelledby="evidence-title"
@@ -449,80 +450,985 @@
       <form method="POST" action="?/requestEvidence">
         <input type="hidden" name="matchId" value={selected.match.id} />
         <input type="hidden" name="actorName" value={actorName} />
-        <div class="flex items-start justify-between border-b border-line p-5">
+        <header>
           <div>
-            <h2 id="evidence-title" class="text-[18px] font-bold">Request Supplier Evidence</h2>
-            <p class="mt-1 text-[10px] text-muted">Resolve uncertainty without confirming the recall match.</p>
+            <h2 id="evidence-title">Request supplier evidence</h2>
+            <p>Keep the identity open without confirming a recall match.</p>
           </div>
-          <button class="icon-button" type="button" aria-label="Close evidence request" onclick={closeEvidence}>
+          <button class="icon-button" type="button" aria-label="Close" onclick={closeEvidence}>
             <Icon name="x" size={16} />
           </button>
-        </div>
+        </header>
 
-        <div class="p-5">
-          <div class="mb-5 flex items-center gap-3 rounded-xl bg-violet-50 p-3">
-            <span class="grid h-10 w-10 place-items-center rounded-lg bg-white text-violet-600">
-              <Icon name="package" size={20} />
-            </span>
+        <div class="evidence-dialog__body">
+          <div class="evidence-dialog__product">
+            <span><Icon name="package" size={19} /></span>
             <div>
-              <b class="block text-[11px]">{selected.product.name}</b>
-              <span class="text-[9px] text-muted">{matchLabel(selected.match.id)} · {selected.product.supplierName ?? 'Supplier not provided'}</span>
+              <strong>{selected.product.name}</strong>
+              <small>{selected.product.sku} · {selected.product.supplierName ?? 'Supplier not provided'}</small>
             </div>
-            <span class="badge badge-red ml-auto">{selected.alert.risk}</span>
           </div>
 
           <fieldset>
-            <legend class="label">Evidence types</legend>
-            <div class="grid grid-cols-3 gap-3">
+            <legend>Evidence to request</legend>
+            <div class="evidence-options">
               {#each evidenceOptions as option}
-                <label class="cursor-pointer rounded-xl border border-line p-3 transition hover:border-violet-200 hover:bg-violet-50">
-                  <span class="flex items-start gap-2">
-                    <input
-                      class="mt-0.5 h-4 w-4 accent-[#7b49df]"
-                      type="checkbox"
-                      name="requestedEvidence"
-                      value={option.type}
-                      bind:group={selectedEvidence}
-                    />
-                    <span>
-                      <b class="block text-[10px]">{option.title}</b>
-                      <span class="mt-1 block text-[8px] leading-3 text-muted">{option.detail}</span>
-                    </span>
+                <label>
+                  <input
+                    type="checkbox"
+                    name="requestedEvidence"
+                    value={option.type}
+                    bind:group={selectedEvidence}
+                  />
+                  <span><Icon name={option.icon} size={16} /></span>
+                  <span>
+                    <strong>{option.title}</strong>
+                    <small>{option.detail}</small>
                   </span>
                 </label>
               {/each}
             </div>
           </fieldset>
 
-          <div class="mt-4 grid grid-cols-2 gap-4">
-            <label>
-              <span class="label">Supplier</span>
-              <input class="input-ui" value={selected.product.supplierName ?? 'Not provided'} disabled />
-            </label>
-            <label>
-              <span class="label">Recipient</span>
-              <input class="input-ui" value={selected.product.supplierEmail ?? 'Recipient required'} disabled />
-            </label>
-          </div>
-          <div class="mt-4 rounded-xl border border-line bg-[#fdfbff] p-4 text-[10px] leading-5 text-[#5f5968]">
-            The selected evidence will be saved as a supplier action <b>DRAFT — NOT SENT</b>.
-            No external email provider is connected.
+          <dl class="evidence-recipient">
+            <div><dt>Supplier</dt><dd>{selected.product.supplierName ?? 'Not provided'}</dd></div>
+            <div><dt>Recipient</dt><dd>{selected.product.supplierEmail ?? 'Recipient required'}</dd></div>
+          </dl>
+
+          <div class="evidence-safety">
+            <span class="evidence-safety__icon"><Icon name="shield-check" size={17} /></span>
+            <p>
+              Confirming creates a supplier action <strong>DRAFT — NOT SENT</strong>. No external
+              email provider is contacted.
+            </p>
           </div>
         </div>
 
-        <div class="flex items-center justify-between border-t border-line bg-[#fdfbff] px-5 py-4">
-          <span class="flex items-center gap-2 text-[9px] text-muted">
-            <Icon name="shield-check" size={16} class="text-violet-600" />
-            Recipient and request are recorded in the audit log.
-          </span>
-          <div class="flex gap-2">
+        <footer>
+          <span>Recorded as {actorName}</span>
+          <div>
             <button class="btn btn-secondary" type="button" onclick={closeEvidence}>Cancel</button>
             <button class="btn btn-primary" type="submit" disabled={selectedEvidence.length === 0}>
-              Confirm Request
+              Create unsent draft
             </button>
           </div>
-        </div>
+        </footer>
       </form>
     </div>
   </div>
 {/if}
+
+<style>
+  .review-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-bottom: 16px;
+    border: 1px solid #cdeedc;
+    border-radius: 10px;
+    background: #f4fcf7;
+    padding: 12px 14px;
+    color: #277c52;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .review-notice--error {
+    border-color: #f1d5d7;
+    background: #fff8f8;
+    color: #a7353b;
+  }
+
+  .review-notice__icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
+
+  .review-notice a {
+    display: inline-flex;
+    margin-left: auto;
+    align-items: center;
+    gap: 5px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .review-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 16px;
+  }
+
+  .review-heading__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .review-heading h1,
+  .review-empty-heading h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+  }
+
+  .review-heading > div > p,
+  .review-empty-heading p {
+    margin: 5px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .review-heading__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin-top: 8px;
+    color: #5f5968;
+    font-size: 10px;
+  }
+
+  .review-heading__reference {
+    color: #908a96;
+  }
+
+  .queue-switcher {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: #fff;
+    padding: 5px;
+  }
+
+  .queue-switcher a,
+  .queue-switcher button {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #625d69;
+  }
+
+  .queue-switcher a:hover {
+    background: var(--violet-50);
+    color: var(--violet-700);
+  }
+
+  .queue-switcher button:disabled {
+    color: #c7c2ca;
+  }
+
+  .queue-switcher span {
+    padding: 0 4px;
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .confidence-context {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+
+  .confidence-context__score {
+    display: grid;
+    min-height: 150px;
+    place-content: center;
+    background: #fff7e8;
+    padding: 18px;
+    color: #9a661c;
+    text-align: center;
+  }
+
+  .confidence-context__score strong,
+  .confidence-context__score span {
+    display: block;
+  }
+
+  .confidence-context__score strong {
+    font-size: 34px;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+
+  .confidence-context__score span {
+    margin-top: 7px;
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  .confidence-context__copy {
+    padding: 18px 20px 18px 0;
+  }
+
+  .confidence-context__copy > span {
+    color: #9a661c;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  .confidence-context__copy h2 {
+    margin: 4px 0 0;
+    font-size: 16px;
+  }
+
+  .confidence-context__copy p {
+    margin: 7px 0 0;
+    color: #514b58;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .confidence-context__copy small {
+    display: block;
+    margin-top: 7px;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .comparison-card {
+    overflow: hidden;
+  }
+
+  .comparison-card > header {
+    display: flex;
+    min-height: 66px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+    padding: 12px 16px;
+  }
+
+  .comparison-card--official > header {
+    background: #fffafb;
+  }
+
+  .comparison-card--catalogue > header {
+    background: #faf8fd;
+  }
+
+  .comparison-card > header > div > span {
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .comparison-card > header h2 {
+    margin: 3px 0 0;
+    font-size: 14px;
+  }
+
+  .catalogue-sku {
+    border-radius: 6px;
+    background: var(--violet-50);
+    padding: 5px 8px;
+    color: var(--violet-700);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .comparison-card__body {
+    padding: 16px;
+  }
+
+  .record-summary {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 13px;
+    min-height: 92px;
+  }
+
+  .record-summary__image {
+    display: grid;
+    width: 88px;
+    height: 82px;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 9px;
+    background: #f4edf8;
+    color: var(--violet-700);
+  }
+
+  .comparison-card--catalogue .record-summary__image {
+    background: #eee6fb;
+  }
+
+  .record-summary__image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 6px;
+  }
+
+  .record-summary h3 {
+    margin: 0;
+    font-size: 13px;
+  }
+
+  .record-summary p {
+    display: -webkit-box;
+    overflow: hidden;
+    margin: 5px 0 0;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+  }
+
+  .record-summary a,
+  .record-summary > div > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 6px;
+    color: var(--violet-700);
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  .record-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    margin: 14px 0 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .record-fields > div {
+    min-width: 0;
+    border-bottom: 1px solid #f0ecf4;
+    padding: 10px 8px 10px 0;
+  }
+
+  .record-fields > div:nth-child(odd) {
+    border-right: 1px solid #f0ecf4;
+    padding-right: 12px;
+  }
+
+  .record-fields > div:nth-child(even) {
+    padding-left: 12px;
+  }
+
+  .record-fields dt {
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .record-fields dd {
+    overflow: hidden;
+    margin: 4px 0 0;
+    font-size: 11px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .record-fields dd.comparison-value--conflict {
+    color: #b33c43;
+  }
+
+  .record-fields dd.comparison-value--missing {
+    color: #9a661c;
+  }
+
+  .signal-panel,
+  .decision-panel {
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+
+  .signal-panel > header,
+  .decision-panel > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--line);
+    padding: 15px 17px;
+  }
+
+  .signal-panel h2,
+  .decision-panel h2 {
+    margin: 0;
+    font-size: 15px;
+  }
+
+  .signal-panel > header p,
+  .decision-panel > header p {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .signal-panel > header > span {
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .signal-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .signal-item {
+    border: 1px solid #e7e3ea;
+    border-top: 3px solid #aaa4ae;
+    border-radius: 9px;
+    background: #fbfafc;
+    padding: 12px;
+  }
+
+  .signal-item--positive {
+    border-color: #cdeedc;
+    border-top-color: #2aa96b;
+    background: #f7fcf9;
+  }
+
+  .signal-item--conflict {
+    border-color: #f1d5d7;
+    border-top-color: #e14f55;
+    background: #fff9f9;
+  }
+
+  .signal-item--missing {
+    border-color: #f2dfbd;
+    border-top-color: #df8b31;
+    background: #fffbf4;
+  }
+
+  .signal-item__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .signal-item__heading span {
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .signal-item__heading strong {
+    font-size: 11px;
+  }
+
+  .signal-item h3 {
+    margin: 10px 0 0;
+    font-size: 12px;
+  }
+
+  .signal-item p {
+    min-height: 32px;
+    margin: 5px 0 0;
+    color: #625c68;
+    font-size: 9px;
+    line-height: 1.45;
+  }
+
+  .signal-track {
+    height: 4px;
+    margin-top: 10px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e9e5eb;
+  }
+
+  .signal-track span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #aaa4ae;
+  }
+
+  .signal-item--positive .signal-track span {
+    background: #2aa96b;
+  }
+
+  .signal-item--conflict .signal-track span {
+    background: #e14f55;
+  }
+
+  .signal-item--missing .signal-track span {
+    background: #df8b31;
+  }
+
+  .decision-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .decision-option {
+    display: flex;
+    min-height: 225px;
+    flex-direction: column;
+    align-items: flex-start;
+    border-right: 1px solid var(--line);
+    padding: 17px;
+  }
+
+  .decision-option:last-child {
+    border-right: 0;
+  }
+
+  .decision-option__icon {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border-radius: 9px;
+    background: #f3f2f5;
+    color: #716b7b;
+  }
+
+  .decision-option--reject .decision-option__icon {
+    background: #fff0f0;
+    color: #c7454c;
+  }
+
+  .decision-option--evidence .decision-option__icon {
+    background: #fff7e8;
+    color: #a66b1b;
+  }
+
+  .decision-option--confirm .decision-option__icon {
+    background: #ecfbf3;
+    color: #278c5c;
+  }
+
+  .decision-option h3 {
+    margin: 11px 0 0;
+    font-size: 13px;
+  }
+
+  .decision-option > p {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.55;
+  }
+
+  .decision-option > .btn {
+    margin-top: auto;
+  }
+
+  .evidence-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 10px 0 14px;
+  }
+
+  .evidence-chips span {
+    border-radius: 999px;
+    background: #fff7e8;
+    padding: 4px 7px;
+    color: #8f641f;
+    font-size: 8px;
+    font-weight: 650;
+  }
+
+  .review-empty-heading {
+    margin-bottom: 18px;
+  }
+
+  .review-empty {
+    display: grid;
+    min-height: 430px;
+    place-items: center;
+    align-content: center;
+    padding: 32px;
+    text-align: center;
+  }
+
+  .review-empty > span {
+    display: grid;
+    width: 50px;
+    height: 50px;
+    place-items: center;
+    border-radius: 999px;
+    background: #ecfbf3;
+    color: #2aa96b;
+  }
+
+  .review-empty h2 {
+    margin: 14px 0 0;
+    font-size: 16px;
+  }
+
+  .review-empty p {
+    margin: 7px 0 17px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .modal-dismiss {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: transparent;
+    cursor: default;
+  }
+
+  .decision-dialog,
+  .evidence-dialog {
+    position: relative;
+    z-index: 1;
+  }
+
+  .decision-dialog {
+    width: min(590px, 100%);
+  }
+
+  .decision-dialog > header,
+  .evidence-dialog header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+    padding: 18px;
+  }
+
+  .decision-dialog > header > span {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    place-items: center;
+    border-radius: 10px;
+    background: #ecfbf3;
+    color: #278c5c;
+  }
+
+  .decision-dialog > header > span.decision-dialog__icon--reject {
+    background: #fff0f0;
+    color: #c7454c;
+  }
+
+  .decision-dialog header h2,
+  .evidence-dialog header h2 {
+    margin: 0;
+    font-size: 17px;
+  }
+
+  .decision-dialog header p,
+  .evidence-dialog header p {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .decision-dialog header .icon-button,
+  .evidence-dialog header .icon-button {
+    margin-left: auto;
+  }
+
+  .decision-dialog__body,
+  .evidence-dialog__body {
+    padding: 18px;
+  }
+
+  .decision-dialog__records {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    border-radius: 10px;
+    background: #f8f6fa;
+    padding: 13px;
+  }
+
+  .decision-dialog__records span,
+  .decision-dialog__records strong {
+    display: block;
+  }
+
+  .decision-dialog__records span {
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .decision-dialog__records strong {
+    margin-top: 4px;
+    font-size: 11px;
+  }
+
+  .decision-dialog__body > p {
+    margin: 13px 0 0;
+    border: 1px solid #cdeedc;
+    border-radius: 10px;
+    background: #f4fcf7;
+    padding: 12px;
+    color: #277c52;
+    font-size: 10px;
+    line-height: 1.6;
+  }
+
+  .decision-dialog__body > p.decision-dialog__warning {
+    border-color: #f1d5d7;
+    background: #fff8f8;
+    color: #8f3036;
+  }
+
+  .decision-dialog > footer,
+  .evidence-dialog footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 9px;
+    border-top: 1px solid var(--line);
+    background: #fdfbff;
+    padding: 14px 18px;
+  }
+
+  .evidence-dialog header {
+    justify-content: space-between;
+  }
+
+  .evidence-dialog__product {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    border-radius: 10px;
+    background: #f8f6fa;
+    padding: 12px;
+  }
+
+  .evidence-dialog__product > span {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--violet-700);
+  }
+
+  .evidence-dialog__product strong,
+  .evidence-dialog__product small {
+    display: block;
+  }
+
+  .evidence-dialog__product strong {
+    font-size: 11px;
+  }
+
+  .evidence-dialog__product small {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .evidence-dialog fieldset {
+    margin: 0;
+    border: 0;
+    padding: 0;
+  }
+
+  .evidence-dialog legend {
+    margin-bottom: 8px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .evidence-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .evidence-options label {
+    display: grid;
+    grid-template-columns: auto 28px minmax(0, 1fr);
+    align-items: flex-start;
+    gap: 7px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 10px;
+    cursor: pointer;
+  }
+
+  .evidence-options label:has(input:checked) {
+    border-color: #c9b3ee;
+    background: var(--violet-50);
+  }
+
+  .evidence-options input {
+    width: 14px;
+    height: 14px;
+    margin: 2px 0 0;
+    accent-color: var(--primary);
+  }
+
+  .evidence-options label > span:nth-of-type(1) {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border-radius: 7px;
+    background: #fff;
+    color: var(--violet-700);
+  }
+
+  .evidence-options strong,
+  .evidence-options small {
+    display: block;
+  }
+
+  .evidence-options strong {
+    font-size: 9px;
+  }
+
+  .evidence-options small {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 8px;
+    line-height: 1.4;
+  }
+
+  .evidence-recipient {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 14px 0 0;
+  }
+
+  .evidence-recipient > div {
+    border-radius: 9px;
+    background: #f8f6fa;
+    padding: 10px;
+  }
+
+  .evidence-recipient dt {
+    color: var(--muted);
+    font-size: 8px;
+  }
+
+  .evidence-recipient dd {
+    overflow: hidden;
+    margin: 4px 0 0;
+    font-size: 10px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .evidence-safety {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-top: 14px;
+    border: 1px solid #f2dfbd;
+    border-radius: 10px;
+    background: #fffbf4;
+    padding: 11px;
+    color: #7b6848;
+  }
+
+  .evidence-safety__icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
+
+  .evidence-safety p {
+    margin: 0;
+    font-size: 9px;
+    line-height: 1.55;
+  }
+
+  .evidence-dialog footer {
+    justify-content: space-between;
+  }
+
+  .evidence-dialog footer > span {
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .evidence-dialog footer > div {
+    display: flex;
+    gap: 8px;
+  }
+
+  @media (max-width: 980px) {
+    .comparison-grid,
+    .decision-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .decision-option {
+      min-height: 190px;
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .decision-option:last-child {
+      border-bottom: 0;
+    }
+
+    .signal-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 720px) {
+    .review-heading,
+    .signal-panel > header,
+    .decision-panel > header {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .confidence-context {
+      grid-template-columns: 1fr;
+    }
+
+    .confidence-context__score {
+      min-height: 100px;
+    }
+
+    .confidence-context__copy {
+      padding: 0 16px 16px;
+    }
+
+    .signal-grid,
+    .evidence-options,
+    .evidence-recipient {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
