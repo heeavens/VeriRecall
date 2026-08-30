@@ -10,95 +10,26 @@
   let monitorFailed = $state(false);
 
   type DashboardAlert = PageProps['data']['alerts'][number];
+  type AttentionItem = PageProps['data']['attention'][number];
 
-  interface TrendPoint {
-    label: string;
-    count: number;
-    x: number;
-    y: number;
-  }
-
-  const confirmedMatches = $derived(
-    data.alerts.filter((alert) => alert.status === 'matched').length
-  );
-  const notRelevant = $derived(
-    data.alerts.filter((alert) => alert.status === 'not_relevant').length
-  );
-  const hardConflicts = $derived(
-    data.alerts.filter((alert) => alert.bestMatch?.hasHardConflict).length
-  );
-  const totalAlerts = $derived(data.alerts.length);
-  const statusGradient = $derived(
-    buildStatusGradient(totalAlerts, data.counters.waitingForReview, confirmedMatches)
-  );
-  const trendPoints = $derived(buildTrend(data.alerts));
-  const trendLine = $derived(buildLinePath(trendPoints));
-  const trendArea = $derived(buildAreaPath(trendPoints));
-  const criticalAlerts = $derived(
-    data.alerts.filter((alert) => isPriorityRisk(alert.risk)).slice(0, 3)
-  );
   const recentAlerts = $derived(data.alerts.slice(0, 4));
 
-  const metrics = $derived([
-    {
-      label: 'New Alerts Today',
-      value: data.counters.newAlertsToday,
-      detail: `${totalAlerts} official record${totalAlerts === 1 ? '' : 's'} in the feed`,
-      detailClass: 'text-[#e14f55]',
-      icon: 'radio-tower' as const
-    },
-    {
-      label: 'Waiting for Review',
-      value: data.counters.waitingForReview,
-      detail: `${hardConflicts} hard conflict${hardConflicts === 1 ? '' : 's'}`,
-      detailClass: 'text-muted',
-      icon: 'scan-search' as const
-    },
-    {
-      label: 'Confirmed Matches',
-      value: confirmedMatches,
-      detail: 'catalogue matches',
-      detailClass: 'text-muted',
-      icon: 'circle-check-big' as const
-    },
-    {
-      label: 'Open Cases',
-      value: data.counters.openCases,
-      detail: 'active incident records',
-      detailClass: 'text-[#df8b31]',
-      icon: 'briefcase-business' as const
-    },
-    {
-      label: 'Closed This Month',
-      value: data.counters.closedThisMonth,
-      detail: 'resolved this month',
-      detailClass: 'text-[#2aa96b]',
-      icon: 'archive-check' as const
-    }
-  ]);
+  function attentionIcon(kind: AttentionItem['kind']): string {
+    if (kind === 'review') return 'scan-search';
+    if (kind === 'approval') return 'shield-check';
+    return 'briefcase-business';
+  }
 
   function statusLabel(status: DashboardAlert['status']): string {
-    if (status === 'matched') return 'Confirmed';
-    if (status === 'needs_review') return 'Needs Review';
-    return 'Not Relevant';
+    if (status === 'matched') return 'Confirmed match';
+    if (status === 'needs_review') return 'Needs review';
+    return 'Not relevant';
   }
 
   function statusClass(status: DashboardAlert['status']): string {
     if (status === 'matched') return 'badge-green';
-    if (status === 'needs_review') return 'badge-blue';
+    if (status === 'needs_review') return 'badge-orange';
     return 'badge-gray';
-  }
-
-  function activityDotClass(status: DashboardAlert['status']): string {
-    if (status === 'matched') return 'bg-[#2aa96b]';
-    if (status === 'needs_review') return 'bg-[#8150e4]';
-    return 'bg-[#a9a3ae]';
-  }
-
-  function progressClass(status: DashboardAlert['status']): string {
-    if (status === 'matched') return 'bg-[#2aa96b]';
-    if (status === 'needs_review') return 'bg-[#dc8f34]';
-    return 'bg-[#a9a3ae]';
   }
 
   function sourceLabel(source: DashboardAlert['source']): string {
@@ -114,68 +45,16 @@
     }).format(new Date(value));
   }
 
-  function isPriorityRisk(risk: string): boolean {
-    return /(serious|choking|injur|fire|shock|danger)/i.test(risk);
-  }
-
-  function riskClass(risk: string): string {
-    return isPriorityRisk(risk) ? 'badge-red' : 'badge-orange';
-  }
-
-  function riskLabel(risk: string): string {
-    return isPriorityRisk(risk) ? 'High' : 'Medium';
-  }
-
-  function buildStatusGradient(total: number, review: number, confirmed: number): string {
-    if (total === 0) return 'conic-gradient(#ede3fb 0 100%)';
-    const reviewEnd = (review / total) * 100;
-    const confirmedEnd = reviewEnd + (confirmed / total) * 100;
-    return `conic-gradient(#8150e4 0 ${reviewEnd}%, #50318d ${reviewEnd}% ${confirmedEnd}%, #ede3fb ${confirmedEnd}% 100%)`;
-  }
-
-  function buildTrend(alerts: DashboardAlert[]): TrendPoint[] {
-    const validDates = alerts
-      .map((alert) => new Date(alert.publishedAt))
-      .filter((date) => !Number.isNaN(date.getTime()));
-    const anchor = validDates.length
-      ? new Date(Math.max(...validDates.map((date) => date.getTime())))
-      : new Date();
-    const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(
-        Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - (5 - index), 1)
-      );
-      const count = alerts.filter((alert) => {
-        const published = new Date(alert.publishedAt);
-        return (
-          published.getUTCFullYear() === date.getUTCFullYear() &&
-          published.getUTCMonth() === date.getUTCMonth()
-        );
-      }).length;
-      return {
-        label: new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' }).format(date),
-        count
-      };
-    });
-    const maximum = Math.max(1, ...months.map((month) => month.count));
-
-    return months.map((month, index) => ({
-      ...month,
-      x: 34 + index * (476 / 5),
-      y: 146 - (month.count / maximum) * 112
-    }));
-  }
-
-  function buildLinePath(points: TrendPoint[]): string {
-    return points
-      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-      .join(' ');
-  }
-
-  function buildAreaPath(points: TrendPoint[]): string {
-    if (points.length === 0) return '';
-    const first = points[0];
-    const last = points.at(-1);
-    return last ? `${buildLinePath(points)} L ${last.x} 146 L ${first.x} 146 Z` : '';
+  function formatDateTime(value: string): string {
+    return new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'UTC',
+      timeZoneName: 'short'
+    }).format(new Date(value));
   }
 
   function isMonitoringResult(
@@ -197,12 +76,12 @@
       const result: unknown = await response.json();
       if (!response.ok || !isMonitoringResult(result)) throw new Error('Monitoring failed');
       monitorMessage = result.imported
-        ? `Imported ${result.imported} alert${result.imported === 1 ? '' : 's'}: ${result.matched} matched, ${result.review} for review, ${result.ignored} not relevant.`
-        : 'Monitoring is up to date. No new archived alerts were found.';
+        ? `Archive check complete: ${result.imported} new alert${result.imported === 1 ? '' : 's'}, ${result.matched} matched, ${result.review} for review and ${result.ignored} not relevant.`
+        : 'Archive check complete. No new records were found in the local prototype archive.';
       await invalidateAll();
     } catch {
       monitorFailed = true;
-      monitorMessage = 'Monitoring could not be completed. Please try again.';
+      monitorMessage = 'The archived alerts could not be checked. Please try again.';
     } finally {
       monitoring = false;
     }
@@ -213,303 +92,684 @@
   <title>Overview | Recall Agent</title>
   <meta
     name="description"
-    content="Monitor official product alerts and catalogue matches requiring review."
+    content="Review catalogue matches, pending approvals and active recall cases."
   />
 </svelte:head>
 
 <section aria-labelledby="overview-title">
-  <div class="mb-4 flex items-start justify-between gap-5">
+  <header class="overview-heading">
     <div>
-      <h1 id="overview-title" class="text-[24px] font-bold tracking-[-.035em]">
-        Product Recall Overview
-      </h1>
-      <p class="mt-1 text-[12px] text-muted">
-        Monitor official alerts and catalogue matches requiring your attention.
-      </p>
+      <h1 id="overview-title">Product Recall Overview</h1>
+      <p>Start with the items that need a person, then check the local alert archive when ready.</p>
     </div>
     <button class="btn btn-primary" type="button" onclick={runMonitoring} disabled={monitoring}>
       <Icon name="refresh-cw" size={16} class={monitoring ? 'animate-spin' : ''} />
-      {monitoring ? 'Monitoring…' : 'Run Monitoring'}
+      {monitoring ? 'Checking archive…' : 'Check archived alerts'}
     </button>
-  </div>
+  </header>
 
   {#if monitorMessage}
-    <div
-      class={`mb-4 flex items-start gap-2 rounded-[10px] border px-3.5 py-3 text-[10px] ${monitorFailed ? 'border-[#ffd9db] bg-[#fff8f8] text-[#a7353b]' : 'border-[#d7f2e3] bg-[#f4fcf7] text-[#268d5c]'}`}
-      role="status"
-    >
-      <Icon name={monitorFailed ? 'triangle-alert' : 'circle-check-big'} size={15} />
-      <span class="leading-4">{monitorMessage}</span>
+    <div class:monitor-notice--failed={monitorFailed} class="monitor-notice" role="status">
+      <Icon name={monitorFailed ? 'triangle-alert' : 'circle-check-big'} size={17} />
+      <span>{monitorMessage}</span>
     </div>
   {/if}
 
-  <div class="card metric-divider mb-4 grid grid-cols-5 overflow-hidden">
-    {#each metrics as metric}
-      <article class="p-4">
-        <div class="flex items-center gap-2 text-[10px] font-semibold text-violet-600">
-          <Icon name={metric.icon} size={16} class="text-[#58515f]" />
-          {metric.label}
-        </div>
-        <p class="mt-2 text-[21px] font-bold">{metric.value}</p>
-        <p class={`mt-1 text-[10px] ${metric.detailClass}`}>{metric.detail}</p>
-      </article>
-    {/each}
-  </div>
-
-  <div class="grid grid-cols-12 gap-4">
-    <article class="card col-span-4 p-4">
-      <div class="flex items-center justify-between gap-4">
-        <h2 class="text-[15px] font-bold">Match Status Overview</h2>
-        <a class="text-[10px] font-semibold text-violet-600 hover:text-violet-700" href="/review">
-          View Queue
-        </a>
-      </div>
-      <div class="mt-5 flex items-center justify-center gap-5">
-        <div
-          class="ring-chart h-[126px] w-[126px] shrink-0"
-          style:background={statusGradient}
-          aria-label={`${totalAlerts} alerts by match status`}
-        >
-          <div class="ring-center">
-            <span class="text-[20px] font-bold">{totalAlerts}</span>
-            <span class="text-[9px] text-muted">Total</span>
-          </div>
-        </div>
-        <div class="space-y-2 text-[9px]">
-          <div class="flex items-center gap-2">
-            <span class="h-2 w-2 rounded-sm bg-[#8150e4]"></span>
-            <span class="w-[94px] text-muted">Needs Review</span>
-            <b>{data.counters.waitingForReview}</b>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="h-2 w-2 rounded-sm bg-[#50318d]"></span>
-            <span class="w-[94px] text-muted">Confirmed</span>
-            <b>{confirmedMatches}</b>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="h-2 w-2 rounded-sm bg-[#ede3fb]"></span>
-            <span class="w-[94px] text-muted">Not Relevant</span>
-            <b>{notRelevant}</b>
-          </div>
-        </div>
-      </div>
-    </article>
-
-    <article class="card col-span-5 p-4">
-      <div class="flex items-center justify-between gap-3">
+  <div class="overview-priority-grid">
+    <article class="card attention-panel">
+      <header class="panel-heading">
         <div>
-          <h2 class="text-[15px] font-bold">Alerts Processed</h2>
-          <p class="mt-1 text-[9px] text-muted">Official alerts compared with your catalogue</p>
+          <div class="panel-title-row">
+            <h2>Needs your attention</h2>
+            <span class="attention-count">{data.attention.length}</span>
+          </div>
+          <p>Manual decisions and containment work, ordered by the next action.</p>
         </div>
-        <span class="rounded-lg border border-line bg-white px-2.5 py-2 text-[9px] text-muted">
-          Six-month archive
-        </span>
-      </div>
-      <div class="mt-3 h-[148px] w-full">
-        <svg
-          viewBox="0 0 520 175"
-          class="h-full w-full"
-          preserveAspectRatio="none"
-          role="img"
-          aria-label="Alerts processed by published month"
-        >
-          <defs>
-            <linearGradient id="alerts-area" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#a982f0" stop-opacity=".26" />
-              <stop offset="1" stop-color="#a982f0" stop-opacity="0" />
-            </linearGradient>
-          </defs>
-          <g stroke="#eee9f3" stroke-width="1">
-            <line x1="34" y1="20" x2="510" y2="20" />
-            <line x1="34" y1="62" x2="510" y2="62" />
-            <line x1="34" y1="104" x2="510" y2="104" />
-            <line x1="34" y1="146" x2="510" y2="146" />
-          </g>
-          <path d={trendArea} fill="url(#alerts-area)" />
-          <path
-            d={trendLine}
-            fill="none"
-            stroke="#8b5be8"
-            stroke-width="3"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          {#each trendPoints as point}
-            <circle cx={point.x} cy={point.y} r="3.5" fill="#8b5be8">
-              <title>{point.label}: {point.count} alerts</title>
-            </circle>
-            <text x={point.x} y="166" fill="#8d8795" font-size="10" text-anchor="middle">
-              {point.label}
-            </text>
-          {/each}
-        </svg>
-      </div>
-    </article>
+        <div class="attention-summary" aria-label="Pending work summary">
+          <span><b>{data.counters.waitingForReview}</b> review</span>
+          <span><b>{data.counters.pendingApprovals}</b> drafts</span>
+          <span><b>{data.counters.unfinishedCases}</b> cases</span>
+        </div>
+      </header>
 
-    <article class="card col-span-3 p-4">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="text-[15px] font-bold">Critical Alerts</h2>
-        <span class="text-[9px] font-semibold text-violet-600">{criticalAlerts.length} active</span>
-      </div>
-      {#if criticalAlerts.length === 0}
-        <div class="grid min-h-[154px] place-items-center text-center">
-          <p class="max-w-[180px] text-[10px] leading-5 text-muted">
-            No priority risks are present in the current alert feed.
-          </p>
-        </div>
-      {:else}
-        <div class="mt-3 divide-y divide-[#f0ecf4]">
-          {#each criticalAlerts as alert}
-            <a
-              class="group flex w-full items-start justify-between gap-3 py-2.5 text-left"
-              href={`/alerts/${alert.id}`}
-            >
-              <span class="min-w-0">
-                <b class="block truncate text-[10px] group-hover:text-violet-600">
-                  {alert.risk}
-                </b>
-                <span class="mt-1 block truncate text-[9px] text-muted">
-                  {sourceLabel(alert.source)} · {alert.bestMatch ? `${alert.bestMatch.totalScore}% candidate` : 'No candidate'}
-                </span>
+      {#if data.attention.length > 0}
+        <div class="attention-list">
+          {#each data.attention as item (item.id)}
+            <a class={`attention-item attention-item--${item.kind}`} href={item.href}>
+              <span class="attention-item__icon"><Icon name={attentionIcon(item.kind)} size={18} /></span>
+              <span class="attention-item__content">
+                <span class="attention-item__label">{item.label}</span>
+                <strong>{item.title}</strong>
+                <span class="attention-item__description">{item.description}</span>
+                <small>{item.meta}</small>
               </span>
-              <Icon name="chevron-right" size={14} class="mt-0.5 shrink-0 text-muted" />
+              <span class="attention-item__action">
+                {item.actionLabel}
+                <Icon name="arrow-right" size={15} />
+              </span>
             </a>
           {/each}
+        </div>
+      {:else}
+        <div class="attention-empty">
+          <span><Icon name="circle-check-big" size={21} /></span>
+          <h3>No manual actions are waiting</h3>
+          <p>
+            {data.archive.total > 0
+              ? 'All current archive results have a recorded outcome. Check the archive again when you are ready.'
+              : 'Upload or review your catalogue, then check the local archive for official alerts.'}
+          </p>
+          <a class="btn btn-secondary" href="/catalogue">Review catalogue</a>
         </div>
       {/if}
     </article>
 
-    <div class="col-span-9 mt-1 min-w-0">
-      <div class="mb-2.5 flex items-end justify-between gap-4">
-        <div>
-          <h2 class="text-[15px] font-bold">Alert Feed</h2>
-          <p class="mt-1 text-[9px] text-muted">Latest official records and best catalogue candidates</p>
-        </div>
-        <span class="text-[9px] font-semibold text-muted">
-          {data.alerts.length} alert{data.alerts.length === 1 ? '' : 's'}
-        </span>
+    <aside class="card archive-panel" aria-labelledby="archive-title">
+      <div class="archive-panel__eyebrow">
+        <Icon name="archive-check" size={16} />
+        Archived prototype input
       </div>
+      <h2 id="archive-title">Current archive snapshot</h2>
+      <p class="archive-panel__copy">
+        Local Safety Gate and RASFF fixtures compared with {data.archive.catalogueProducts}
+        catalogue product{data.archive.catalogueProducts === 1 ? '' : 's'}.
+      </p>
 
-      <div class="table-wrap">
-        {#if data.alerts.length === 0}
-          <div class="grid min-h-[236px] place-items-center px-6 text-center">
-            <div>
-              <span class="mx-auto grid h-10 w-10 place-items-center rounded-full bg-violet-50 text-violet-600">
-                <Icon name="radio-tower" size={18} />
-              </span>
-              <p class="mt-3 text-[11px] font-semibold">No alerts have been imported</p>
-              <p class="mt-1 text-[9px] text-muted">Run monitoring to process the local archive.</p>
-            </div>
+      {#if data.archive.lastImportedAt}
+        <dl class="archive-stats">
+          <div>
+            <dt>Records</dt>
+            <dd>{data.archive.total}</dd>
           </div>
-        {:else}
-          <div class="overflow-x-auto">
-            <table class="data-table min-w-[850px]">
-              <thead>
-                <tr>
-                  <th>Official Product</th>
-                  <th>Catalogue Candidate</th>
-                  <th class="w-[104px]">Source</th>
-                  <th class="w-[118px]">Risk</th>
-                  <th class="w-[92px]">Published</th>
-                  <th class="w-[110px]">Confidence</th>
-                  <th class="w-[112px]">Status</th>
-                  <th class="w-[34px]"><span class="sr-only">Open alert</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each data.alerts as alert}
-                  <tr>
-                    <td>
-                      <a
-                        class="block truncate font-semibold text-[#302b35] hover:text-violet-600"
-                        href={`/alerts/${alert.id}`}
-                        title={alert.productName}
-                      >
-                        {alert.productName}
-                      </a>
-                      <span class="mt-1 block text-[8px] text-muted">{alert.sourceReference}</span>
-                    </td>
-                    <td>
-                      {#if alert.bestMatch}
-                        <span class="block truncate font-medium text-[#4d4853]" title={alert.bestMatch.product.name}>{alert.bestMatch.product.name}</span>
-                        <span class="mt-1 block text-[8px] text-muted">{alert.bestMatch.product.sku}</span>
-                      {:else}
-                        <span class="text-muted">No catalogue candidates</span>
-                      {/if}
-                    </td>
-                    <td>
-                      <span class="font-medium text-[#4d4853]">{sourceLabel(alert.source)}</span>
-                    </td>
-                    <td>
-                      <span class={`badge ${riskClass(alert.risk)}`} title={alert.risk}>{riskLabel(alert.risk)}</span>
-                    </td>
-                    <td class="whitespace-nowrap">{formatDate(alert.publishedAt)}</td>
-                    <td>
-                      {#if alert.bestMatch}
-                        <div class="font-semibold">{alert.bestMatch.totalScore}%</div>
-                        <div class="progress-track mt-1">
-                          <div
-                            class={`progress-value ${progressClass(alert.status)}`}
-                            style:width={`${alert.bestMatch.totalScore}%`}
-                          ></div>
-                        </div>
-                      {:else}
-                        <span class="text-muted">—</span>
-                      {/if}
-                    </td>
-                    <td><span class={`badge ${statusClass(alert.status)}`}>{statusLabel(alert.status)}</span></td>
-                    <td>
-                      <a
-                        class="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-violet-50 hover:text-violet-600"
-                        href={`/alerts/${alert.id}`}
-                        aria-label={`Open ${alert.productName}`}
-                      >
-                        <Icon name="chevron-right" size={14} />
-                      </a>
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
+          <div>
+            <dt>Confirmed</dt>
+            <dd class="archive-stat--success">{data.archive.matched}</dd>
           </div>
-          <div class="flex h-12 items-center border-t border-line px-3 text-[9px] text-muted">
-            Showing {data.alerts.length} of {data.alerts.length} alerts
+          <div>
+            <dt>For review</dt>
+            <dd class="archive-stat--warning">{data.archive.needsReview}</dd>
           </div>
-        {/if}
-      </div>
-    </div>
-
-    <article class="card col-span-3 mt-1 p-4">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="text-[15px] font-bold">Recent Activity</h2>
-        <span class="text-[9px] font-semibold text-violet-600">Live feed</span>
-      </div>
-      {#if recentAlerts.length === 0}
-        <p class="mt-4 text-[10px] leading-5 text-muted">
-          Monitoring activity will appear after the first archive cycle.
+          <div>
+            <dt>Not relevant</dt>
+            <dd>{data.archive.notRelevant}</dd>
+          </div>
+        </dl>
+        <p class="archive-timestamp">
+          Last imported record set<br />
+          <strong>{formatDateTime(data.archive.lastImportedAt)}</strong>
         </p>
       {:else}
-        <div class="mt-3 space-y-3">
-          {#each recentAlerts as alert}
-            <a class="group block" href={`/alerts/${alert.id}`}>
-              <div class="flex items-start gap-2.5">
-                <span class={`mt-1 h-2 w-2 shrink-0 rounded-full ${activityDotClass(alert.status)}`}></span>
-                <span class="min-w-0 flex-1">
-                  <span class="flex items-start justify-between gap-2">
-                    <b class="truncate text-[10px] group-hover:text-violet-600">
-                      {statusLabel(alert.status)}
-                    </b>
-                    <span class="shrink-0 text-[8px] text-muted">{formatDate(alert.publishedAt)}</span>
-                  </span>
-                  <span class="mt-1 block truncate text-[9px] text-muted">
-                    {alert.productName} · {alert.sourceReference}
-                  </span>
-                </span>
-              </div>
+        <div class="archive-not-checked">
+          <Icon name="radio-tower" size={19} />
+          <div>
+            <strong>Archive not checked yet</strong>
+            <span>Run the local prototype archive after your catalogue is ready.</span>
+          </div>
+        </div>
+      {/if}
+
+      <div class="archive-links">
+        <a href="/catalogue">Open catalogue <Icon name="chevron-right" size={14} /></a>
+        <a href="/cases">View cases <Icon name="chevron-right" size={14} /></a>
+      </div>
+    </aside>
+  </div>
+
+  <section class="latest-alerts" aria-labelledby="latest-alerts-title">
+    <header class="latest-alerts__heading">
+      <div>
+        <h2 id="latest-alerts-title">Latest official alerts</h2>
+        <p>Recent records from the local archive and their current catalogue outcome.</p>
+      </div>
+      <span>{recentAlerts.length} of {data.alerts.length} records</span>
+    </header>
+
+    <div class="card latest-alerts__card">
+      {#if recentAlerts.length > 0}
+        <div class="latest-alerts__list">
+          {#each recentAlerts as alert (alert.id)}
+            <a class="latest-alert" href={`/alerts/${alert.id}`}>
+              <span class="latest-alert__icon"><Icon name="shield-alert" size={18} /></span>
+              <span class="latest-alert__product">
+                <strong>{alert.productName}</strong>
+                <small>{sourceLabel(alert.source)} · {alert.sourceReference} · {formatDate(alert.publishedAt)}</small>
+              </span>
+              <span class="latest-alert__risk">
+                <small>Official source risk</small>
+                <strong>{alert.risk}</strong>
+              </span>
+              <span class="latest-alert__match">
+                {#if alert.bestMatch}
+                  <strong>{alert.bestMatch.product.name}</strong>
+                  <small>{alert.bestMatch.product.sku} · {alert.bestMatch.totalScore}% confidence</small>
+                {:else}
+                  <strong>No catalogue candidate</strong>
+                  <small>Open the record for details</small>
+                {/if}
+              </span>
+              <span class={`badge ${statusClass(alert.status)}`}>{statusLabel(alert.status)}</span>
+              <Icon name="chevron-right" size={16} class="latest-alert__arrow" />
             </a>
           {/each}
         </div>
+      {:else}
+        <div class="latest-alerts__empty">
+          <span><Icon name="radio-tower" size={21} /></span>
+          <h3>No archived alerts checked yet</h3>
+          <p>The first archive check will compare official fixtures with your catalogue.</p>
+        </div>
       {/if}
-    </article>
-  </div>
+    </div>
+  </section>
 </section>
+
+<style>
+  .overview-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 18px;
+  }
+
+  .overview-heading h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.035em;
+  }
+
+  .overview-heading p {
+    margin: 5px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .monitor-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-bottom: 14px;
+    border: 1px solid #cdeedc;
+    border-radius: 10px;
+    background: #f4fcf7;
+    padding: 12px 14px;
+    color: #277c52;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .monitor-notice--failed {
+    border-color: #f1d5d7;
+    background: #fff8f8;
+    color: #a7353b;
+  }
+
+  .overview-priority-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.72fr);
+    gap: 14px;
+  }
+
+  .attention-panel,
+  .archive-panel {
+    min-height: 390px;
+  }
+
+  .attention-panel {
+    overflow: hidden;
+  }
+
+  .panel-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    border-bottom: 1px solid var(--line);
+    padding: 17px 18px;
+  }
+
+  .panel-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-heading h2,
+  .archive-panel h2,
+  .latest-alerts__heading h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+  }
+
+  .panel-heading p,
+  .latest-alerts__heading p {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .attention-count {
+    display: grid;
+    min-width: 23px;
+    height: 23px;
+    place-items: center;
+    border-radius: 999px;
+    background: #f1e9ff;
+    color: var(--violet-700);
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .attention-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .attention-summary b {
+    margin-right: 2px;
+    color: var(--ink);
+    font-size: 12px;
+  }
+
+  .attention-list {
+    display: grid;
+  }
+
+  .attention-item {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 100px;
+    border-bottom: 1px solid #f0ecf4;
+    padding: 14px 18px;
+    transition: background 0.15s ease;
+  }
+
+  .attention-item:last-child {
+    border-bottom: 0;
+  }
+
+  .attention-item:hover {
+    background: #fcfaff;
+  }
+
+  .attention-item__icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    border-radius: 10px;
+    background: #fff6e9;
+    color: #b46f22;
+  }
+
+  .attention-item--approval .attention-item__icon {
+    background: #f1e9ff;
+    color: var(--violet-700);
+  }
+
+  .attention-item--case .attention-item__icon {
+    background: #edf4ff;
+    color: #4675c9;
+  }
+
+  .attention-item__content {
+    min-width: 0;
+  }
+
+  .attention-item__label,
+  .attention-item__description,
+  .attention-item__content small {
+    display: block;
+  }
+
+  .attention-item__label {
+    margin-bottom: 3px;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .attention-item__content strong {
+    display: block;
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .attention-item__description {
+    margin-top: 4px;
+    overflow: hidden;
+    color: #59535f;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .attention-item__content small {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .attention-item__action {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--violet-700);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .attention-empty,
+  .latest-alerts__empty {
+    display: grid;
+    min-height: 310px;
+    place-items: center;
+    align-content: center;
+    padding: 32px;
+    text-align: center;
+  }
+
+  .attention-empty > span,
+  .latest-alerts__empty > span {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    place-items: center;
+    border-radius: 999px;
+    background: #ecfbf3;
+    color: #2aa96b;
+  }
+
+  .attention-empty h3,
+  .latest-alerts__empty h3 {
+    margin: 13px 0 0;
+    font-size: 15px;
+  }
+
+  .attention-empty p,
+  .latest-alerts__empty p {
+    max-width: 430px;
+    margin: 6px 0 16px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  .archive-panel {
+    padding: 18px;
+  }
+
+  .archive-panel__eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 12px;
+    color: var(--violet-700);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .archive-panel__copy {
+    margin: 7px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .archive-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 18px 0 0;
+  }
+
+  .archive-stats > div {
+    border-radius: 9px;
+    background: #f8f6fa;
+    padding: 10px 11px;
+  }
+
+  .archive-stats dt {
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .archive-stats dd {
+    margin: 5px 0 0;
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  .archive-stats .archive-stat--success {
+    color: #278c5c;
+  }
+
+  .archive-stats .archive-stat--warning {
+    color: #a66b1b;
+  }
+
+  .archive-timestamp {
+    margin: 14px 0 0;
+    border-top: 1px solid var(--line);
+    padding-top: 13px;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.55;
+  }
+
+  .archive-timestamp strong {
+    color: #4f4956;
+  }
+
+  .archive-not-checked {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 18px;
+    border-radius: 10px;
+    background: #f8f6fa;
+    padding: 13px;
+    color: var(--muted);
+  }
+
+  .archive-not-checked strong,
+  .archive-not-checked span {
+    display: block;
+  }
+
+  .archive-not-checked strong {
+    color: var(--ink);
+    font-size: 11px;
+  }
+
+  .archive-not-checked span {
+    margin-top: 4px;
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .archive-links {
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .archive-links a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+    color: #5b5562;
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  .archive-links a:hover {
+    color: var(--violet-700);
+  }
+
+  .latest-alerts {
+    margin-top: 18px;
+  }
+
+  .latest-alerts__heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 9px;
+  }
+
+  .latest-alerts__heading > span {
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .latest-alerts__card {
+    overflow: hidden;
+  }
+
+  .latest-alerts__list {
+    display: grid;
+  }
+
+  .latest-alert {
+    display: grid;
+    grid-template-columns: 34px minmax(180px, 1.15fr) minmax(150px, 0.8fr) minmax(190px, 1fr) auto 16px;
+    align-items: center;
+    gap: 12px;
+    min-height: 78px;
+    border-bottom: 1px solid #f0ecf4;
+    padding: 12px 15px;
+    transition: background 0.15s ease;
+  }
+
+  .latest-alert:last-child {
+    border-bottom: 0;
+  }
+
+  .latest-alert:hover {
+    background: #fcfaff;
+  }
+
+  .latest-alert__icon {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 9px;
+    background: #fff0f0;
+    color: #c7454c;
+  }
+
+  .latest-alert__product,
+  .latest-alert__risk,
+  .latest-alert__match {
+    min-width: 0;
+  }
+
+  .latest-alert__product strong,
+  .latest-alert__risk strong,
+  .latest-alert__match strong,
+  .latest-alert__product small,
+  .latest-alert__risk small,
+  .latest-alert__match small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .latest-alert__product strong,
+  .latest-alert__match strong {
+    font-size: 11px;
+  }
+
+  .latest-alert__risk strong {
+    margin-top: 3px;
+    color: #8f3036;
+    font-size: 10px;
+  }
+
+  .latest-alert small {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .latest-alert__arrow {
+    color: var(--muted);
+  }
+
+  .latest-alerts__empty {
+    min-height: 245px;
+  }
+
+  .latest-alerts__empty > span {
+    background: var(--violet-50);
+    color: var(--violet-600);
+  }
+
+  @media (max-width: 960px) {
+    .overview-priority-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .latest-alert {
+      grid-template-columns: 34px minmax(180px, 1fr) minmax(170px, 1fr) auto 16px;
+    }
+
+    .latest-alert__risk {
+      display: none;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .overview-heading,
+    .panel-heading,
+    .latest-alerts__heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .attention-summary {
+      flex-wrap: wrap;
+    }
+
+    .attention-item {
+      grid-template-columns: 38px minmax(0, 1fr);
+    }
+
+    .attention-item__action {
+      grid-column: 2;
+    }
+
+    .latest-alert {
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+    }
+
+    .latest-alert__match,
+    .latest-alert__arrow {
+      display: none;
+    }
+  }
+</style>

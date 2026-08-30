@@ -194,6 +194,10 @@ textarea:focus-visible {
   gap: 20px;
 }
 
+.app-header__content--compact {
+  justify-content: flex-end;
+}
+
 .app-header__primary {
   min-width: 0;
   flex: 1;
