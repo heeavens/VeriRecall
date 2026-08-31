@@ -36,6 +36,8 @@ export interface CompleteTaskInput {
 export interface CloseCaseInput {
   caseId: string;
   actorName: string;
+  closureNote: string;
+  evidenceReference: string;
 }
 
 export interface DraftMutationResult {
@@ -59,6 +61,27 @@ function cleanActorName(value: string): string {
     throw new CaseWorkflowError('invalid_input', 'Enter your name before confirming this action.');
   }
   return actorName;
+}
+
+function cleanClosureEvidence(input: CloseCaseInput): {
+  closureNote: string;
+  evidenceReference: string;
+} {
+  const closureNote = input.closureNote.trim();
+  const evidenceReference = input.evidenceReference.trim();
+  if (closureNote.length < 20) {
+    throw new CaseWorkflowError(
+      'invalid_input',
+      'Add a closure note of at least 20 characters describing the containment evidence.'
+    );
+  }
+  if (evidenceReference.length < 3) {
+    throw new CaseWorkflowError(
+      'invalid_input',
+      'Add an evidence reference, such as a ticket, document, stock record or supplier reply.'
+    );
+  }
+  return { closureNote, evidenceReference };
 }
 
 function caseRecord(database: RecallDatabase, caseId: string) {
@@ -312,6 +335,7 @@ export function closeRecallCase(
   now = new Date()
 ): CaseMutationResult {
   const actorName = cleanActorName(input.actorName);
+  const { closureNote, evidenceReference } = cleanClosureEvidence(input);
 
   return database.transaction((transaction) => {
     const record = caseRecord(transaction, input.caseId);
@@ -346,7 +370,11 @@ export function closeRecallCase(
         actorType: 'human',
         actorName,
         summary: `Closed ${record.caseNumber} after containment tasks were confirmed.`,
-        metadataJson: JSON.stringify({ caseId: record.id }),
+        metadataJson: JSON.stringify({
+          caseId: record.id,
+          closureNote,
+          evidenceReference
+        }),
         createdAt: closedAt
       })
       .run();

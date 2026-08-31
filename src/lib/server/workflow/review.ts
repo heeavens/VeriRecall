@@ -4,6 +4,7 @@ import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { assessHarm, type HarmAssessment } from '../risk/harm';
 import { nextCaseNumber, severityForRisk } from './case-record';
 import { ensureCaseResponseRecords } from './case-setup';
 
@@ -26,6 +27,8 @@ export interface ReviewQueueItem {
   candidateSku: string;
   totalScore: number;
   hasHardConflict: boolean;
+  isHighConfidence: boolean;
+  harm: HarmAssessment;
   status: (typeof schema.matches.$inferSelect)['status'];
 }
 
@@ -42,6 +45,8 @@ export interface ReviewMatchView {
   match: typeof schema.matches.$inferSelect;
   product: typeof schema.products.$inferSelect;
   threshold: number;
+  isHighConfidence: boolean;
+  harm: HarmAssessment;
   affectedPurchaseCount: number;
   signals: ReviewSignal[];
   positiveReasons: string[];
@@ -254,7 +259,7 @@ function ensureCase(
     caseNumber: nextCaseNumber(database),
     alertId: record.alert.id,
     status: 'open',
-    severity: severityForRisk(record.alert.risk),
+    severity: severityForRisk(record.alert.risk, record.alert.description),
     openedAt: createdAt,
     closedAt: null
   };
@@ -290,6 +295,8 @@ export function getReviewQueueView(
   database: RecallDatabase,
   requestedMatchId?: string | null
 ): ReviewQueueView {
+  const threshold =
+    database.select().from(schema.settings).get()?.confidenceThreshold ?? 85;
   const rows = database
     .select({ alert: schema.alerts, match: schema.matches, product: schema.products })
     .from(schema.matches)
@@ -318,11 +325,17 @@ export function getReviewQueueView(
       candidateSku: row.product.sku,
       totalScore: row.match.totalScore,
       hasHardConflict: row.match.hasHardConflict,
+      isHighConfidence:
+        row.match.totalScore >= threshold && !row.match.hasHardConflict,
+      harm: assessHarm(row.alert),
       status: row.match.status
     });
   }
 
-  const items = [...queue.values()];
+  const items = [...queue.values()].sort(
+    (left, right) =>
+      right.harm.score - left.harm.score || right.totalScore - left.totalScore
+  );
   const requestedIndex = requestedMatchId
     ? items.findIndex((item) => item.matchId === requestedMatchId)
     : -1;
@@ -347,8 +360,6 @@ export function getReviewQueueView(
     .where(eq(schema.evidenceRequests.matchId, record.match.id))
     .orderBy(desc(schema.evidenceRequests.createdAt))
     .get();
-  const threshold =
-    database.select().from(schema.settings).get()?.confidenceThreshold ?? 85;
   const affectedPurchaseCount =
     database
       .select({ value: count() })
@@ -361,6 +372,9 @@ export function getReviewQueueView(
     selected: {
       ...record,
       threshold,
+      isHighConfidence:
+        record.match.totalScore >= threshold && !record.match.hasHardConflict,
+      harm: assessHarm(record.alert),
       affectedPurchaseCount,
       signals,
       positiveReasons: signals

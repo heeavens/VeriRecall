@@ -87,8 +87,10 @@
     return `MATCH-${matchId.slice(-6).toUpperCase()}`;
   }
 
-  function matchStatusLabel(status: string): string {
-    return status === 'awaiting_evidence' ? 'Evidence requested' : 'Needs review';
+  function matchStatusLabel(status: string, isHighConfidence: boolean): string {
+    if (status === 'awaiting_evidence') return 'Evidence requested';
+    if (isHighConfidence) return 'High-confidence candidate';
+    return 'Needs review';
   }
 
   function signalToneLabel(tone: string): string {
@@ -111,7 +113,7 @@
     if (hasMissing) {
       return 'One or more identity values are missing, so the records cannot be compared completely.';
     }
-    return 'The available identity signals do not provide enough support for an automatic decision.';
+    return 'The available identity signals are weak; a person must decide or request evidence.';
   }
 
   function evidenceOption(type: EvidenceType) {
@@ -183,15 +185,16 @@
         <div class="review-heading__title">
           <h1 id="review-title">Review product identity</h1>
           <span
-            class={`badge ${selected.match.status === 'awaiting_evidence' ? 'badge-yellow' : 'badge-orange'}`}
+            class={`badge ${selected.match.status === 'awaiting_evidence' ? 'badge-yellow' : selected.isHighConfidence ? 'badge-purple' : 'badge-orange'}`}
           >
-            {matchStatusLabel(selected.match.status)}
+            {matchStatusLabel(selected.match.status, selected.isHighConfidence)}
           </span>
         </div>
         <p>Compare the official warning with your catalogue record before taking action.</p>
         <div class="review-heading__meta">
           <span>{sourceLabel(selected.alert.source)} · {selected.alert.sourceReference}</span>
           <span>Published {formatDate(selected.alert.publishedAt)}</span>
+          <span>{selected.harm.level} official-alert harm priority</span>
           <span class="review-heading__reference">Internal reference · {matchLabel(selected.match.id)}</span>
         </div>
       </div>
@@ -221,19 +224,29 @@
       {/if}
     </header>
 
-    <article class="card confidence-context">
+    <article class:confidence-context--recommended={selected.isHighConfidence} class="card confidence-context">
       <div class="confidence-context__score" aria-label={`${selected.match.totalScore}% match confidence`}>
         <strong>{selected.match.totalScore}%</strong>
         <span>match confidence</span>
       </div>
       <div class="confidence-context__copy">
-        <span>Why this needs review</span>
-        <h2>Identity is not certain enough for an automatic decision</h2>
-        <p>{uncertaintySummary()}</p>
+        <span>{selected.isHighConfidence ? 'Agent recommendation' : 'Why this needs review'}</span>
+        <h2>
+          {selected.isHighConfidence
+            ? 'Strong match signals — human identity confirmation is still required'
+            : 'Identity signals are uncertain — review or evidence is required'}
+        </h2>
+        <p>
+          {selected.isHighConfidence
+            ? 'The configured matching threshold is met without a hard identifier conflict. The agent has not confirmed the product and has not opened a case.'
+            : uncertaintySummary()}
+        </p>
         <small>
-          The score is below the {selected.threshold}% automatic threshold. Review the signals
-          below and choose a human-controlled outcome. Match confidence measures product identity;
-          the official risk describes potential harm if the source product is involved.
+          {selected.isHighConfidence
+            ? `The ${selected.match.totalScore}% score is above the ${selected.threshold}% recommendation threshold. Review the source record and confirm or reject it yourself.`
+            : `The score is below the ${selected.threshold}% recommendation threshold. Review the signals below and choose a human-controlled outcome.`}
+          Match confidence measures product identity; the {selected.harm.level} harm priority describes
+          the official warning if its source product is involved.
         </small>
       </div>
     </article>
@@ -245,7 +258,7 @@
             <span>Official alert</span>
             <h2>{sourceLabel(selected.alert.source)} record</h2>
           </div>
-          <span class="badge badge-red">{selected.alert.risk}</span>
+          <span class="badge badge-red">{selected.harm.level} harm · {selected.alert.risk}</span>
         </header>
         <div class="comparison-card__body">
           <div class="record-summary">
@@ -352,7 +365,7 @@
     <article class="card decision-panel">
       <header>
         <h2>Choose a human-controlled outcome</h2>
-        <p>Reviewer: {actorName}. Every decision is recorded with a UTC timestamp.</p>
+        <p>Reviewer: {actorName}. The agent cannot confirm identity; every decision is recorded with a UTC timestamp.</p>
       </header>
       <div class="decision-grid">
         <section class="decision-option decision-option--reject">
@@ -403,12 +416,12 @@
   <section aria-labelledby="review-empty-title">
     <header class="review-empty-heading">
       <h1 id="review-empty-title">Review Queue</h1>
-      <p>Review uncertain catalogue matches before opening a recall case.</p>
+      <p>Review every proposed catalogue identity before opening a recall case.</p>
     </header>
     <div class="card review-empty">
       <span><Icon name="circle-check-big" size={22} /></span>
       <h2>Review queue is clear</h2>
-      <p>There are no uncertain catalogue matches waiting for a human decision.</p>
+      <p>There are no catalogue candidates waiting for a human identity decision.</p>
       <div class="review-empty__actions">
         <a class="btn btn-secondary" href="/catalogue">Review Catalogue</a>
         <a class="btn btn-primary" href="/dashboard">Return to Overview</a>
@@ -691,6 +704,15 @@
     padding: 18px;
     color: #9a661c;
     text-align: center;
+  }
+
+  .confidence-context--recommended .confidence-context__score {
+    background: var(--violet-50);
+    color: var(--violet-700);
+  }
+
+  .confidence-context--recommended .confidence-context__copy > span {
+    color: var(--violet-700);
   }
 
   .confidence-context__score strong,

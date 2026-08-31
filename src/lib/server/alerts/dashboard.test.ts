@@ -37,14 +37,25 @@ describe('dashboard view', () => {
       },
       archive: {
         total: 0,
-        matched: 0,
+        confirmed: 0,
+        highConfidence: 0,
         needsReview: 0,
         notRelevant: 0,
         lastImportedAt: null,
         catalogueProducts: 0
       },
       attention: [],
-      alerts: []
+      alerts: [],
+      evaluation: {
+        sampleSize: 0,
+        labeledRelevant: 0,
+        predictedRelevant: 0,
+        truePositives: 0,
+        falsePositives: 0,
+        falseNegatives: 0,
+        precision: null,
+        recall: null
+      }
     });
   });
 
@@ -55,34 +66,31 @@ describe('dashboard view', () => {
     const dashboard = getDashboardView(connection.db);
 
     expect(dashboard.counters).toEqual({
-      waitingForReview: 1,
-      pendingApprovals: 3,
-      openCases: 1,
-      unfinishedCases: 1
+      waitingForReview: 2,
+      pendingApprovals: 0,
+      openCases: 0,
+      unfinishedCases: 0
     });
     expect(dashboard.archive).toEqual({
       total: 3,
-      matched: 1,
+      confirmed: 0,
+      highConfidence: 1,
       needsReview: 1,
       notRelevant: 1,
       lastImportedAt: fixtures.alerts[0].createdAt,
       catalogueProducts: fixtures.products.length
     });
-    expect(dashboard.attention.map((item) => item.kind)).toEqual([
-      'review',
-      'approval',
-      'case'
-    ]);
-    expect(dashboard.attention.find((item) => item.kind === 'review')).toMatchObject({
+    expect(dashboard.attention.map((item) => item.kind)).toEqual(['review', 'review']);
+    expect(dashboard.attention.find((item) => item.actionLabel === 'Confirm identity')).toMatchObject({
       href: '/review',
-      actionLabel: 'Review match'
+      label: 'High-confidence identity check'
     });
-    expect(dashboard.attention.find((item) => item.kind === 'approval')).toMatchObject({
-      title: '3 approvals need a decision',
-      meta: 'No external message has been sent.'
-    });
-    expect(dashboard.attention.find((item) => item.kind === 'case')).toMatchObject({
-      actionLabel: 'Continue case'
+    expect(dashboard.evaluation).toMatchObject({
+      precision: 100,
+      recall: 100,
+      truePositives: 2,
+      falsePositives: 0,
+      falseNegatives: 0
     });
   });
 });

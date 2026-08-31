@@ -19,6 +19,11 @@ const taskSchema = actorSchema.extend({
   taskId: z.string().uuid()
 });
 
+const closeSchema = actorSchema.extend({
+  closureNote: z.string().trim().min(20).max(2_000),
+  evidenceReference: z.string().trim().min(3).max(500)
+});
+
 function workflowFailure(kind: 'task' | 'close', workflowError: unknown) {
   if (workflowError instanceof CaseWorkflowError) {
     const status = workflowError.code === 'not_found' ? 404 : 409;
@@ -73,12 +78,16 @@ export const actions: Actions = {
 
   close: async ({ params, request }) => {
     const formData = await request.formData();
-    const input = actorSchema.safeParse({ actorName: formData.get('actorName') });
+    const input = closeSchema.safeParse({
+      actorName: formData.get('actorName'),
+      closureNote: formData.get('closureNote'),
+      evidenceReference: formData.get('evidenceReference')
+    });
     if (!input.success) {
       return fail(400, {
         kind: 'close' as const,
         success: false as const,
-        message: 'Enter your name before closing the case.'
+        message: 'Enter your name, a closure note of at least 20 characters and an evidence reference.'
       });
     }
 
@@ -88,7 +97,9 @@ export const actions: Actions = {
         kind: 'close' as const,
         success: true as const,
         caseId: params.id,
-        message: result.changed ? 'Case closed and recorded in the audit log.' : 'Case already closed.'
+        message: result.changed
+          ? 'Case closed with supporting evidence recorded in the audit log.'
+          : 'Case already closed.'
       };
     } catch (workflowError) {
       return workflowFailure('close', workflowError);

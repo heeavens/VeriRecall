@@ -42,29 +42,29 @@ describe('Stage 3 monitoring workflow', () => {
   it('imports and classifies all three scenarios with top-3 candidates', async () => {
     const summary = await runMonitoringCycle(connection.db);
 
-    expect(summary).toEqual({ imported: 3, matched: 1, review: 1, ignored: 1 });
+    expect(summary).toMatchObject({ imported: 3, highConfidence: 1, review: 1, ignored: 1 });
+    expect(summary.durationMs).toBeGreaterThanOrEqual(1);
     expect(tableCount('alerts')).toBe(3);
     expect(tableCount('matches')).toBe(9);
-    expect(tableCount('cases')).toBe(1);
-    expect(tableCount('case_items')).toBe(1);
+    expect(tableCount('cases')).toBe(0);
+    expect(tableCount('case_items')).toBe(0);
 
     const statuses = connection.sqlite
       .prepare('select status, count(*) as value from alerts group by status order by status')
       .all();
     expect(statuses).toEqual([
-      { status: 'matched', value: 1 },
-      { status: 'needs_review', value: 1 },
+      { status: 'needs_review', value: 2 },
       { status: 'not_relevant', value: 1 }
     ]);
 
     const dashboard = getDashboardView(connection.db);
-    expect(new Set(dashboard.alerts.map((item) => item.status))).toEqual(
-      new Set(['matched', 'needs_review', 'not_relevant'])
+    expect(new Set(dashboard.alerts.map((item) => item.identityOutcome))).toEqual(
+      new Set(['high_confidence', 'needs_review', 'not_relevant'])
     );
-    expect(dashboard.counters.waitingForReview).toBe(1);
-    expect(dashboard.counters.openCases).toBe(1);
+    expect(dashboard.counters.waitingForReview).toBe(2);
+    expect(dashboard.counters.openCases).toBe(0);
 
-    const matchedAlert = dashboard.alerts.find((item) => item.status === 'matched');
+    const matchedAlert = dashboard.alerts.find((item) => item.identityOutcome === 'high_confidence');
     expect(matchedAlert?.bestMatch?.product.sku).toBe('TOY-1042');
     const detail = matchedAlert ? getAlertDetail(connection.db, matchedAlert.id) : null;
     expect(detail?.candidates).toHaveLength(3);
@@ -83,7 +83,8 @@ describe('Stage 3 monitoring workflow', () => {
 
     const repeatedSummary = await runMonitoringCycle(connection.db);
 
-    expect(repeatedSummary).toEqual({ imported: 0, matched: 0, review: 0, ignored: 0 });
+    expect(repeatedSummary).toMatchObject({ imported: 0, highConfidence: 0, review: 0, ignored: 0 });
+    expect(repeatedSummary.durationMs).toBeGreaterThanOrEqual(1);
     expect({
       alerts: tableCount('alerts'),
       matches: tableCount('matches'),

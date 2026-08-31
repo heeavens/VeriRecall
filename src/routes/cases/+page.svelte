@@ -149,7 +149,7 @@
       <div class="case-empty">
         <span><Icon name="briefcase-business" size={21} /></span>
         <h2>No Cases yet</h2>
-        <p>A case appears after a high-confidence or human-confirmed catalogue match.</p>
+        <p>A case appears only after a person confirms a catalogue match.</p>
         <a class="btn btn-secondary" href="/review">Open Review Queue</a>
       </div>
     {/if}

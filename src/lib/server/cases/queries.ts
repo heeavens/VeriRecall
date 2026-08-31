@@ -44,6 +44,12 @@ export interface CaseDetailView {
   totalStock: number;
   completedTasks: number;
   actionableTasks: number;
+  closureEvidence: {
+    note: string;
+    reference: string;
+    actorName: string;
+    recordedAt: string;
+  } | null;
 }
 
 export interface ActionDraftView {
@@ -205,6 +211,26 @@ export function getCaseDetail(database: RecallDatabase, caseId: string): CaseDet
     .orderBy(desc(schema.matches.totalScore))
     .get() ?? null;
   const actionableTasks = tasks.filter((task) => task.status !== 'not_available').length;
+  const closureEvent = [...timeline].reverse().find((event) => event.eventType === 'case_closed');
+  let closureEvidence: CaseDetailView['closureEvidence'] = null;
+  if (closureEvent) {
+    try {
+      const metadata = JSON.parse(closureEvent.metadataJson) as {
+        closureNote?: unknown;
+        evidenceReference?: unknown;
+      };
+      if (typeof metadata.closureNote === 'string' && typeof metadata.evidenceReference === 'string') {
+        closureEvidence = {
+          note: metadata.closureNote,
+          reference: metadata.evidenceReference,
+          actorName: closureEvent.actorName,
+          recordedAt: closureEvent.createdAt
+        };
+      }
+    } catch {
+      closureEvidence = null;
+    }
+  }
 
   return {
     ...record,
@@ -216,7 +242,8 @@ export function getCaseDetail(database: RecallDatabase, caseId: string): CaseDet
     timeline,
     totalStock: items.reduce((total, row) => total + row.item.stockQuantity, 0),
     completedTasks: tasks.filter((task) => task.status === 'completed').length,
-    actionableTasks
+    actionableTasks,
+    closureEvidence
   };
 }
 

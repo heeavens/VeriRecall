@@ -23,15 +23,17 @@
     return 'briefcase-business';
   }
 
-  function statusLabel(status: DashboardAlert['status']): string {
-    if (status === 'matched') return 'Confirmed match';
-    if (status === 'needs_review') return 'Needs review';
+  function statusLabel(alert: DashboardAlert): string {
+    if (alert.identityOutcome === 'confirmed') return 'Human confirmed';
+    if (alert.identityOutcome === 'high_confidence') return 'High-confidence candidate';
+    if (alert.identityOutcome === 'needs_review') return 'Needs review';
     return 'Not relevant';
   }
 
-  function statusClass(status: DashboardAlert['status']): string {
-    if (status === 'matched') return 'badge-green';
-    if (status === 'needs_review') return 'badge-orange';
+  function statusClass(alert: DashboardAlert): string {
+    if (alert.identityOutcome === 'confirmed') return 'badge-green';
+    if (alert.identityOutcome === 'high_confidence') return 'badge-purple';
+    if (alert.identityOutcome === 'needs_review') return 'badge-orange';
     return 'badge-gray';
   }
 
@@ -62,10 +64,16 @@
 
   function isMonitoringResult(
     value: unknown
-  ): value is { imported: number; matched: number; review: number; ignored: number } {
+  ): value is {
+    imported: number;
+    highConfidence: number;
+    review: number;
+    ignored: number;
+    durationMs: number;
+  } {
     if (typeof value !== 'object' || value === null) return false;
     const result = value as Record<string, unknown>;
-    return ['imported', 'matched', 'review', 'ignored'].every(
+    return ['imported', 'highConfidence', 'review', 'ignored', 'durationMs'].every(
       (key) => typeof result[key] === 'number'
     );
   }
@@ -80,14 +88,14 @@
       const result: unknown = await response.json();
       if (!response.ok || !isMonitoringResult(result)) throw new Error('Monitoring failed');
       monitorMessage = result.imported
-        ? `Archive check complete: ${result.imported} new alert${result.imported === 1 ? '' : 's'}, ${result.matched} matched, ${result.review} for review and ${result.ignored} not relevant.`
-        : 'Archive check complete. No new records were found in the local prototype archive.';
+        ? `Archive check complete in ${result.durationMs} ms: ${result.imported} new alert${result.imported === 1 ? '' : 's'}, ${result.highConfidence} high-confidence candidate${result.highConfidence === 1 ? '' : 's'}, ${result.review} uncertain and ${result.ignored} not relevant. Every product identity still requires a person.`
+        : `Archive check complete in ${result.durationMs} ms. No new records were found in the local prototype archive.`;
       await invalidateAll();
-      monitorNext = result.review > 0 || data.counters.waitingForReview > 0
+      monitorNext = result.highConfidence > 0 || result.review > 0 || data.counters.waitingForReview > 0
         ? { href: '/review', label: 'Open Review Queue' }
         : data.counters.pendingApprovals > 0
           ? { href: '/actions', label: 'Open Approvals' }
-          : result.matched > 0 || data.counters.unfinishedCases > 0
+          : data.counters.unfinishedCases > 0
             ? { href: '/cases', label: 'View Cases' }
             : { href: '/catalogue', label: 'Review Catalogue' };
     } catch {
@@ -207,8 +215,8 @@
             <dd>{data.archive.total}</dd>
           </div>
           <div>
-            <dt>Confirmed</dt>
-            <dd class="archive-stat--success">{data.archive.matched}</dd>
+            <dt>High-confidence</dt>
+            <dd class="archive-stat--candidate">{data.archive.highConfidence}</dd>
           </div>
           <div>
             <dt>For review</dt>
@@ -218,7 +226,26 @@
             <dt>Not relevant</dt>
             <dd>{data.archive.notRelevant}</dd>
           </div>
+          <div>
+            <dt>Human confirmed</dt>
+            <dd class="archive-stat--success">{data.archive.confirmed}</dd>
+          </div>
         </dl>
+        {#if data.evaluation.sampleSize > 0}
+          <div class="evaluation-summary" aria-label="Labeled demo evaluation">
+            <div>
+              <span>Demo precision</span>
+              <strong>{data.evaluation.precision ?? '—'}%</strong>
+            </div>
+            <div>
+              <span>Demo recall</span>
+              <strong>{data.evaluation.recall ?? '—'}%</strong>
+            </div>
+            <p>
+              Top-candidate results on {data.evaluation.sampleSize} labeled archived fixture{data.evaluation.sampleSize === 1 ? '' : 's'} only — not a production performance claim.
+            </p>
+          </div>
+        {/if}
         <p class="archive-timestamp">
           Last imported record set<br />
           <strong>{formatDateTime(data.archive.lastImportedAt)}</strong>
@@ -260,8 +287,8 @@
                 <small>{sourceLabel(alert.source)} · {alert.sourceReference} · {formatDate(alert.publishedAt)}</small>
               </span>
               <span class="latest-alert__risk">
-                <small>Official source risk</small>
-                <strong>{alert.risk}</strong>
+                  <small>Official source harm · {alert.harm.level}</small>
+                  <strong>{alert.risk}</strong>
               </span>
               <span class="latest-alert__match">
                 {#if alert.bestMatch}
@@ -272,7 +299,7 @@
                   <small>Open the record for details</small>
                 {/if}
               </span>
-              <span class={`badge ${statusClass(alert.status)}`}>{statusLabel(alert.status)}</span>
+              <span class={`badge ${statusClass(alert)}`}>{statusLabel(alert)}</span>
               <Icon name="chevron-right" size={16} class="latest-alert__arrow" />
             </a>
           {/each}
@@ -642,8 +669,51 @@
     color: #278c5c;
   }
 
+  .archive-stats .archive-stat--candidate {
+    color: var(--violet-700);
+  }
+
   .archive-stats .archive-stat--warning {
     color: #a66b1b;
+  }
+
+  .evaluation-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+    border-top: 1px solid var(--line);
+    padding-top: 13px;
+  }
+
+  .evaluation-summary > div {
+    border-radius: 8px;
+    background: var(--violet-50);
+    padding: 9px 10px;
+  }
+
+  .evaluation-summary span,
+  .evaluation-summary strong {
+    display: block;
+  }
+
+  .evaluation-summary span {
+    color: var(--muted);
+    font-size: 9px;
+  }
+
+  .evaluation-summary strong {
+    margin-top: 4px;
+    color: var(--violet-700);
+    font-size: 17px;
+  }
+
+  .evaluation-summary p {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--muted);
+    font-size: 9px;
+    line-height: 1.45;
   }
 
   .archive-timestamp {

@@ -55,9 +55,9 @@ afterEach(() => {
 
 describe('Stage 4 human review workflow', () => {
   it('places the uncertain fixture in the queue with positive and conflicting signals', () => {
-    const queue = getReviewQueueView(connection.db);
+    const queue = getReviewQueueView(connection.db, uncertainMatchId);
 
-    expect(queue.items).toHaveLength(1);
+    expect(queue.items).toHaveLength(2);
     expect(queue.selected?.match.id).toBe(uncertainMatchId);
     expect(queue.selected?.match.status).toBe('candidate');
     expect(queue.selected?.positiveReasons.length).toBeGreaterThanOrEqual(1);
@@ -85,9 +85,9 @@ describe('Stage 4 human review workflow', () => {
         actorName: 'Herman'
       })
     ).toThrow('This match is not awaiting a human review decision.');
-    expect(tableCount('cases')).toBe(1);
-    expect(tableCount('case_items')).toBe(1);
-    expect(tableCount('audit_events')).toBe(5);
+    expect(tableCount('cases')).toBe(0);
+    expect(tableCount('case_items')).toBe(0);
+    expect(tableCount('audit_events')).toBe(2);
     expect(connection.db.select().from(matches).where(eq(matches.id, notRelevantMatchId)).get())
       .toMatchObject({ status: 'candidate', decidedAt: null });
   });
@@ -105,9 +105,9 @@ describe('Stage 4 human review workflow', () => {
       new Date('2026-08-29T10:01:00Z')
     );
 
-    expect(first).toMatchObject({ changed: true, caseNumber: 'CASE-0002' });
+    expect(first).toMatchObject({ changed: true, caseNumber: 'CASE-0001' });
     expect(repeated).toMatchObject({ changed: false, caseId: first.caseId });
-    expect(afterFirst).toEqual({ cases: 2, caseItems: 2, auditEvents: 10 });
+    expect(afterFirst).toEqual({ cases: 1, caseItems: 1, auditEvents: 7 });
     expect({
       cases: tableCount('cases'),
       caseItems: tableCount('case_items'),
@@ -136,7 +136,7 @@ describe('Stage 4 human review workflow', () => {
 
     expect(first.changed).toBe(true);
     expect(repeated.changed).toBe(false);
-    expect(afterFirst).toEqual({ cases: 1, caseItems: 1, auditEvents: 6 });
+    expect(afterFirst).toEqual({ cases: 0, caseItems: 0, auditEvents: 3 });
     expect({
       cases: tableCount('cases'),
       caseItems: tableCount('case_items'),
@@ -176,11 +176,11 @@ describe('Stage 4 human review workflow', () => {
     expect(first.changed).toBe(true);
     expect(repeated).toEqual({ ...first, changed: false });
     expect(afterFirst).toEqual({
-      cases: 2,
-      caseItems: 1,
+      cases: 1,
+      caseItems: 0,
       evidenceRequests: 1,
-      actionDrafts: 4,
-      auditEvents: 8
+      actionDrafts: 1,
+      auditEvents: 5
     });
     expect({
       cases: tableCount('cases'),
@@ -202,8 +202,8 @@ describe('Stage 4 human review workflow', () => {
       new Date('2026-08-29T12:02:00Z')
     );
     expect(confirmed).toMatchObject({ changed: true, caseId: first.caseId });
-    expect(tableCount('cases')).toBe(2);
-    expect(tableCount('case_items')).toBe(2);
+    expect(tableCount('cases')).toBe(1);
+    expect(tableCount('case_items')).toBe(1);
     expect(connection.db.select().from(auditEvents).where(eq(auditEvents.caseId, first.caseId)).all())
       .toHaveLength(6);
   });
