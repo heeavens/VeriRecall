@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '$lib/components/Icon.svelte';
+  import WorkflowBreadcrumbs from '$lib/components/WorkflowBreadcrumbs.svelte';
 
   import type { PageProps } from './$types';
 
@@ -65,7 +66,7 @@
 
   function reviewOwner(status: AlertStatus): string {
     if (status === 'needs_review') return 'Unassigned';
-    if (status === 'matched') return 'Agent-confirmed';
+    if (status === 'matched') return 'Confirmed by matching rules';
     return 'Not required';
   }
 
@@ -163,22 +164,13 @@
 </svelte:head>
 
 <section aria-labelledby="alert-title">
-  <nav class="mb-3 flex items-center gap-1.5 text-[10px] font-semibold text-[#7542dd]" aria-label="Breadcrumb">
-    <a href="/dashboard" class="hover:text-[#6330c8] hover:underline">Alert Feed</a>
-    <span aria-hidden="true">→</span>
-    <span>{data.alert.sourceReference}</span>
-  </nav>
+  <WorkflowBreadcrumbs
+    items={[{ label: 'Overview', href: '/dashboard' }, { label: 'Alert details' }, { label: data.alert.sourceReference }]}
+  />
 
-  <div class="mb-5 flex items-start justify-between gap-4">
-    <div>
+  <div class="mb-5 flex flex-col items-start justify-between gap-4 md:flex-row">
+    <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
-        <a
-          href="/dashboard"
-          class="mr-1 grid h-7 w-7 place-items-center rounded-md text-[#716b7b] transition hover:bg-[#f8f4ff] hover:text-[#7542dd]"
-          aria-label="Back to Alert Feed"
-        >
-          <Icon name="arrow-left" size={19} />
-        </a>
         <h1 id="alert-title" class="text-[23px] font-bold tracking-[-0.03em] text-[#17151c]">
           {data.alert.productName}
         </h1>
@@ -186,7 +178,7 @@
         <span class="badge bg-[#fff0f0] text-[#e14f55]">{data.alert.risk}</span>
       </div>
 
-      <div class="mt-2 flex flex-wrap gap-x-8 gap-y-1 pl-8 text-[10px] text-[#716b7b]">
+      <div class="mt-2 flex flex-wrap gap-x-8 gap-y-1 text-[10px] text-[#716b7b]">
         <span>Alert: <b class="text-[#17151c]">{data.alert.sourceReference}</b></span>
         <span>Source: <b class="text-[#17151c]">{sourceLabel(data.alert.source)}</b></span>
         <span>Published: <b class="text-[#17151c]">{formatDate(data.alert.publishedAt)}</b></span>
@@ -194,15 +186,15 @@
       </div>
     </div>
 
-    <a class="btn btn-secondary self-start" href="/dashboard">
+    <a class="btn btn-secondary w-full self-start md:w-auto" href="/dashboard">
       <Icon name="arrow-left" size={15} />
       Back to Alert Feed
     </a>
   </div>
 
-  <div class="grid grid-cols-12 gap-4">
-    <div class="col-span-8 space-y-4">
-      <div class="grid grid-cols-2 gap-4">
+  <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
+    <div class="space-y-4 xl:col-span-8">
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <article class="overflow-hidden rounded-[13px] border border-[#eae4f2] bg-white shadow-[0_1px_2px_rgba(40,24,65,0.025)]">
           <header class="flex min-h-16 items-center justify-between gap-3 border-b border-[#eae4f2] bg-[#fffafb] px-4 py-3">
             <div>
@@ -304,7 +296,7 @@
 
       {#if bestMatch}
         <article class="rounded-[13px] border border-[#eae4f2] bg-white p-5 shadow-[0_1px_2px_rgba(40,24,65,0.025)]">
-          <div class="flex items-center justify-between gap-4">
+          <div class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
             <div>
               <h2 class="text-[15px] font-bold text-[#17151c]">Match Explanation</h2>
               <p class="mt-1 text-[10px] text-[#716b7b]">Weighted identity comparison used by the matching engine.</p>
@@ -373,7 +365,7 @@
       {/if}
     </div>
 
-    <aside class="col-span-4 space-y-4">
+    <aside class="space-y-4 xl:col-span-4">
       <article class="rounded-[13px] border border-[#eae4f2] bg-white p-4 shadow-[0_1px_2px_rgba(40,24,65,0.025)]">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-[14px] font-bold">Decision Summary</h2>

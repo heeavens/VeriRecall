@@ -61,6 +61,7 @@ export const actions: Actions = {
       return {
         kind: 'task' as const,
         success: true as const,
+        caseId: params.id,
         message: result.changed
           ? 'Checklist task completed and added to the audit timeline.'
           : 'This checklist task was already completed.'
@@ -86,6 +87,7 @@ export const actions: Actions = {
       return {
         kind: 'close' as const,
         success: true as const,
+        caseId: params.id,
         message: result.changed ? 'Case closed and recorded in the audit log.' : 'Case already closed.'
       };
     } catch (workflowError) {

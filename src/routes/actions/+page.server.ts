@@ -59,6 +59,7 @@ export const actions: Actions = {
       return {
         kind: 'update' as const,
         success: true as const,
+        caseId: result.caseId,
         message: result.changed ? 'Draft updated and added to the audit timeline.' : 'No draft changes to save.'
       };
     } catch (workflowError) {
@@ -85,6 +86,7 @@ export const actions: Actions = {
       return {
         kind: 'approve' as const,
         success: true as const,
+        caseId: result.caseId,
         message: result.changed
           ? 'Approval recorded. The action is marked SIMULATED SEND; no external message was sent.'
           : 'This action already has a simulated-send record.'

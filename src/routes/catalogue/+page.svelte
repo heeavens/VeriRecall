@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from '$lib/components/Icon.svelte';
+  import WorkflowBreadcrumbs from '$lib/components/WorkflowBreadcrumbs.svelte';
 
   import type { PageProps } from './$types';
 
@@ -67,15 +68,23 @@
 </svelte:head>
 
 <section aria-labelledby="catalogue-title">
+  <WorkflowBreadcrumbs items={[{ label: 'Overview', href: '/dashboard' }, { label: 'Catalogue' }]} />
   <header class="catalogue-heading">
     <div>
       <h1 id="catalogue-title">Product Catalogue</h1>
       <p>Review the company records and identifiers used to match official safety alerts.</p>
     </div>
-    <a class="btn btn-primary" href="/onboarding">
-      <Icon name="upload" size={16} />
-      Manage import
-    </a>
+    <div class="catalogue-heading__actions">
+      <a class="btn btn-secondary" href="/onboarding">
+        <Icon name="upload" size={16} />
+        Manage Import
+      </a>
+      {#if data.catalogue.summary.totalProducts > 0}
+        <a class="btn btn-primary" href="/dashboard#archive-check">
+          Check Alerts <Icon name="arrow-right" size={14} />
+        </a>
+      {/if}
+    </div>
   </header>
 
   {#if data.catalogue.summary.totalProducts === 0}
@@ -259,6 +268,12 @@
     color: var(--muted);
     font-size: 13px;
     line-height: 1.5;
+  }
+
+  .catalogue-heading__actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 8px;
   }
 
   .catalogue-summary {
@@ -546,6 +561,16 @@
 
     .catalogue-result-count {
       margin-left: 0;
+    }
+
+    .catalogue-heading__actions,
+    .catalogue-heading__actions .btn {
+      width: 100%;
+    }
+
+    .catalogue-heading__actions {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     }
   }
 </style>

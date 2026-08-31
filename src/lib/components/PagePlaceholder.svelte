@@ -10,7 +10,7 @@
   const icon = $derived(
     title === 'Review Queue'
       ? 'scan-search'
-      : title === 'Action Drafts'
+      : title === 'Approvals'
         ? 'send'
         : 'briefcase-business'
   );

@@ -1139,6 +1139,104 @@ textarea.input-ui {
   }
 }
 
+@media (max-width: 900px) {
+  .app-root {
+    min-width: 320px;
+  }
+
+  .app-header {
+    height: 60px;
+  }
+
+  .app-header__grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 0 12px;
+  }
+
+  .app-brand {
+    font-size: 15px;
+  }
+
+  .app-header__tools {
+    gap: 8px;
+  }
+
+  .header-divider {
+    display: none;
+  }
+
+  .app-layout {
+    display: block;
+    padding: 10px 12px 20px;
+  }
+
+  .app-sidebar {
+    position: sticky;
+    z-index: 40;
+    top: 70px;
+    height: auto;
+    min-height: 0;
+    margin-bottom: 12px;
+    overflow: hidden;
+    padding: 6px;
+  }
+
+  .sidebar-nav {
+    height: auto;
+  }
+
+  .sidebar-nav__list {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+
+  .sidebar-nav__list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sidebar-nav__footer {
+    display: none;
+  }
+
+  .nav-item {
+    width: auto;
+    flex: 0 0 auto;
+    gap: 7px;
+    padding: 9px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .app-main {
+    padding-bottom: 24px;
+  }
+
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .modal-panel {
+    max-height: calc(100vh - 20px);
+    border-radius: 14px;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-header__tools .icon-button {
+    display: none;
+  }
+
+  .app-layout {
+    padding-right: 9px;
+    padding-left: 9px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

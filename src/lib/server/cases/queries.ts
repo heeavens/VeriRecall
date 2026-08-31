@@ -10,7 +10,10 @@ export interface CaseListItem {
   totalStock: number;
   completedTasks: number;
   actionableTasks: number;
+  pendingTasks: number;
+  nextTaskLabel: string | null;
   draftCount: number;
+  pendingApprovals: number;
   simulatedCount: number;
 }
 
@@ -118,23 +121,36 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
         .where(eq(schema.caseItems.caseId, row.caseRecord.id))
         .all();
       const tasks = database
-        .select({ status: schema.caseTasks.status })
+        .select({
+          type: schema.caseTasks.type,
+          label: schema.caseTasks.label,
+          status: schema.caseTasks.status
+        })
         .from(schema.caseTasks)
         .where(eq(schema.caseTasks.caseId, row.caseRecord.id))
-        .all();
+        .all()
+        .sort(
+          (left, right) =>
+            ['block_sale', 'notify_supplier', 'notify_customers'].indexOf(left.type) -
+            ['block_sale', 'notify_supplier', 'notify_customers'].indexOf(right.type)
+        );
       const drafts = database
         .select({ status: schema.actionDrafts.status })
         .from(schema.actionDrafts)
         .where(eq(schema.actionDrafts.caseId, row.caseRecord.id))
         .all();
       const actionableTasks = tasks.filter((task) => task.status !== 'not_available').length;
+      const pendingTasks = tasks.filter((task) => task.status === 'pending');
       return {
         ...row,
         itemCount: items.length,
         totalStock: items.reduce((total, item) => total + item.stockQuantity, 0),
         completedTasks: tasks.filter((task) => task.status === 'completed').length,
         actionableTasks,
+        pendingTasks: pendingTasks.length,
+        nextTaskLabel: pendingTasks[0]?.label ?? null,
         draftCount: drafts.length,
+        pendingApprovals: drafts.filter((draft) => draft.status === 'draft').length,
         simulatedCount: drafts.filter((draft) => draft.status === 'simulated_sent').length
       };
     })
@@ -215,7 +231,16 @@ export function getActionDraftsView(
     .innerJoin(schema.alerts, eq(schema.alerts.id, schema.cases.alertId))
     .orderBy(desc(schema.actionDrafts.createdAt));
 
-  return requestedCaseId
+  const actions = requestedCaseId
     ? query.where(eq(schema.actionDrafts.caseId, requestedCaseId)).all()
     : query.all();
+
+  return actions.sort((left, right) => {
+    const statusPriority = (status: string): number => {
+      if (status === 'draft') return 0;
+      if (status === 'not_available') return 2;
+      return 1;
+    };
+    return statusPriority(left.draft.status) - statusPriority(right.draft.status);
+  });
 }

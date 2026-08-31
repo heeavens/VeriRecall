@@ -41,7 +41,7 @@
       activePrefixes: ['/cases']
     },
     {
-      label: 'Action Drafts',
+      label: 'Approvals',
       href: '/actions',
       icon: 'send',
       activePrefixes: ['/actions']
@@ -52,6 +52,18 @@
     page.url.pathname === '/onboarding' || page.url.pathname.startsWith('/onboarding/')
   );
   const isNavigating = $derived(navigating.to !== null);
+
+  $effect(() => {
+    page.url.pathname;
+    if (!window.matchMedia('(max-width: 900px)').matches) return;
+    requestAnimationFrame(() => {
+      document.querySelector('.sidebar-nav__list .nav-item.active')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center'
+      });
+    });
+  });
 
   function isActive(item: NavigationItem): boolean {
     return item.activePrefixes.some(
