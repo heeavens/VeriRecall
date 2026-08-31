@@ -1,14 +1,20 @@
 <script lang="ts">
   import Icon from '$lib/components/Icon.svelte';
+  import WorkflowBreadcrumbs from '$lib/components/WorkflowBreadcrumbs.svelte';
 
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
 
-  const openCount = $derived(data.cases.filter((item) => item.caseRecord.status === 'open').length);
-  const containedCount = $derived(data.cases.filter((item) => item.caseRecord.status === 'contained').length);
-  const closedCount = $derived(data.cases.filter((item) => item.caseRecord.status === 'closed').length);
-  const totalStock = $derived(data.cases.reduce((total, item) => total + item.totalStock, 0));
+  const openCount = $derived(
+    data.cases.filter((item) => item.caseRecord.status === 'open').length
+  );
+  const pendingTaskCount = $derived(
+    data.cases.reduce((total, item) => total + item.pendingTasks, 0)
+  );
+  const pendingApprovalCount = $derived(
+    data.cases.reduce((total, item) => total + item.pendingApprovals, 0)
+  );
 
   function formatDate(value: string): string {
     return new Intl.DateTimeFormat('en-GB', {
@@ -20,9 +26,9 @@
   }
 
   function statusLabel(status: string): string {
-    if (status === 'contained') return 'Contained';
+    if (status === 'contained') return 'Ready to close';
     if (status === 'closed') return 'Closed';
-    return 'Open';
+    return 'Containment required';
   }
 
   function statusClass(status: string): string {
@@ -30,158 +36,530 @@
     if (status === 'closed') return 'badge-green';
     return 'badge-orange';
   }
+
+  function nextAction(item: (typeof data.cases)[number]): string {
+    if (item.caseRecord.status === 'closed') return 'No further action required';
+    if (item.nextTaskLabel) return item.nextTaskLabel;
+    if (item.caseRecord.status === 'contained') return 'Review the record and close the case';
+    return 'Review the incident record';
+  }
 </script>
 
 <svelte:head>
-  <title>Recall Cases | Recall Agent</title>
-  <meta name="description" content="Track recall containment tasks, drafts and defensible audit records." />
+  <title>Cases | Recall Agent</title>
+  <meta
+    name="description"
+    content="Work through recall containment tasks and maintain defensible incident records."
+  />
 </svelte:head>
 
-<section aria-labelledby="cases-title">
-  <header class="mb-5 flex items-start justify-between gap-5">
+<section class="cases-page" aria-labelledby="cases-title">
+  <WorkflowBreadcrumbs items={[{ label: 'Overview', href: '/dashboard' }, { label: 'Cases' }]} />
+  <header class="cases-heading">
     <div>
-      <h1 id="cases-title" class="text-[24px] font-bold tracking-[-.035em]">Recall Cases</h1>
-      <p class="mt-1 text-[12px] text-muted">Track confirmed incidents from first response through documented closure.</p>
+      <span class="eyebrow">Incident response</span>
+      <h1 id="cases-title">Cases</h1>
+      <p>Complete urgent containment work before documenting case closure.</p>
     </div>
     <a class="btn btn-primary" href="/actions">
-      <Icon name="send" size={15} />
-      Review Action Drafts
+      <Icon name="shield-check" size={15} />
+      Open Approvals
     </a>
   </header>
 
-  <div class="card mb-4 grid grid-cols-4 p-0">
-    <div class="p-4">
-      <span class="text-[9px] font-semibold tracking-[.13em] text-muted uppercase">Total cases</span>
-      <div class="mt-2 text-[24px] font-bold">{data.cases.length}</div>
-      <p class="mt-1 text-[9px] text-muted">Confirmed recall records</p>
+  <div class="case-summary" aria-label="Case workload summary">
+    <div>
+      <span>Open cases</span>
+      <strong>{openCount}</strong>
+      <small>Active incident records</small>
     </div>
-    <div class="metric-divider p-4">
-      <span class="text-[9px] font-semibold tracking-[.13em] text-muted uppercase">Open</span>
-      <div class="mt-2 text-[24px] font-bold text-[#df8b31]">{openCount}</div>
-      <p class="mt-1 text-[9px] text-muted">Containment in progress</p>
+    <div class:case-summary__urgent={pendingTaskCount > 0}>
+      <span>Containment tasks</span>
+      <strong>{pendingTaskCount}</strong>
+      <small>{pendingTaskCount === 1 ? 'Task still requires action' : 'Tasks still require action'}</small>
     </div>
-    <div class="metric-divider p-4">
-      <span class="text-[9px] font-semibold tracking-[.13em] text-muted uppercase">Contained / closed</span>
-      <div class="mt-2 text-[24px] font-bold text-violet-700">{containedCount + closedCount}</div>
-      <p class="mt-1 text-[9px] text-muted">All checklist items resolved</p>
-    </div>
-    <div class="metric-divider p-4">
-      <span class="text-[9px] font-semibold tracking-[.13em] text-muted uppercase">Affected stock</span>
-      <div class="mt-2 text-[24px] font-bold">{totalStock}</div>
-      <p class="mt-1 text-[9px] text-muted">Units across active records</p>
+    <div>
+      <span>Awaiting approval</span>
+      <strong>{pendingApprovalCount}</strong>
+      <small>Human decisions required</small>
     </div>
   </div>
 
-  <div class="grid grid-cols-12 gap-4">
-    <article class="card col-span-9 overflow-hidden">
-      <div class="flex items-center justify-between border-b border-line px-4 py-3.5">
-        <div>
-          <h2 class="text-[14px] font-bold">Incident Records</h2>
-          <p class="mt-0.5 text-[9px] text-muted">Every case links affected inventory, people, actions and audit events.</p>
-        </div>
-        <span class="badge badge-gray">{data.cases.length} records</span>
+  <article class="card case-register">
+    <header class="case-register__heading">
+      <div>
+        <h2>Incident records</h2>
+        <p>Cases with unfinished work appear with their next required action.</p>
       </div>
+      <span>{data.cases.length} {data.cases.length === 1 ? 'case' : 'cases'}</span>
+    </header>
 
-      {#if data.cases.length > 0}
-        <div class="table-wrap m-4 mt-0 border-t-0">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width:17%">Case</th>
-                <th style="width:27%">Official alert</th>
-                <th style="width:13%">Inventory</th>
-                <th style="width:20%">Containment</th>
-                <th style="width:13%">Actions</th>
-                <th style="width:10%">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each data.cases as item}
-                <tr>
-                  <td>
-                    <a class="font-bold text-violet-700 hover:underline" href={`/cases/${item.caseRecord.id}`}>
-                      {item.caseRecord.caseNumber}
-                    </a>
-                    <span class="mt-1 block text-[8px] text-muted">Opened {formatDate(item.caseRecord.openedAt)}</span>
-                  </td>
-                  <td>
-                    <b class="block truncate text-[10px]">{item.alert.productName}</b>
-                    <span class="mt-1 block text-[8px] text-muted">{item.alert.sourceReference} · {item.alert.risk}</span>
-                  </td>
-                  <td>
-                    <b>{item.totalStock} units</b>
-                    <span class="mt-1 block text-[8px] text-muted">{item.itemCount} affected SKU {item.itemCount === 1 ? 'record' : 'records'}</span>
-                  </td>
-                  <td>
-                    <div class="mb-1.5 flex justify-between text-[8px]">
-                      <span>{item.completedTasks}/{item.actionableTasks} complete</span>
-                      <b>{item.actionableTasks === 0 ? 100 : Math.round((item.completedTasks / item.actionableTasks) * 100)}%</b>
-                    </div>
-                    <div class="progress-track">
-                      <div
-                        class="progress-value"
-                        style={`width:${item.actionableTasks === 0 ? 100 : Math.round((item.completedTasks / item.actionableTasks) * 100)}%`}
-                      ></div>
-                    </div>
-                  </td>
-                  <td>
-                    <b>{item.simulatedCount}/{item.draftCount}</b>
-                    <span class="mt-1 block text-[8px] text-muted">simulated sends</span>
-                  </td>
-                  <td><span class={`badge ${statusClass(item.caseRecord.status)}`}>{statusLabel(item.caseRecord.status)}</span></td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {:else}
-        <div class="grid min-h-[330px] place-items-center p-8 text-center">
-          <div class="max-w-[350px]">
-            <span class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-violet-50 text-violet-600">
-              <Icon name="briefcase-business" size={20} />
-            </span>
-            <h3 class="mt-4 text-[15px] font-bold">No confirmed recall cases</h3>
-            <p class="mt-2 text-[10px] leading-5 text-muted">A case will appear after a high-confidence or human-confirmed catalogue match.</p>
-            <a class="btn btn-ghost mt-4" href="/review">Open Review Queue</a>
-          </div>
-        </div>
-      {/if}
-    </article>
+    {#if data.cases.length > 0}
+      <div class="case-list">
+        {#each data.cases as item}
+          <article class:case-row--closed={item.caseRecord.status === 'closed'} class="case-row">
+            <div class={`case-row__marker case-row__marker--${item.caseRecord.status}`} aria-hidden="true"></div>
 
-    <aside class="col-span-3 space-y-4">
-      <article class="card p-4">
-        <h2 class="text-[13px] font-bold">Case Status</h2>
-        <div class="mt-4 flex items-center justify-center gap-5">
-          <div class="ring-chart h-[82px] w-[82px]" style={`background:conic-gradient(#8150e4 ${data.cases.length === 0 ? 0 : Math.round(((containedCount + closedCount) / data.cases.length) * 100)}%,#eae4f2 0)`}>
-            <div class="ring-center text-[14px] font-bold">{data.cases.length === 0 ? 0 : Math.round(((containedCount + closedCount) / data.cases.length) * 100)}%</div>
-          </div>
-          <dl class="space-y-2 text-[9px]">
-            <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-[#df8b31]"></span><dt class="text-muted">Open</dt><dd class="ml-auto font-bold">{openCount}</dd></div>
-            <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-violet-600"></span><dt class="text-muted">Contained</dt><dd class="ml-auto font-bold">{containedCount}</dd></div>
-            <div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-[#2aa96b]"></span><dt class="text-muted">Closed</dt><dd class="ml-auto font-bold">{closedCount}</dd></div>
-          </dl>
-        </div>
-      </article>
-
-      <article class="card p-4">
-        <div class="flex items-center gap-2 text-violet-700">
-          <Icon name="shield-check" size={16} />
-          <h2 class="text-[12px] font-bold">Defensible Record</h2>
-        </div>
-        <p class="mt-2 text-[9px] leading-4 text-muted">Every manual action records its actor and UTC timestamp. Drafts remain unsent until explicit approval.</p>
-      </article>
-
-      {#if openCount > 0}
-        <article class="rounded-[13px] border border-[#f5d8a7] bg-[#fffaf0] p-4">
-          <div class="flex items-start gap-2 text-[#a77026]">
-            <Icon name="triangle-alert" size={16} />
-            <div>
-              <h2 class="text-[11px] font-bold">Closure guard active</h2>
-              <p class="mt-1 text-[9px] leading-4">Open cases cannot close until every available checklist task is completed.</p>
+            <div class="case-row__identity">
+              <div class="case-row__title">
+                <a href={`/cases/${item.caseRecord.id}`}>{item.caseRecord.caseNumber}</a>
+                <span class={`badge ${statusClass(item.caseRecord.status)}`}>
+                  {statusLabel(item.caseRecord.status)}
+                </span>
+              </div>
+              <strong>{item.alert.productName}</strong>
+              <span>{item.alert.sourceReference} · Opened {formatDate(item.caseRecord.openedAt)}</span>
             </div>
-          </div>
-        </article>
-      {/if}
-    </aside>
-  </div>
+
+            <dl class="case-row__scope">
+              <div>
+                <dt>Affected stock</dt>
+                <dd>{item.totalStock} units</dd>
+              </div>
+              <div>
+                <dt>Affected SKUs</dt>
+                <dd>{item.itemCount} affected SKU {item.itemCount === 1 ? 'record' : 'records'}</dd>
+              </div>
+              <div>
+                <dt>Progress</dt>
+                <dd>{item.completedTasks}/{item.actionableTasks} tasks complete</dd>
+              </div>
+            </dl>
+
+            <div class="case-row__next">
+              <span>Next required action</span>
+              <strong>{nextAction(item)}</strong>
+              {#if item.pendingApprovals > 0}
+                <small>{item.pendingApprovals} {item.pendingApprovals === 1 ? 'draft needs' : 'drafts need'} a human decision</small>
+              {:else if item.caseRecord.status === 'closed'}
+                <small>Record retained for audit</small>
+              {:else}
+                <small>Open the case to continue</small>
+              {/if}
+            </div>
+
+            <a class="case-row__open" href={`/cases/${item.caseRecord.id}`} aria-label={`Open ${item.caseRecord.caseNumber}`}>
+              <span>Open case</span>
+              <Icon name="arrow-right" size={15} />
+            </a>
+          </article>
+        {/each}
+      </div>
+    {:else}
+      <div class="case-empty">
+        <span><Icon name="briefcase-business" size={21} /></span>
+        <h2>No Cases yet</h2>
+        <p>A case appears after a high-confidence or human-confirmed catalogue match.</p>
+        <a class="btn btn-secondary" href="/review">Open Review Queue</a>
+      </div>
+    {/if}
+  </article>
+
+  <p class="record-note">
+    <Icon name="shield-check" size={15} />
+    Every task, approval and closure decision is retained with its actor and UTC timestamp.
+  </p>
 </section>
+
+<style>
+  .cases-page {
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  .cases-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 22px;
+  }
+
+  .eyebrow {
+    display: block;
+    margin-bottom: 7px;
+    color: #7542dd;
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  .cases-heading h1 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 750;
+    letter-spacing: -0.035em;
+    line-height: 1.1;
+  }
+
+  .cases-heading p {
+    margin: 7px 0 0;
+    color: #716b7b;
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .case-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+    margin-bottom: 16px;
+    border: 1px solid #eae4f2;
+    border-radius: 13px;
+    background: white;
+  }
+
+  .case-summary > div {
+    position: relative;
+    min-width: 0;
+    padding: 17px 19px;
+  }
+
+  .case-summary > div + div {
+    border-left: 1px solid #eae4f2;
+  }
+
+  .case-summary span,
+  .case-summary small {
+    display: block;
+  }
+
+  .case-summary span {
+    color: #716b7b;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  .case-summary strong {
+    display: block;
+    margin-top: 8px;
+    font-size: 24px;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+
+  .case-summary small {
+    margin-top: 7px;
+    color: #716b7b;
+    font-size: 9px;
+  }
+
+  .case-summary__urgent::before {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 3px;
+    background: #df8b31;
+    content: '';
+  }
+
+  .case-summary__urgent strong {
+    color: #b56e20;
+  }
+
+  .case-register {
+    overflow: hidden;
+  }
+
+  .case-register__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 16px 18px;
+    border-bottom: 1px solid #eae4f2;
+  }
+
+  .case-register__heading h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 750;
+  }
+
+  .case-register__heading p {
+    margin: 3px 0 0;
+    color: #716b7b;
+    font-size: 9px;
+  }
+
+  .case-register__heading > span {
+    color: #716b7b;
+    font-size: 9px;
+    font-weight: 650;
+  }
+
+  .case-list {
+    display: grid;
+  }
+
+  .case-row {
+    display: grid;
+    grid-template-columns: 4px minmax(190px, 1.25fr) minmax(240px, 1.4fr) minmax(190px, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    min-width: 0;
+    padding: 17px 18px 17px 0;
+  }
+
+  .case-row + .case-row {
+    border-top: 1px solid #eee9f4;
+  }
+
+  .case-row--closed {
+    background: #fdfcfe;
+  }
+
+  .case-row__marker {
+    align-self: stretch;
+    border-radius: 0 4px 4px 0;
+    background: #df8b31;
+  }
+
+  .case-row__marker--contained {
+    background: #7542dd;
+  }
+
+  .case-row__marker--closed {
+    background: #2aa96b;
+  }
+
+  .case-row__identity,
+  .case-row__next {
+    min-width: 0;
+  }
+
+  .case-row__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .case-row__title a {
+    color: #6330c8;
+    font-size: 11px;
+    font-weight: 750;
+  }
+
+  .case-row__title a:hover {
+    text-decoration: underline;
+  }
+
+  .case-row__identity > strong {
+    display: block;
+    overflow: hidden;
+    margin-top: 7px;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .case-row__identity > span {
+    display: block;
+    margin-top: 4px;
+    color: #716b7b;
+    font-size: 8px;
+  }
+
+  .case-row__scope {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin: 0;
+  }
+
+  .case-row__scope div {
+    min-width: 0;
+  }
+
+  .case-row__scope dt,
+  .case-row__next > span {
+    color: #716b7b;
+    font-size: 8px;
+  }
+
+  .case-row__scope dd {
+    overflow: hidden;
+    margin: 5px 0 0;
+    font-size: 9px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .case-row__next {
+    padding-left: 16px;
+    border-left: 1px solid #eee9f4;
+  }
+
+  .case-row__next strong,
+  .case-row__next small {
+    display: block;
+  }
+
+  .case-row__next strong {
+    margin-top: 5px;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  .case-row__next small {
+    margin-top: 4px;
+    color: #716b7b;
+    font-size: 8px;
+    line-height: 1.4;
+  }
+
+  .case-row__open {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 34px;
+    border: 1px solid #ded6e9;
+    border-radius: 8px;
+    padding: 0 10px;
+    background: white;
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  .case-row__open:hover {
+    border-color: #c9b8e8;
+    color: #6330c8;
+  }
+
+  .case-empty {
+    display: grid;
+    min-height: 330px;
+    place-items: center;
+    align-content: center;
+    padding: 32px;
+    text-align: center;
+  }
+
+  .case-empty > span {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    place-items: center;
+    border-radius: 50%;
+    background: #f1e9ff;
+    color: #6330c8;
+  }
+
+  .case-empty h2 {
+    margin: 15px 0 0;
+    font-size: 15px;
+  }
+
+  .case-empty p {
+    max-width: 350px;
+    margin: 7px 0 16px;
+    color: #716b7b;
+    font-size: 10px;
+    line-height: 1.55;
+  }
+
+  .record-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin: 13px 0 0;
+    color: #716b7b;
+    font-size: 9px;
+  }
+
+  .record-note :global(svg) {
+    color: #7542dd;
+  }
+
+  @media (max-width: 1080px) {
+    .case-row {
+      grid-template-columns: 4px minmax(210px, 1.2fr) minmax(210px, 1fr) minmax(180px, 1fr) auto;
+    }
+
+    .case-row__scope {
+      grid-template-columns: 1fr;
+      gap: 7px;
+    }
+
+    .case-row__scope div {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .case-row__scope dd {
+      margin-top: 0;
+    }
+  }
+
+  @media (max-width: 820px) {
+    .case-row {
+      grid-template-columns: 4px minmax(0, 1fr) auto;
+      align-items: start;
+    }
+
+    .case-row__scope,
+    .case-row__next {
+      grid-column: 2 / -1;
+    }
+
+    .case-row__scope {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .case-row__scope div {
+      display: block;
+    }
+
+    .case-row__scope dd {
+      margin-top: 5px;
+    }
+
+    .case-row__next {
+      padding: 12px 0 0;
+      border-top: 1px solid #eee9f4;
+      border-left: 0;
+    }
+
+    .case-row__open span {
+      display: none;
+    }
+  }
+
+  @media (max-width: 620px) {
+    .cases-heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .cases-heading .btn {
+      width: 100%;
+    }
+
+    .case-summary {
+      grid-template-columns: 1fr;
+    }
+
+    .case-summary > div + div {
+      border-top: 1px solid #eae4f2;
+      border-left: 0;
+    }
+
+    .case-row__scope {
+      grid-template-columns: 1fr;
+    }
+
+    .record-note {
+      align-items: flex-start;
+      text-align: left;
+    }
+  }
+</style>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
+  import { page } from '$app/state';
   import Icon from '$lib/components/Icon.svelte';
 
   import type { PageProps } from './$types';
@@ -8,11 +9,13 @@
   let monitoring = $state(false);
   let monitorMessage = $state<string | null>(null);
   let monitorFailed = $state(false);
+  let monitorNext = $state<{ href: string; label: string } | null>(null);
 
   type DashboardAlert = PageProps['data']['alerts'][number];
   type AttentionItem = PageProps['data']['attention'][number];
 
   const recentAlerts = $derived(data.alerts.slice(0, 4));
+  const setupReady = $derived(page.url.searchParams.get('setup') === 'ready');
 
   function attentionIcon(kind: AttentionItem['kind']): string {
     if (kind === 'review') return 'scan-search';
@@ -71,6 +74,7 @@
     monitoring = true;
     monitorMessage = null;
     monitorFailed = false;
+    monitorNext = null;
     try {
       const response = await fetch('/api/monitor', { method: 'POST' });
       const result: unknown = await response.json();
@@ -79,6 +83,13 @@
         ? `Archive check complete: ${result.imported} new alert${result.imported === 1 ? '' : 's'}, ${result.matched} matched, ${result.review} for review and ${result.ignored} not relevant.`
         : 'Archive check complete. No new records were found in the local prototype archive.';
       await invalidateAll();
+      monitorNext = result.review > 0 || data.counters.waitingForReview > 0
+        ? { href: '/review', label: 'Open Review Queue' }
+        : data.counters.pendingApprovals > 0
+          ? { href: '/actions', label: 'Open Approvals' }
+          : result.matched > 0 || data.counters.unfinishedCases > 0
+            ? { href: '/cases', label: 'View Cases' }
+            : { href: '/catalogue', label: 'Review Catalogue' };
     } catch {
       monitorFailed = true;
       monitorMessage = 'The archived alerts could not be checked. Please try again.';
@@ -102,16 +113,30 @@
       <h1 id="overview-title">Product Recall Overview</h1>
       <p>Start with the items that need a person, then check the local alert archive when ready.</p>
     </div>
-    <button class="btn btn-primary" type="button" onclick={runMonitoring} disabled={monitoring}>
+    <button id="archive-check" class="btn btn-primary" type="button" onclick={runMonitoring} disabled={monitoring} aria-busy={monitoring}>
       <Icon name="refresh-cw" size={16} class={monitoring ? 'animate-spin' : ''} />
       {monitoring ? 'Checking archive…' : 'Check archived alerts'}
     </button>
   </header>
 
+  {#if setupReady}
+    <div class="workspace-ready" role="status">
+      <Icon name="circle-check-big" size={17} />
+      <div>
+        <strong>Workspace ready</strong>
+        <span>Your catalogue is available and the archived prototype alerts are ready to review.</span>
+      </div>
+      <a href="/catalogue">Review Catalogue <Icon name="arrow-right" size={14} /></a>
+    </div>
+  {/if}
+
   {#if monitorMessage}
     <div class:monitor-notice--failed={monitorFailed} class="monitor-notice" role="status">
       <Icon name={monitorFailed ? 'triangle-alert' : 'circle-check-big'} size={17} />
       <span>{monitorMessage}</span>
+      {#if monitorNext && !monitorFailed}
+        <a href={monitorNext.href}>{monitorNext.label} <Icon name="arrow-right" size={14} /></a>
+      {/if}
     </div>
   {/if}
 
@@ -127,7 +152,7 @@
         </div>
         <div class="attention-summary" aria-label="Pending work summary">
           <span><b>{data.counters.waitingForReview}</b> review</span>
-          <span><b>{data.counters.pendingApprovals}</b> drafts</span>
+          <span><b>{data.counters.pendingApprovals}</b> approvals</span>
           <span><b>{data.counters.unfinishedCases}</b> cases</span>
         </div>
       </header>
@@ -300,10 +325,65 @@
     line-height: 1.5;
   }
 
+  .workspace-ready {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    border: 1px solid #cdeedc;
+    border-radius: 10px;
+    background: #f4fcf7;
+    padding: 12px 14px;
+    color: #277c52;
+  }
+
+  .workspace-ready strong,
+  .workspace-ready span {
+    display: block;
+  }
+
+  .workspace-ready strong {
+    font-size: 10px;
+  }
+
+  .workspace-ready span {
+    margin-top: 3px;
+    color: #557164;
+    font-size: 9px;
+  }
+
+  .workspace-ready > a {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    color: #6330c8;
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
   .monitor-notice--failed {
     border-color: #f1d5d7;
     background: #fff8f8;
     color: #a7353b;
+  }
+
+  .monitor-notice > span {
+    min-width: 0;
+  }
+
+  .monitor-notice > a {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    color: #6330c8;
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
   }
 
   .overview-priority-grid {
@@ -770,6 +850,25 @@
     .latest-alert__match,
     .latest-alert__arrow {
       display: none;
+    }
+
+    .monitor-notice {
+      flex-wrap: wrap;
+    }
+
+    .workspace-ready {
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .workspace-ready > a {
+      width: 100%;
+      margin-left: 26px;
+    }
+
+    .monitor-notice > a {
+      width: 100%;
+      margin-left: 26px;
     }
   }
 </style>

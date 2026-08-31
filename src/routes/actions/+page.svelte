@@ -1,5 +1,9 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
+  import type { SubmitFunction } from '@sveltejs/kit';
+
   import Icon from '$lib/components/Icon.svelte';
+  import WorkflowBreadcrumbs from '$lib/components/WorkflowBreadcrumbs.svelte';
 
   import type { PageProps } from './$types';
 
@@ -10,28 +14,52 @@
   let approveActionId = $state<string | null>(null);
   let editSubject = $state('');
   let editBody = $state('');
+  let submitting = $state<'update' | 'approve' | null>(null);
+
+  const enhanceUpdate: SubmitFunction = () => {
+    submitting = 'update';
+    return async ({ update }) => {
+      try {
+        await update();
+      } finally {
+        submitting = null;
+        closeModals();
+      }
+    };
+  };
+
+  const enhanceApproval: SubmitFunction = () => {
+    submitting = 'approve';
+    return async ({ update }) => {
+      try {
+        await update();
+      } finally {
+        submitting = null;
+        closeModals();
+      }
+    };
+  };
 
   const editAction = $derived(data.actions.find((item) => item.draft.id === editActionId) ?? null);
   const approveAction = $derived(data.actions.find((item) => item.draft.id === approveActionId) ?? null);
-  const draftCount = $derived(data.actions.filter((item) => item.draft.status === 'draft').length);
-  const sentCount = $derived(data.actions.filter((item) => item.draft.status === 'simulated_sent').length);
-  const unavailableCount = $derived(data.actions.filter((item) => item.draft.status === 'not_available').length);
+  const pendingActions = $derived(data.actions.filter((item) => item.draft.status === 'draft'));
+  const recordedActions = $derived(data.actions.filter((item) => item.draft.status !== 'draft'));
 
   function actionLabel(type: string): string {
-    if (type === 'block_sale') return 'Block Sale';
-    if (type === 'notify_supplier') return 'Supplier Notice';
-    return 'Customer Notice';
+    if (type === 'block_sale') return 'Block sale';
+    if (type === 'notify_supplier') return 'Supplier notice';
+    return 'Customer notice';
   }
 
   function actionDescription(type: string): string {
     if (type === 'block_sale') return 'Internal containment instruction';
-    if (type === 'notify_supplier') return 'Supplier recall communication';
-    return 'Affected customer communication';
+    if (type === 'notify_supplier') return 'Recall notice for the product supplier';
+    return 'Recall notice for affected customers';
   }
 
   function statusLabel(status: string): string {
     if (status === 'simulated_sent') return 'SIMULATED SEND';
-    if (status === 'not_available') return 'NOT AVAILABLE';
+    if (status === 'not_available') return 'NOT REQUIRED';
     return 'DRAFT — NOT SENT';
   }
 
@@ -72,164 +100,203 @@
 </script>
 
 <svelte:head>
-  <title>Action Drafts | Recall Agent</title>
-  <meta name="description" content="Edit and manually approve simulated recall containment actions." />
+  <title>Approvals | Recall Agent</title>
+  <meta
+    name="description"
+    content="Review and approve simulated recall containment actions."
+  />
 </svelte:head>
 
 <svelte:window onkeydown={closeOnEscape} />
 
 {#if form?.message}
-  <div
-    class={`mb-4 flex items-start gap-2 rounded-[10px] border px-3.5 py-3 text-[10px] ${form.success ? 'border-[#d7f2e3] bg-[#f4fcf7] text-[#268d5c]' : 'border-[#ffd9db] bg-[#fff8f8] text-[#a7353b]'}`}
-    role="status"
-  >
-    <Icon name={form.success ? 'circle-check-big' : 'triangle-alert'} size={15} />
-    <span>{form.message}</span>
+  <div class:approval-notice--error={!form.success} class="approval-notice" role="status">
+    <span><Icon name={form.success ? 'circle-check-big' : 'triangle-alert'} size={16} /></span>
+    <p>{form.message}</p>
+    {#if form.success && form.caseId}
+      <a href={`/cases/${form.caseId}`}>Continue Case <Icon name="arrow-right" size={14} /></a>
+    {/if}
   </div>
 {/if}
 
-<section aria-labelledby="actions-title">
-  <header class="mb-5 flex items-start justify-between gap-5">
+<section class="approvals-page" aria-labelledby="approvals-title">
+  <WorkflowBreadcrumbs items={[{ label: 'Cases', href: '/cases' }, { label: 'Approvals' }]} />
+
+  <header class="approvals-heading">
     <div>
-      <h1 id="actions-title" class="text-[24px] font-bold tracking-[-.035em]">Action Drafts</h1>
-      <p class="mt-1 text-[12px] text-muted">Edit containment communications and require human approval before any simulated send.</p>
+      <span class="eyebrow">Human decision point</span>
+      <h1 id="approvals-title">Approvals</h1>
+      <p>Review prepared containment actions and explicitly record each decision.</p>
     </div>
-    <div class="flex gap-2">
-      <a class="btn btn-secondary" href="/cases"><Icon name="briefcase-business" size={15} /> All Cases</a>
-      {#if data.actions[0]}
-        <a class="btn btn-primary" href={`/cases/${data.actions[0].caseRecord.id}`}><Icon name="arrow-right" size={15} /> Open Case</a>
-      {/if}
-    </div>
+    <a class="btn btn-secondary" href="/cases">
+      <Icon name="briefcase-business" size={15} /> All Cases
+    </a>
   </header>
 
-  <div class="grid grid-cols-12 gap-4">
-    <div class="col-span-8 space-y-4">
-      {#if data.actions.length > 0}
-        {#each data.actions as item}
-          <article class="card overflow-hidden">
-            <header class="flex items-start justify-between gap-4 border-b border-line bg-[#fdfbff] px-5 py-4">
-              <div class="flex items-start gap-3">
-                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-violet-50 text-violet-600">
-                  <Icon name={item.draft.type === 'block_sale' ? 'warehouse' : 'send'} size={17} />
+  <aside class="simulation-boundary" aria-label="Simulation boundary">
+    <span><Icon name="shield-alert" size={19} /></span>
+    <div>
+      <strong>Nothing is sent automatically</strong>
+      <p>Approval records a <b>SIMULATED SEND</b> with your name and timestamp. No email, POS, ERP or inventory provider is contacted.</p>
+    </div>
+  </aside>
+
+  {#if data.actions.length > 0}
+    <section class="approval-section" aria-labelledby="pending-approvals-title">
+      <header class="approval-section__heading">
+        <div>
+          <h2 id="pending-approvals-title">Awaiting your decision</h2>
+          <p>Check the recipient and content before recording approval.</p>
+        </div>
+        <span class:queue-count--active={pendingActions.length > 0} class="queue-count">
+          {pendingActions.length} pending
+        </span>
+      </header>
+
+      {#if pendingActions.length > 0}
+        <div class="pending-list">
+          {#each pendingActions as item}
+            <article class="card approval-card">
+              <header class="approval-card__heading">
+                <span class="approval-card__icon">
+                  <Icon name={item.draft.type === 'block_sale' ? 'warehouse' : 'send'} size={18} />
                 </span>
                 <div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <h2 class="text-[14px] font-bold">{actionLabel(item.draft.type)}</h2>
-                    <span class={`badge ${statusClass(item.draft.status)}`}>{statusLabel(item.draft.status)}</span>
+                  <div class="approval-card__title">
+                    <h3>{actionLabel(item.draft.type)}</h3>
+                    <span class="badge badge-purple">DRAFT — NOT SENT</span>
                   </div>
-                  <p class="mt-1 text-[9px] text-muted">{actionDescription(item.draft.type)} · <a class="font-semibold text-violet-600 hover:underline" href={`/cases/${item.caseRecord.id}`}>{item.caseRecord.caseNumber}</a></p>
+                  <p>{actionDescription(item.draft.type)}</p>
                 </div>
-              </div>
-              <span class="badge badge-red">{item.alert.risk}</span>
-            </header>
+                <div class="approval-card__case">
+                  <a href={`/cases/${item.caseRecord.id}`}>{item.caseRecord.caseNumber}</a>
+                  <span class="badge badge-red">{item.alert.risk}</span>
+                </div>
+              </header>
 
-            <div class="p-5">
-              <div class="grid grid-cols-[110px_1fr] gap-x-4 gap-y-3 text-[10px]">
-                <span class="text-muted">Recipient</span>
-                <b class={item.draft.recipient ? '' : 'text-[#e14f55]'}>{item.draft.recipient ?? 'Recipient required'}</b>
-                <span class="text-muted">Subject</span>
-                <b>{item.draft.subject}</b>
-                <span class="text-muted">Message</span>
-                <p class="whitespace-pre-wrap leading-5 text-[#514b59]">{item.draft.body}</p>
-              </div>
-
-              {#if item.draft.status === 'draft'}
-                <div class="mt-4 flex items-center justify-between gap-4 rounded-xl border border-[#e4d3ff] bg-[#f8f4ff] p-3">
-                  <div class="flex items-center gap-2 text-[9px] text-violet-700">
-                    <Icon name="shield-check" size={15} />
-                    <span><b>DRAFT — NOT SENT.</b> Review content and recipient before approval.</span>
+              <div class="approval-card__body">
+                <dl class="approval-fields">
+                  <div>
+                    <dt>Recipient</dt>
+                    <dd class:approval-fields__missing={!item.draft.recipient}>
+                      {item.draft.recipient ?? 'Recipient required'}
+                    </dd>
                   </div>
-                  <div class="flex shrink-0 gap-2">
-                    <button class="btn btn-secondary" type="button" onclick={() => openEdit(item.draft.id)}>Edit</button>
+                  <div>
+                    <dt>Subject</dt>
+                    <dd>{item.draft.subject}</dd>
+                  </div>
+                  <div class="approval-fields__message">
+                    <dt>Message</dt>
+                    <dd>{item.draft.body}</dd>
+                  </div>
+                </dl>
+
+                <div class="approval-card__actions">
+                  <span>Prepared for {item.caseRecord.caseNumber}</span>
+                  <div>
+                    <button class="btn btn-secondary" type="button" onclick={() => openEdit(item.draft.id)}>
+                      Edit Draft
+                    </button>
                     <button
                       class="btn btn-primary"
                       type="button"
                       onclick={() => (approveActionId = item.draft.id)}
                       disabled={item.draft.type !== 'block_sale' && !item.draft.recipient}
                     >
-                      Approve & Send
+                      Review & Approve
                     </button>
                   </div>
                 </div>
-              {:else if item.draft.status === 'simulated_sent'}
-                <div class="mt-4 flex items-center justify-between gap-4 rounded-xl border border-[#d7f2e3] bg-[#f4fcf7] p-3 text-[9px] text-[#268d5c]">
-                  <span class="flex items-center gap-2"><Icon name="circle-check-big" size={15} /><b>SIMULATED SEND — no external provider contacted.</b></span>
-                  <span>{item.draft.approvedBy} · {item.draft.approvedAt ? formatDate(item.draft.approvedAt) : ''}</span>
-                </div>
-              {:else}
-                <div class="mt-4 rounded-xl bg-[#f3f2f5] p-3 text-[9px] text-muted">This action is not available because the case has no matching customer data.</div>
-              {/if}
-            </div>
-          </article>
-        {/each}
+              </div>
+            </article>
+          {/each}
+        </div>
       {:else}
-        <article class="card grid min-h-[430px] place-items-center p-8 text-center">
-          <div class="max-w-[360px]">
-            <span class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-violet-50 text-violet-600"><Icon name="send" size={20} /></span>
-            <h2 class="mt-4 text-[16px] font-bold">No action drafts</h2>
-            <p class="mt-2 text-[10px] leading-5 text-muted">Drafts are created when a confirmed catalogue match opens a recall case.</p>
-            <a class="btn btn-ghost mt-4" href="/cases">Return to Cases</a>
-          </div>
-        </article>
-      {/if}
-    </div>
-
-    <aside class="col-span-4 space-y-4">
-      <article class="card p-4">
-        <h2 class="text-[14px] font-bold">Draft Summary</h2>
-        <div class="mt-4 grid grid-cols-3 gap-2 text-center">
-          <div class="rounded-xl bg-violet-50 p-3"><b class="block text-[20px] text-violet-700">{draftCount}</b><span class="text-[8px] text-muted">Not sent</span></div>
-          <div class="rounded-xl bg-[#ecfbf3] p-3"><b class="block text-[20px] text-[#2aa96b]">{sentCount}</b><span class="text-[8px] text-muted">Simulated</span></div>
-          <div class="rounded-xl bg-[#f3f2f5] p-3"><b class="block text-[20px] text-[#787280]">{unavailableCount}</b><span class="text-[8px] text-muted">Unavailable</span></div>
-        </div>
-        <label class="mt-4 block border-t border-line pt-4" for="action-actor-name">
-          <span class="label">Approving reviewer</span>
-          <input id="action-actor-name" class="input-ui" bind:value={actorName} maxlength="80" />
-        </label>
-      </article>
-
-      <article class="rounded-[13px] border border-[#f5d8a7] bg-[#fffaf0] p-4">
-        <div class="flex items-start gap-3 text-[#a77026]">
-          <Icon name="triangle-alert" size={18} />
+        <div class="card decisions-complete">
+          <span><Icon name="circle-check-big" size={21} /></span>
           <div>
-            <h2 class="text-[12px] font-bold">Simulation only</h2>
-            <p class="mt-1 text-[9px] leading-4">Approve & Send records human approval and a simulated-send audit event. It never contacts email, POS, ERP or inventory providers.</p>
+            <h3>All available drafts have a recorded outcome</h3>
+            <p>Open a case below to continue containment or review the decisions retained in this queue.</p>
           </div>
         </div>
-      </article>
+      {/if}
+    </section>
 
-      <article class="card p-4">
-        <h2 class="text-[13px] font-bold">Approval Sequence</h2>
-        <ol class="mt-4 space-y-3">
-          <li class="flex gap-3 text-[9px]"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-violet-50 font-bold text-violet-700">1</span><span><b class="block text-[10px]">Review and edit</b><span class="text-muted">Confirm recipient, subject and action content.</span></span></li>
-          <li class="flex gap-3 text-[9px]"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-violet-50 font-bold text-violet-700">2</span><span><b class="block text-[10px]">Explicit confirmation</b><span class="text-muted">Enter the accountable reviewer name.</span></span></li>
-          <li class="flex gap-3 text-[9px]"><span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-violet-50 font-bold text-violet-700">3</span><span><b class="block text-[10px]">Append audit events</b><span class="text-muted">Store approval and simulation timestamps.</span></span></li>
-        </ol>
-      </article>
-    </aside>
-  </div>
+    {#if recordedActions.length > 0}
+      <section class="approval-section recorded-section" aria-labelledby="recorded-actions-title">
+        <header class="approval-section__heading">
+          <div>
+            <h2 id="recorded-actions-title">Recorded decisions</h2>
+            <p>Completed simulations and actions that were not required.</p>
+          </div>
+          <span class="queue-count">{recordedActions.length} recorded</span>
+        </header>
+
+        <div class="recorded-list">
+          {#each recordedActions as item}
+            <article class="recorded-row">
+              <span class:recorded-row__icon--muted={item.draft.status === 'not_available'} class="recorded-row__icon">
+                <Icon name={item.draft.status === 'simulated_sent' ? 'circle-check-big' : 'x'} size={17} />
+              </span>
+              <div class="recorded-row__identity">
+                <h3>{actionLabel(item.draft.type)}</h3>
+                <p><a href={`/cases/${item.caseRecord.id}`}>{item.caseRecord.caseNumber}</a> · {item.draft.recipient ?? 'No recipient available'}</p>
+              </div>
+              <span class={`badge ${statusClass(item.draft.status)}`}>{statusLabel(item.draft.status)}</span>
+              <div class="recorded-row__result">
+                {#if item.draft.status === 'simulated_sent'}
+                  <strong>Simulation recorded</strong>
+                  <span>{item.draft.approvedBy} · {item.draft.approvedAt ? formatDate(item.draft.approvedAt) : ''}</span>
+                {:else}
+                  <strong>No action required</strong>
+                  <span>The case had no matching recipient data.</span>
+                {/if}
+              </div>
+              <a class="recorded-row__open" href={`/cases/${item.caseRecord.id}`} aria-label={`Open ${item.caseRecord.caseNumber}`}>
+                <Icon name="chevron-right" size={15} />
+              </a>
+            </article>
+          {/each}
+        </div>
+      </section>
+    {/if}
+  {:else}
+    <article class="card approvals-empty">
+      <span><Icon name="shield-check" size={21} /></span>
+      <h2>No approvals are waiting</h2>
+      <p>Prepared actions appear here after a confirmed catalogue match opens a recall case.</p>
+      <a class="btn btn-secondary" href="/cases">Return to Cases</a>
+    </article>
+  {/if}
 </section>
 
 {#if editAction}
   <div class="modal-backdrop show">
     <button class="absolute inset-0 cursor-default" type="button" aria-label="Cancel draft editing" onclick={closeModals}></button>
     <div class="modal-panel relative z-[1]" role="dialog" aria-modal="true" aria-labelledby="edit-draft-title" tabindex="-1">
-      <form method="POST" action="?/update">
+      <form method="POST" action="?/update" use:enhance={enhanceUpdate} aria-busy={submitting === 'update'}>
         <input type="hidden" name="actionId" value={editAction.draft.id} />
         <input type="hidden" name="actorName" value={actorName} />
-        <div class="flex items-start justify-between border-b border-line p-5">
-          <div><h2 id="edit-draft-title" class="text-[18px] font-bold">Edit {actionLabel(editAction.draft.type)}</h2><p class="mt-1 text-[10px] text-muted">Changes are recorded in the append-only audit timeline.</p></div>
+        <div class="modal-heading">
+          <div>
+            <span class="modal-eyebrow">Draft — not sent</span>
+            <h2 id="edit-draft-title">Edit {actionLabel(editAction.draft.type)}</h2>
+            <p>Saving changes records an edit in the case timeline.</p>
+          </div>
           <button class="icon-button" type="button" aria-label="Cancel draft editing" onclick={closeModals}><Icon name="x" size={16} /></button>
         </div>
-        <div class="space-y-4 p-5">
+        <div class="modal-body">
           <label><span class="label">Recipient</span><input class="input-ui" value={editAction.draft.recipient ?? 'Recipient required'} disabled /></label>
           <label><span class="label">Subject</span><input class="input-ui" name="subject" bind:value={editSubject} maxlength="200" required /></label>
           <label><span class="label">Message</span><textarea class="input-ui" name="body" bind:value={editBody} maxlength="5000" required></textarea></label>
-          <div class="rounded-xl bg-violet-50 p-3 text-[9px] text-violet-700"><b>DRAFT — NOT SENT.</b> Saving edits does not approve or send this action.</div>
+          <p class="acting-user">Editing as <b>{actorName}</b></p>
         </div>
-        <div class="flex justify-end gap-2 border-t border-line bg-[#fdfbff] px-5 py-4">
+        <div class="modal-actions">
           <button class="btn btn-secondary" type="button" onclick={closeModals}>Cancel</button>
-          <button class="btn btn-primary" type="submit" disabled={!editSubject.trim() || !editBody.trim()}>Save Draft</button>
+          <button class="btn btn-primary" type="submit" disabled={!editSubject.trim() || !editBody.trim() || submitting !== null}>
+            {submitting === 'update' ? 'Saving draft…' : 'Save Draft'}
+          </button>
         </div>
       </form>
     </div>
@@ -240,28 +307,603 @@
   <div class="modal-backdrop show">
     <button class="absolute inset-0 cursor-default" type="button" aria-label="Cancel action approval" onclick={closeModals}></button>
     <div class="modal-panel relative z-[1] max-w-[540px]" role="dialog" aria-modal="true" aria-labelledby="approve-action-title" tabindex="-1">
-      <form method="POST" action="?/approve">
+      <form method="POST" action="?/approve" use:enhance={enhanceApproval} aria-busy={submitting === 'approve'}>
         <input type="hidden" name="actionId" value={approveAction.draft.id} />
         <input type="hidden" name="actorName" value={actorName} />
-        <div class="flex items-start justify-between border-b border-line p-5">
-          <div><h2 id="approve-action-title" class="text-[18px] font-bold">Approve {actionLabel(approveAction.draft.type)}?</h2><p class="mt-1 text-[10px] text-muted">Confirm a human-reviewed simulation for {approveAction.caseRecord.caseNumber}.</p></div>
+        <div class="modal-heading">
+          <div>
+            <span class="modal-eyebrow">Human confirmation</span>
+            <h2 id="approve-action-title">Approve {actionLabel(approveAction.draft.type)}?</h2>
+            <p>Confirm responsibility for this prepared action in {approveAction.caseRecord.caseNumber}.</p>
+          </div>
           <button class="icon-button" type="button" aria-label="Cancel action approval" onclick={closeModals}><Icon name="x" size={16} /></button>
         </div>
-        <div class="p-5">
-          <div class="rounded-xl border border-[#f5d8a7] bg-[#fffaf0] p-4">
-            <div class="flex gap-3 text-[#a77026]"><Icon name="triangle-alert" size={18} /><div><b class="block text-[11px]">No external send will occur</b><p class="mt-1 text-[9px] leading-4">This MVP records approval and marks the draft <b>SIMULATED SEND</b>. It does not contact an email, POS, ERP or inventory provider.</p></div></div>
-          </div>
-          <dl class="mt-4 grid grid-cols-[90px_1fr] gap-x-4 gap-y-3 text-[10px]">
-            <dt class="text-muted">Recipient</dt><dd class="font-semibold">{approveAction.draft.recipient ?? 'Recipient required'}</dd>
-            <dt class="text-muted">Subject</dt><dd class="font-semibold">{approveAction.draft.subject}</dd>
+        <div class="modal-body">
+          <dl class="confirm-summary">
+            <div><dt>Recipient</dt><dd>{approveAction.draft.recipient ?? 'Recipient required'}</dd></div>
+            <div><dt>Subject</dt><dd>{approveAction.draft.subject}</dd></div>
+            <div><dt>Recorded result</dt><dd>SIMULATED SEND</dd></div>
           </dl>
-          <label class="mt-4 block"><span class="label">Approving reviewer</span><input class="input-ui" name="visibleActorName" bind:value={actorName} maxlength="80" required /></label>
+          <label>
+            <span class="label">Approving reviewer</span>
+            <input class="input-ui" name="visibleActorName" bind:value={actorName} maxlength="80" required />
+          </label>
         </div>
-        <div class="flex justify-end gap-2 border-t border-line bg-[#fdfbff] px-5 py-4">
+        <div class="modal-actions">
           <button class="btn btn-secondary" type="button" onclick={closeModals}>Cancel</button>
-          <button class="btn btn-primary" type="submit" disabled={!actorName.trim()}>Confirm Simulated Send</button>
+          <button class="btn btn-primary" type="submit" disabled={!actorName.trim() || submitting !== null}>
+            {submitting === 'approve' ? 'Recording approval…' : 'Confirm Approval'}
+          </button>
         </div>
       </form>
     </div>
   </div>
 {/if}
+
+<style>
+  .approvals-page,
+  .approval-notice {
+    max-width: 1080px;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .approval-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 15px;
+    border: 1px solid #cfe8d8;
+    border-radius: 10px;
+    background: #f5fcf7;
+    padding: 11px 13px;
+    color: #237c50;
+    font-size: 10px;
+  }
+
+  .approval-notice > span {
+    display: grid;
+    place-items: center;
+  }
+
+  .approval-notice p {
+    margin: 0;
+  }
+
+  .approval-notice > a {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    color: #6330c8;
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .approval-notice--error {
+    border-color: #f1cfd1;
+    background: #fff8f8;
+    color: #a7353b;
+  }
+
+  .approvals-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 18px;
+  }
+
+  .eyebrow,
+  .modal-eyebrow {
+    display: block;
+    color: #7542dd;
+    font-size: 8px;
+    font-weight: 750;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .approvals-heading h1 {
+    margin: 6px 0 0;
+    font-size: 26px;
+    font-weight: 750;
+    letter-spacing: -0.035em;
+    line-height: 1.1;
+  }
+
+  .approvals-heading p {
+    margin: 7px 0 0;
+    color: #716b7b;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .simulation-boundary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 23px;
+    border: 1px solid #f0d3a2;
+    border-radius: 12px;
+    background: #fffaf1;
+    padding: 13px 15px;
+  }
+
+  .simulation-boundary > span {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 9px;
+    background: #fff0d8;
+    color: #a76b18;
+  }
+
+  .simulation-boundary strong {
+    font-size: 10px;
+  }
+
+  .simulation-boundary p {
+    margin: 4px 0 0;
+    color: #716b7b;
+    font-size: 9px;
+    line-height: 1.5;
+  }
+
+  .approval-section + .approval-section {
+    margin-top: 28px;
+  }
+
+  .approval-section__heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 11px;
+  }
+
+  .approval-section__heading h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+  }
+
+  .approval-section__heading p {
+    margin: 4px 0 0;
+    color: #716b7b;
+    font-size: 9px;
+  }
+
+  .queue-count {
+    border-radius: 999px;
+    background: #f0edf3;
+    padding: 5px 9px;
+    color: #716b7b;
+    font-size: 8px;
+    font-weight: 700;
+  }
+
+  .queue-count--active {
+    background: #f1e9ff;
+    color: #6330c8;
+  }
+
+  .pending-list {
+    display: grid;
+    gap: 12px;
+  }
+
+  .approval-card {
+    overflow: hidden;
+  }
+
+  .approval-card__heading {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #eae4f2;
+    background: #fdfbff;
+  }
+
+  .approval-card__icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    place-items: center;
+    border-radius: 9px;
+    background: #f1e9ff;
+    color: #6330c8;
+  }
+
+  .approval-card__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .approval-card__title h3 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 750;
+  }
+
+  .approval-card__heading p {
+    margin: 4px 0 0;
+    color: #716b7b;
+    font-size: 8px;
+  }
+
+  .approval-card__case {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .approval-card__case a {
+    color: #6330c8;
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  .approval-card__body {
+    padding: 16px;
+  }
+
+  .approval-fields {
+    display: grid;
+    grid-template-columns: minmax(180px, 0.7fr) minmax(260px, 1.3fr);
+    gap: 14px 26px;
+    margin: 0;
+  }
+
+  .approval-fields__message {
+    grid-column: 1 / -1;
+  }
+
+  .approval-fields dt {
+    color: #716b7b;
+    font-size: 8px;
+    font-weight: 650;
+  }
+
+  .approval-fields dd {
+    margin: 5px 0 0;
+    font-size: 9px;
+    font-weight: 650;
+    line-height: 1.6;
+  }
+
+  .approval-fields__message dd {
+    max-width: 850px;
+    color: #514b59;
+    font-weight: 450;
+    white-space: pre-wrap;
+  }
+
+  .approval-fields__missing {
+    color: #c44349;
+  }
+
+  .approval-card__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-top: 15px;
+    padding-top: 13px;
+    border-top: 1px solid #eee9f4;
+  }
+
+  .approval-card__actions > span {
+    color: #716b7b;
+    font-size: 8px;
+  }
+
+  .approval-card__actions > div {
+    display: flex;
+    gap: 7px;
+  }
+
+  .decisions-complete {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 18px;
+  }
+
+  .decisions-complete > span {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 50%;
+    background: #e2f5e9;
+    color: #268d5c;
+  }
+
+  .decisions-complete h3 {
+    margin: 0;
+    font-size: 11px;
+  }
+
+  .decisions-complete p {
+    margin: 4px 0 0;
+    color: #716b7b;
+    font-size: 9px;
+  }
+
+  .recorded-list {
+    overflow: hidden;
+    border: 1px solid #eae4f2;
+    border-radius: 12px;
+    background: white;
+  }
+
+  .recorded-row {
+    display: grid;
+    grid-template-columns: auto minmax(180px, 1fr) auto minmax(210px, 0.85fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 15px;
+  }
+
+  .recorded-row + .recorded-row {
+    border-top: 1px solid #eee9f4;
+  }
+
+  .recorded-row__icon {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border-radius: 50%;
+    background: #e2f5e9;
+    color: #268d5c;
+  }
+
+  .recorded-row__icon--muted {
+    background: #f0edf3;
+    color: #716b7b;
+  }
+
+  .recorded-row h3 {
+    margin: 0;
+    font-size: 10px;
+  }
+
+  .recorded-row p {
+    overflow: hidden;
+    margin: 4px 0 0;
+    color: #716b7b;
+    font-size: 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .recorded-row p a {
+    color: #6330c8;
+    font-weight: 700;
+  }
+
+  .recorded-row__result strong,
+  .recorded-row__result span {
+    display: block;
+  }
+
+  .recorded-row__result strong {
+    font-size: 9px;
+  }
+
+  .recorded-row__result span {
+    margin-top: 3px;
+    color: #716b7b;
+    font-size: 8px;
+  }
+
+  .recorded-row__open {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border-radius: 7px;
+    color: #716b7b;
+  }
+
+  .recorded-row__open:hover {
+    background: #f1e9ff;
+    color: #6330c8;
+  }
+
+  .approvals-empty {
+    display: grid;
+    min-height: 330px;
+    place-items: center;
+    align-content: center;
+    padding: 32px;
+    text-align: center;
+  }
+
+  .approvals-empty > span {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    place-items: center;
+    border-radius: 50%;
+    background: #f1e9ff;
+    color: #6330c8;
+  }
+
+  .approvals-empty h2 {
+    margin: 15px 0 0;
+    font-size: 15px;
+  }
+
+  .approvals-empty p {
+    max-width: 360px;
+    margin: 7px 0 16px;
+    color: #716b7b;
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .modal-heading,
+  .modal-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 17px 19px;
+  }
+
+  .modal-heading {
+    align-items: flex-start;
+    border-bottom: 1px solid #eae4f2;
+  }
+
+  .modal-heading h2 {
+    margin: 5px 0 0;
+    font-size: 17px;
+  }
+
+  .modal-heading p {
+    margin: 5px 0 0;
+    color: #716b7b;
+    font-size: 9px;
+  }
+
+  .modal-body {
+    display: grid;
+    gap: 15px;
+    padding: 19px;
+  }
+
+  .modal-body textarea {
+    min-height: 150px;
+    resize: vertical;
+  }
+
+  .acting-user {
+    margin: 0;
+    color: #716b7b;
+    font-size: 8px;
+  }
+
+  .confirm-summary {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    border: 1px solid #eae4f2;
+    border-radius: 10px;
+    padding: 13px;
+  }
+
+  .confirm-summary div {
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .confirm-summary dt {
+    color: #716b7b;
+    font-size: 8px;
+  }
+
+  .confirm-summary dd {
+    margin: 0;
+    font-size: 9px;
+    font-weight: 650;
+  }
+
+  .modal-actions {
+    align-items: center;
+    justify-content: flex-end;
+    border-top: 1px solid #eae4f2;
+    background: #fdfbff;
+  }
+
+  @media (max-width: 760px) {
+    .approvals-heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .approval-card__heading {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .approval-card__case {
+      grid-column: 2;
+      justify-content: flex-start;
+    }
+
+    .approval-fields {
+      grid-template-columns: 1fr;
+    }
+
+    .approval-fields__message {
+      grid-column: 1;
+    }
+
+    .approval-card__actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .approval-card__actions > div,
+    .approval-card__actions .btn {
+      width: 100%;
+    }
+
+    .recorded-row {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+
+    .recorded-row > .badge,
+    .recorded-row__result {
+      grid-column: 2;
+      justify-self: start;
+    }
+
+    .recorded-row__open {
+      grid-column: 3;
+      grid-row: 1 / span 3;
+    }
+
+    .approval-notice {
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .approval-notice > a {
+      width: 100%;
+      margin-left: 26px;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .simulation-boundary {
+      align-items: flex-start;
+    }
+
+    .approval-section__heading {
+      align-items: flex-start;
+    }
+
+    .approval-card__actions > div {
+      flex-direction: column;
+    }
+
+    .confirm-summary div {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+  }
+</style>

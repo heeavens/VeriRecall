@@ -1,5 +1,9 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
+  import type { SubmitFunction } from '@sveltejs/kit';
+
   import Icon from '$lib/components/Icon.svelte';
+  import WorkflowBreadcrumbs from '$lib/components/WorkflowBreadcrumbs.svelte';
 
   import type { PageProps } from './$types';
 
@@ -12,6 +16,31 @@
   let decisionOpen = $state<DecisionType | null>(null);
   let evidenceOpen = $state(false);
   let selectedEvidence = $state<EvidenceType[]>([]);
+  let submitting = $state<'decision' | 'evidence' | null>(null);
+
+  const enhanceDecision: SubmitFunction = () => {
+    submitting = 'decision';
+    return async ({ update }) => {
+      try {
+        await update();
+      } finally {
+        submitting = null;
+        closeDecision();
+      }
+    };
+  };
+
+  const enhanceEvidence: SubmitFunction = () => {
+    submitting = 'evidence';
+    return async ({ update }) => {
+      try {
+        await update();
+      } finally {
+        submitting = null;
+        closeEvidence();
+      }
+    };
+  };
 
   const selected = $derived(data.selected);
 
@@ -135,10 +164,17 @@
     {#if form.success && form.kind === 'confirm' && form.caseId}
       <a href={`/cases/${form.caseId}`}>Open case <Icon name="arrow-right" size={14} /></a>
     {:else if form.success && form.kind === 'evidence'}
-      <a href="/actions">Open drafts <Icon name="arrow-right" size={14} /></a>
+      <a href="/actions">Open Approvals <Icon name="arrow-right" size={14} /></a>
+    {:else if form.success && form.kind === 'reject'}
+      <a href={selected ? '/review' : '/dashboard'}>
+        {selected ? 'Review next match' : 'Return to Overview'}
+        <Icon name="arrow-right" size={14} />
+      </a>
     {/if}
   </div>
 {/if}
+
+<WorkflowBreadcrumbs items={[{ label: 'Overview', href: '/dashboard' }, { label: 'Review Queue' }]} />
 
 {#if selected}
   <section aria-labelledby="review-title">
@@ -196,7 +232,8 @@
         <p>{uncertaintySummary()}</p>
         <small>
           The score is below the {selected.threshold}% automatic threshold. Review the signals
-          below and choose a human-controlled outcome.
+          below and choose a human-controlled outcome. Match confidence measures product identity;
+          the official risk describes potential harm if the source product is involved.
         </small>
       </div>
     </article>
@@ -354,7 +391,7 @@
         <section class="decision-option decision-option--confirm">
           <span class="decision-option__icon"><Icon name="check" size={18} /></span>
           <h3>Same product</h3>
-          <p>Opens a recall case with affected stock, containment tasks and unsent action drafts.</p>
+          <p>Opens a case with affected stock, containment tasks and prepared actions awaiting approval.</p>
           <button class="btn btn-primary" type="button" onclick={() => openDecision('confirm')}>
             Confirm match
           </button>
@@ -372,7 +409,10 @@
       <span><Icon name="circle-check-big" size={22} /></span>
       <h2>Review queue is clear</h2>
       <p>There are no uncertain catalogue matches waiting for a human decision.</p>
-      <a class="btn btn-secondary" href="/dashboard">Return to Overview</a>
+      <div class="review-empty__actions">
+        <a class="btn btn-secondary" href="/catalogue">Review Catalogue</a>
+        <a class="btn btn-primary" href="/dashboard">Return to Overview</a>
+      </div>
     </div>
   </section>
 {/if}
@@ -414,17 +454,17 @@
         </div>
         <p class:decision-dialog__warning={decisionOpen === 'reject'}>
           {decisionOpen === 'confirm'
-            ? 'A case will be opened or reused, affected stock will be added, and containment tasks plus unsent action drafts will be prepared. Nothing is sent automatically.'
+            ? 'A case will be opened or reused, affected stock will be added, and containment tasks plus actions awaiting approval will be prepared. Nothing is sent automatically.'
             : 'The alert will be marked not relevant to your catalogue and no new recall case will be created. This does not change the official source warning.'}
         </p>
       </div>
       <footer>
         <button class="btn btn-secondary" type="button" onclick={closeDecision}>Cancel</button>
-        <form method="POST" action={decisionOpen === 'confirm' ? '?/confirm' : '?/reject'}>
+        <form method="POST" action={decisionOpen === 'confirm' ? '?/confirm' : '?/reject'} use:enhance={enhanceDecision} aria-busy={submitting === 'decision'}>
           <input type="hidden" name="matchId" value={selected.match.id} />
           <input type="hidden" name="actorName" value={actorName} />
-          <button class={decisionOpen === 'confirm' ? 'btn btn-primary' : 'btn btn-danger'} type="submit">
-            {decisionOpen === 'confirm' ? 'Confirm and open case' : 'Reject match'}
+          <button class={decisionOpen === 'confirm' ? 'btn btn-primary' : 'btn btn-danger'} type="submit" disabled={submitting !== null}>
+            {submitting === 'decision' ? 'Saving decision…' : decisionOpen === 'confirm' ? 'Confirm and open case' : 'Reject match'}
           </button>
         </form>
       </footer>
@@ -447,7 +487,7 @@
       aria-labelledby="evidence-title"
       tabindex="-1"
     >
-      <form method="POST" action="?/requestEvidence">
+      <form method="POST" action="?/requestEvidence" use:enhance={enhanceEvidence} aria-busy={submitting === 'evidence'}>
         <input type="hidden" name="matchId" value={selected.match.id} />
         <input type="hidden" name="actorName" value={actorName} />
         <header>
@@ -508,8 +548,8 @@
           <span>Recorded as {actorName}</span>
           <div>
             <button class="btn btn-secondary" type="button" onclick={closeEvidence}>Cancel</button>
-            <button class="btn btn-primary" type="submit" disabled={selectedEvidence.length === 0}>
-              Create unsent draft
+            <button class="btn btn-primary" type="submit" disabled={selectedEvidence.length === 0 || submitting !== null}>
+              {submitting === 'evidence' ? 'Creating draft…' : 'Create unsent draft'}
             </button>
           </div>
         </footer>
@@ -1384,6 +1424,13 @@
     gap: 8px;
   }
 
+  .review-empty__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+
   @media (max-width: 980px) {
     .comparison-grid,
     .decision-grid {
@@ -1429,6 +1476,19 @@
     .evidence-options,
     .evidence-recipient {
       grid-template-columns: 1fr;
+    }
+
+    .decision-dialog footer,
+    .evidence-dialog footer {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .decision-dialog footer form,
+    .decision-dialog footer .btn,
+    .evidence-dialog footer > div,
+    .evidence-dialog footer .btn {
+      width: 100%;
     }
   }
 </style>

@@ -173,11 +173,11 @@ export function getDashboardView(database: RecallDatabase): DashboardView {
         id: `approval-${row.caseRecord.id}`,
         kind: 'approval',
         label: 'Human approval',
-        title: `${draftCount} action draft${draftCount === 1 ? '' : 's'} await approval`,
+        title: `${draftCount} approval${draftCount === 1 ? '' : 's'} need a decision`,
         description: `${row.caseRecord.caseNumber} · ${row.alert.productName}`,
         meta: 'No external message has been sent.',
         href: `/actions?case=${row.caseRecord.id}`,
-        actionLabel: 'Review drafts'
+        actionLabel: 'Open approvals'
       });
     }
 

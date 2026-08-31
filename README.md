@@ -2,6 +2,8 @@
 
 RecallOps AI is a local SvelteKit dashboard for a catalogue-aware product recall workflow. Its deterministic demo covers high-confidence, uncertain and not-relevant alerts without requiring an OpenAI API key.
 
+The monitoring button reads archived Safety Gate/RASFF fixtures; it is a prototype cycle, not a live regulatory feed. Deterministic local code calculates every identity score, classifies the next safe step and records the audit trail. When `OPENAI_API_KEY` and `OPENAI_MODEL` are configured, the server-side OpenAI adapter is limited to structured field extraction, plain-language explanations and action drafts. It cannot change scores, write directly to the database or send messages, and any API failure falls back to local parsing and templates.
+
 ## Requirements
 
 - Node.js 22

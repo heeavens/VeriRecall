@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabaseConnection } from '../db/client';
 import { customers, products, purchases, settings } from '../db/schema';
 import { importCatalogue, importPurchases, MAX_UPLOAD_BYTES } from './importer';
-import { completeSetup } from './setup';
+import { completeSetup, getSetupState } from './setup';
 
 type TestConnection = ReturnType<typeof createDatabaseConnection>;
 
@@ -89,6 +89,11 @@ describe('Stage 2 catalogue imports', () => {
     expect(result.success).toBe(true);
     expect(result.summary.acceptedRows).toBe(2);
     expect(connection.db.select().from(products).all()).toHaveLength(2);
+    expect(getSetupState(connection.db)).toMatchObject({
+      productCount: 2,
+      missingEanCount: 1,
+      missingBatchCount: 1
+    });
   });
 
   it('reports missing headers without inserting rows', async () => {

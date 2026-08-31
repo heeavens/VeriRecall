@@ -102,7 +102,7 @@ export const actions: Actions = {
         message: 'Setup could not be saved. Please try again.'
       });
     }
-    redirect(303, '/dashboard');
+    redirect(303, '/dashboard?setup=ready');
   },
 
   useDemoData: () => {
@@ -115,6 +115,6 @@ export const actions: Actions = {
         message: 'Demo data could not be prepared. Your existing data was not changed.'
       });
     }
-    redirect(303, '/dashboard');
+    redirect(303, '/dashboard?setup=ready');
   }
 };

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
+  import type { SubmitFunction } from '@sveltejs/kit';
+
   import FileUpload from '$lib/components/FileUpload.svelte';
   import ImportSummary from '$lib/components/ImportSummary.svelte';
 
@@ -16,11 +19,28 @@
 
   let step = $state(initialStep());
   let threshold = $state(initialThreshold());
+  let pendingAction = $state<'complete' | 'demo' | null>(null);
+
+  function trackSubmission(action: 'complete' | 'demo'): SubmitFunction {
+    return () => {
+      pendingAction = action;
+      return async ({ update }) => {
+        try {
+          await update();
+        } finally {
+          pendingAction = null;
+        }
+      };
+    };
+  }
+
+  const enhanceComplete = trackSubmission('complete');
+  const enhanceDemo = trackSubmission('demo');
 
   const steps = [
-    { title: 'Catalogue Upload', detail: 'CSV or Excel' },
+    { title: 'Catalogue', detail: 'CSV or Excel' },
     { title: 'Purchase Data', detail: 'Optional import' },
-    { title: 'Matching Settings', detail: 'Review threshold' },
+    { title: 'Review Rules', detail: 'Match threshold' },
     { title: 'Ready', detail: 'Launch dashboard' }
   ];
 </script>
@@ -67,9 +87,9 @@
             <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <path d="M12 3 5 6v5c0 4.5 2.8 8 7 10 4.2-2 7-5.5 7-10V6l-7-3Zm-3 8 2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
-            Atomic validation
+            Safe import
           </div>
-          <p class="mt-1.5">A bad file never leaves partial catalogue or purchase rows.</p>
+          <p class="mt-1.5">An invalid file never adds incomplete catalogue or purchase records.</p>
         </div>
       </aside>
 
@@ -107,6 +127,11 @@
 
             {#if form?.kind === 'catalogue' && form.summary}
               <ImportSummary summary={form.summary} title="Catalogue import summary" />
+              <div class="catalogue-quality" aria-label="Imported catalogue quality">
+                <div><span>Catalogue products</span><strong>{data.productCount.toLocaleString('en')}</strong></div>
+                <div><span>Missing EAN / GTIN</span><strong>{data.missingEanCount.toLocaleString('en')}</strong></div>
+                <div><span>Missing batch</span><strong>{data.missingBatchCount.toLocaleString('en')}</strong></div>
+              </div>
             {:else if form?.kind === 'catalogue' && form.message}
               <p class="form-error" role="alert">{form.message}</p>
             {:else if data.productCount > 0}
@@ -114,7 +139,12 @@
                 <span class="grid h-8 w-8 place-items-center rounded-full bg-[#e1f7ea] text-[#2aa96b]">
                   <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 12 4 4 8-9" stroke-linecap="round" stroke-linejoin="round" /></svg>
                 </span>
-                <span><b class="block text-[10px]">Catalogue ready</b><small class="text-[8px] text-[#716b7b]">{data.productCount.toLocaleString('en')} products are available.</small></span>
+                <span>
+                  <b class="block text-[10px]">Catalogue ready</b>
+                  <small class="text-[8px] text-[#716b7b]">
+                    {data.productCount.toLocaleString('en')} products · {data.missingEanCount.toLocaleString('en')} missing EAN · {data.missingBatchCount.toLocaleString('en')} missing batch
+                  </small>
+                </span>
               </div>
             {/if}
           {:else if step === 2}
@@ -143,7 +173,7 @@
               </div>
             </div>
           {:else}
-            <form method="POST" action="?/complete">
+            <form method="POST" action="?/complete" use:enhance={enhanceComplete} aria-busy={pendingAction === 'complete'}>
               <div class="rounded-xl border border-[#eae4f2] p-5">
                 <div class="flex items-center justify-between gap-4">
                   <div>
@@ -181,8 +211,8 @@
               {/if}
 
               <div class="mt-5 flex justify-end">
-                <button type="submit" class="btn btn-primary">
-                  Complete setup & run monitoring
+                <button type="submit" class="btn btn-primary" disabled={pendingAction !== null}>
+                  {pendingAction === 'complete' ? 'Preparing workspace…' : 'Complete setup & check alerts'}
                   <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7" stroke-linecap="round" stroke-linejoin="round" /></svg>
                 </button>
               </div>
@@ -193,8 +223,10 @@
         {#if step < 3}
           <div class="mt-5 flex items-center justify-between border-t border-[#eee9f4] pt-4">
             {#if step === 1}
-              <form method="POST" action="?/useDemoData">
-                <button type="submit" class="text-[10px] font-semibold text-[#7542dd] hover:text-[#6330c8]">Use demo data</button>
+              <form method="POST" action="?/useDemoData" use:enhance={enhanceDemo} aria-busy={pendingAction === 'demo'}>
+                <button type="submit" disabled={pendingAction !== null} class="text-[10px] font-semibold text-[#7542dd] hover:text-[#6330c8] disabled:opacity-50">
+                  {pendingAction === 'demo' ? 'Preparing demo…' : 'Use demo data'}
+                </button>
               </form>
             {:else}
               <button type="button" class="btn btn-secondary" onclick={() => (step = 1)}>
@@ -218,8 +250,10 @@
               <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m15 5-7 7 7 7" stroke-linecap="round" stroke-linejoin="round" /></svg>
               Back
             </button>
-            <form method="POST" action="?/useDemoData">
-              <button type="submit" class="text-[10px] font-semibold text-[#7542dd] hover:text-[#6330c8]">Use demo data instead</button>
+            <form method="POST" action="?/useDemoData" use:enhance={enhanceDemo} aria-busy={pendingAction === 'demo'}>
+              <button type="submit" disabled={pendingAction !== null} class="text-[10px] font-semibold text-[#7542dd] hover:text-[#6330c8] disabled:opacity-50">
+                {pendingAction === 'demo' ? 'Preparing demo…' : 'Use demo data instead'}
+              </button>
             </form>
           </div>
         {/if}
@@ -268,6 +302,91 @@
 
   .threshold-range {
     accent-color: #7b49df;
+  }
+
+  .catalogue-quality {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .catalogue-quality > div {
+    border-radius: 9px;
+    background: #f8f4ff;
+    padding: 10px 11px;
+  }
+
+  .catalogue-quality span,
+  .catalogue-quality strong {
+    display: block;
+  }
+
+  .catalogue-quality span {
+    color: #716b7b;
+    font-size: 8px;
+  }
+
+  .catalogue-quality strong {
+    margin-top: 5px;
+    font-size: 16px;
+  }
+
+  @media (max-width: 720px) {
+    .setup-page {
+      display: block;
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    .setup-panel {
+      width: 100%;
+      min-height: 100vh;
+      max-height: none;
+      border-radius: 0;
+    }
+
+    .setup-panel > :global(div) {
+      min-height: 100vh;
+      grid-template-columns: 1fr;
+      grid-template-rows: max-content minmax(0, 1fr);
+    }
+
+    .setup-sidebar {
+      min-height: 0;
+      padding: 18px;
+    }
+
+    .setup-sidebar > :global(p),
+    .setup-sidebar > :global(div:last-child),
+    .setup-sidebar :global(small) {
+      display: none;
+    }
+
+    .setup-sidebar :global(ol) {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .setup-sidebar :global(li) {
+      align-items: center;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 0 !important;
+      text-align: center;
+    }
+  }
+
+  @media (max-width: 460px) {
+    .setup-sidebar :global(li b) {
+      display: none;
+    }
+
+    .catalogue-quality {
+      grid-template-columns: 1fr;
+    }
   }
 
 </style>

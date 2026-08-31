@@ -6,7 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { getCaseDetail } from '../cases/queries';
+import { getActionDraftsView, getCaseDetail, getCasesView } from '../cases/queries';
 import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
@@ -49,6 +49,18 @@ afterEach(() => {
 });
 
 describe('Stage 5 incident response workflow', () => {
+  it('exposes the next containment task and pending approvals in the case register', () => {
+    const [caseView] = getCasesView(connection.db);
+
+    expect(caseView).toMatchObject({
+      pendingTasks: 3,
+      nextTaskLabel: 'Block sale for affected inventory',
+      pendingApprovals: 3,
+      completedTasks: 0,
+      actionableTasks: 3
+    });
+  });
+
   it('initializes three checklist tasks and unsent drafts when review opens a case', () => {
     const result = confirmReviewMatch(
       connection.db,
@@ -153,6 +165,23 @@ describe('Stage 5 incident response workflow', () => {
     expect(caseEventCount(seededCaseId)).toBe(countAfterFirst);
     expect(new Set(timeline.map((event) => event.actorType))).toEqual(new Set(['agent', 'human']));
     expect(timeline.filter((event) => event.eventType === 'action_simulated_sent')).toHaveLength(1);
+  });
+
+  it('places drafts awaiting a human decision before recorded outcomes', () => {
+    approveActionDraft(
+      connection.db,
+      { actionId: blockSaleDraftId, actorName: 'Herman' },
+      new Date('2026-08-29T15:00:00Z')
+    );
+
+    const approvals = getActionDraftsView(connection.db, seededCaseId);
+
+    expect(approvals.map((item) => item.draft.status)).toEqual([
+      'draft',
+      'draft',
+      'simulated_sent'
+    ]);
+    expect(approvals.every((item) => item.caseRecord.id === seededCaseId)).toBe(true);
   });
 
   it('blocks incomplete closure, then closes once after all checklist tasks complete', () => {

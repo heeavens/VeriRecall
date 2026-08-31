@@ -78,7 +78,7 @@ describe('dashboard view', () => {
       actionLabel: 'Review match'
     });
     expect(dashboard.attention.find((item) => item.kind === 'approval')).toMatchObject({
-      title: '3 action drafts await approval',
+      title: '3 approvals need a decision',
       meta: 'No external message has been sent.'
     });
     expect(dashboard.attention.find((item) => item.kind === 'case')).toMatchObject({

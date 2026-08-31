@@ -13,27 +13,34 @@ export interface SetupState {
   confidenceThreshold: number;
   onboardingCompleted: boolean;
   productCount: number;
+  missingEanCount: number;
+  missingBatchCount: number;
   customerCount: number;
   purchaseCount: number;
 }
 
-function tableCount(database: RecallDatabase, table: typeof schema.products): number;
 function tableCount(database: RecallDatabase, table: typeof schema.customers): number;
 function tableCount(database: RecallDatabase, table: typeof schema.purchases): number;
 function tableCount(
   database: RecallDatabase,
-  table: typeof schema.products | typeof schema.customers | typeof schema.purchases
+  table: typeof schema.customers | typeof schema.purchases
 ): number {
   return database.select({ value: count() }).from(table).get()?.value ?? 0;
 }
 
 export function getSetupState(database: RecallDatabase): SetupState {
   const setting = database.select().from(schema.settings).where(eq(schema.settings.id, SETTINGS_ID)).get();
+  const catalogueRows = database
+    .select({ ean: schema.products.ean, batch: schema.products.batch })
+    .from(schema.products)
+    .all();
 
   return {
     confidenceThreshold: setting?.confidenceThreshold ?? 85,
     onboardingCompleted: setting?.onboardingCompleted ?? false,
-    productCount: tableCount(database, schema.products),
+    productCount: catalogueRows.length,
+    missingEanCount: catalogueRows.filter((product) => !product.ean?.trim()).length,
+    missingBatchCount: catalogueRows.filter((product) => !product.batch?.trim()).length,
     customerCount: tableCount(database, schema.customers),
     purchaseCount: tableCount(database, schema.purchases)
   };

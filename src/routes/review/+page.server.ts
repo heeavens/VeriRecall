@@ -60,7 +60,7 @@ export const actions: Actions = {
         caseId: result.caseId,
         caseNumber: result.caseNumber,
         message: result.changed
-          ? `Match confirmed. ${result.caseNumber} is ready with containment tasks and unsent action drafts.`
+          ? `Match confirmed. ${result.caseNumber} is ready with containment tasks and prepared actions awaiting approval.`
           : `This match was already confirmed in ${result.caseNumber}.`
       };
     } catch (error) {
