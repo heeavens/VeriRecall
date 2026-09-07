@@ -6,6 +6,7 @@ import type { ReportExporter } from '../../types/domain';
 import { getCaseDetail, type CaseDetailView } from '../cases/queries';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { hasCaseLifecycle } from '../workflow/lifecycle-boundary';
 
 type ReportFormat = 'csv' | 'pdf';
 type ReportRow = [section: string, field: string, value: string, details: string];
@@ -200,6 +201,7 @@ export class CaseReportExporter implements ReportExporter {
   ) {}
 
   async exportCase(caseId: string, format: ReportFormat): Promise<Uint8Array> {
+    if (hasCaseLifecycle(this.database, caseId)) throw new CaseReportError('Versioned investigation reports are not implemented; read the case snapshot.');
     const detail = getCaseDetail(this.database, caseId);
     if (!detail) throw new CaseReportError('Recall case not found.');
     const generatedAt = this.now();

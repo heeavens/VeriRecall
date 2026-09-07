@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { hasCaseLifecycle } from './lifecycle-boundary';
 
 export class CaseWorkflowError extends Error {
   constructor(
@@ -84,9 +85,16 @@ function cleanClosureEvidence(input: CloseCaseInput): {
   return { closureNote, evidenceReference };
 }
 
+function assertLegacyCase(database: RecallDatabase, caseId: string): void {
+  if (hasCaseLifecycle(database, caseId)) {
+    throw new CaseWorkflowError('invalid_state', 'Use versioned case commands; legacy actions cannot modify this investigation.');
+  }
+}
+
 function caseRecord(database: RecallDatabase, caseId: string) {
   const record = database.select().from(schema.cases).where(eq(schema.cases.id, caseId)).get();
   if (!record) throw new CaseWorkflowError('not_found', 'The recall case could not be found.');
+  assertLegacyCase(database, caseId);
   return record;
 }
 
@@ -124,6 +132,7 @@ export function updateActionDraft(
       .where(eq(schema.actionDrafts.id, input.actionId))
       .get();
     if (!draft) throw new CaseWorkflowError('not_found', 'The action draft could not be found.');
+    assertLegacyCase(transaction, draft.draft.caseId);
     if (draft.caseRecord.status === 'closed') {
       throw new CaseWorkflowError('invalid_state', 'Drafts cannot change after a case is closed.');
     }
@@ -195,6 +204,7 @@ export function approveActionDraft(
       .where(eq(schema.actionDrafts.id, input.actionId))
       .get();
     if (!record) throw new CaseWorkflowError('not_found', 'The action draft could not be found.');
+    assertLegacyCase(transaction, record.draft.caseId);
     if (record.draft.status === 'simulated_sent') {
       return {
         actionId: record.draft.id,

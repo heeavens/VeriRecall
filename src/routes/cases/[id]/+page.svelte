@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
 
+  import InvestigationSnapshot from '$lib/components/InvestigationSnapshot.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import WorkflowBreadcrumbs from '$lib/components/WorkflowBreadcrumbs.svelte';
 
@@ -124,6 +125,9 @@
 
 <svelte:window onkeydown={closeOnEscape} />
 
+{#if data.snapshot}
+  <InvestigationSnapshot snapshot={data.snapshot} history={data.history} caseNumber={data.caseRecord.caseNumber} />
+{:else}
 {#if form?.message}
   <div
     class={`case-notice ${form.success ? '' : 'case-notice--error'}`}
@@ -467,6 +471,8 @@
       </form>
     </div>
   </div>
+{/if}
+
 {/if}
 
 <style>

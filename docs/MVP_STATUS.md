@@ -1,8 +1,20 @@
 # VeriRecall — состояние блока B
 
-Дата: 2026-09-07. **Этап 2 завершён: минимальный контракт реализован и проверен; новый backend блока B пока не подключён.** Этап 3 не начат.
+Дата: 2026-09-07. **Этап 3 завершён: investigation ingestion, versioned snapshot и история сохраняются в SQLite и доступны серверу/UI.** Этап 4 не начат. Герман продолжает свой блок самостоятельно; друг подключается позже по `docs/HANDOFF_TO_FRIEND.md`.
 
-## Обновление после этапа 2
+## Обновление после этапа 3
+
+- Новые таблицы case_lifecycle, case_revisions, case_commands через новую миграцию `0002_case_lifecycle.sql`; старые миграции не изменены. Snapshot, история, audit и ledger записываются атомарно. Реализованы reservation по существующему alert/product, ACCEPT_INVESTIGATION и read snapshot; три версии остаются независимыми.
+- `src/lib/server/workflow/case-lifecycle.ts`: валидация неизвестного входа, проверка принадлежности product/case, immediate-транзакции, idempotency, stale revision и optimistic concurrency. Новый case резервируется с caseVersion=1, затем первый outcome создаёт caseVersion=2. Существующие legacy/multi-product cases не конвертируются автоматически.
+- Сохранённые identity/scope/gaps/conflicts остаются отдельными данными. Evidence/decision refs пока непроверены, поэтому даже KNOWN outcome не продвигает дело дальше INVESTIGATING; exposure NOT_CALCULATED, все количества null, closure NOT_READY. Расчёты, human decision resolver, задачи, approvals, closure/reopen пока отсутствуют; соответствующие команды возвращают NOT_IMPLEMENTED.
+- Реальные API: POST `/api/cases/investigation`, POST `/api/cases/[id]/commands`, GET `/api/cases/[id]/snapshot`. Explicit local demo mode (`VERIRECALL_DEMO_MODE=true`), фиксированный серверный demo_operator, клиентский actor отвергается. Live outcome не принимается. Это не production auth.
+- Case page load возвращает настоящий `snapshot` и `history`; `InvestigationSnapshot.svelte` показывает факты, неизвестный exposure, blockers и версии. Cases показывает новое дело без ложного stock=0 и без утверждения, что задачи уже выполнены. Старые операции review/task/close и старый export для lifecycle-case заблокированы на сервере; legacy дела продолжают работать.
+- Проверки: 74 теста / 15 файлов PASS (13 новых lifecycle tests), check 0 errors/warnings, build PASS. Проверены новое соединение, повтор команды после более новой revision, ошибочные версии/принадлежность, два DB connection с одной expectedCaseVersion, откат при ошибке ledger, обновление заполненной 0001 БД и повтор миграции.
+- Реальный запуск на отдельной `/tmp/verirecall-stage3-6CuJwZ/demo.db`: миграция/seed, HTTP demo client, snapshot GET, перезапуск сервера с точным сравнением snapshot и сохранённой историей; HTTP 409 stale version, 400 path mismatch/cross-origin. Браузер: карточка desktop и 390px, список Cases. Docker/live AI/production не проверялись.
+- Рабочий пример для друга: `scripts/demo-lifecycle.ts`. Все команды воспроизведения, API, текущие ограничения и условия стадий — в `docs/HANDOFF_TO_FRIEND.md` и обновлённом INTEGRATION_CONTRACT.md. Сообщения другу не отправлялись; инструкция сохранена для последующей передачи.
+- Общий контракт: уточнена фактическая reservation (expectedCaseVersion=1 при первой доставке), явно закреплён один product на новый case и запрет автоматической legacy-конвертации. Типы v1 не менялись. Следом нужны только работы этапа 4 после отдельного запроса.
+
+## История: обновление после этапа 2
 
 - Добавлен единый модуль `src/lib/contracts/recall.ts`: Zod-схемы и выведенные типы InvestigationOutcome/CaseSnapshot, quantity/provenance, независимые knowledge/task/decision статусы, команды, ошибки и интерфейс RecallService. Обе стороны должны импортировать `$lib/contracts/recall`; существующие domain.ts, schema и UI не менялись.
 - `src/lib/contracts/recall.fixtures.ts`: подтверждённая L-2403, неизвестный scope и расширение L-2403 + L-2404. Во всех snapshot exposure NOT_CALCULATED, неизвестные количества null, closure NOT_READY. Fixtures не подключены к production workflow.

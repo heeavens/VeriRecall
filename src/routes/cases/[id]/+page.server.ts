@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 
 import { getCaseDetail } from '$lib/server/cases/queries';
+import { readCaseSnapshot, getCaseHistory } from '$lib/server/workflow/case-lifecycle';
 import { db } from '$lib/server/db/connection';
 import {
   CaseWorkflowError,
@@ -43,7 +44,7 @@ function workflowFailure(kind: 'task' | 'close', workflowError: unknown) {
 export const load: PageServerLoad = ({ params }) => {
   const detail = getCaseDetail(db, params.id);
   if (!detail) error(404, 'Recall case not found');
-  return detail;
+  return { ...detail, snapshot: readCaseSnapshot(db, params.id), history: getCaseHistory(db, params.id) };
 };
 
 export const actions: Actions = {

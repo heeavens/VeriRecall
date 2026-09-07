@@ -1,5 +1,7 @@
 # RecallOps AI
 
+For the versioned VeriRecall block B workflow, current implementation status and developer handoff, see [MVP status](docs/MVP_STATUS.md), [integration contract](docs/INTEGRATION_CONTRACT.md) and [developer handoff](docs/HANDOFF_TO_FRIEND.md). The handoff includes an isolated demo database, the HTTP example client and the boundaries between the existing demo and the new investigation lifecycle.
+
 RecallOps AI is a local SvelteKit dashboard for a catalogue-aware product recall workflow. Its deterministic demo covers high-confidence, uncertain and not-relevant alerts without requiring an OpenAI API key.
 
 The monitoring button reads archived Safety Gate/RASFF fixtures; it is a prototype cycle, not a live regulatory feed. Deterministic local code calculates every identity score, ranks work by official-alert harm and confidence, selects the next safe step and records the audit trail. Every proposed product identity—including a high-confidence candidate—requires human confirmation before a case opens. Customer and supplier messages remain drafts until a person approves a simulated send.

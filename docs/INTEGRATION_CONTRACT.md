@@ -1,6 +1,6 @@
 # Интеграционный контракт VeriRecall, v1
 
-Этап 2, 2026-09-07. Это реализованный и проверяемый **контракт для сверки с другом**, а не уже подключённый новый workflow. Persistence, обработчики команд, проверка реальных решений/прав и расчёт exposure относятся к следующим отдельно разрешаемым этапам. Старые routes, enums БД и UI продолжают работать без изменений. Новый транспорт не добавлен.
+Обновлено после этапа 3, 2026-09-07. Герман реализует свой блок последовательно, друг подключится позже. Контракт v1 теперь имеет реальный persisted demo-сервис для reservation, ACCEPT_INVESTIGATION и чтения snapshot; остальные бизнес-операции ещё не реализованы. Рабочий запуск, HTTP/server примеры и ограничения: `docs/HANDOFF_TO_FRIEND.md`.
 
 ## Один источник типов
 
@@ -21,7 +21,7 @@ const outcome: InvestigationOutcome = investigationOutcomeSchema.parse(payload);
 const snapshot: CaseSnapshot = caseSnapshotSchema.parse(serverPayload);
 ```
 
-Здесь payload/serverPayload обозначают реальные данные интеграции. Сервис `RecallService` содержит `execute(command)` и `getSnapshot(query)` с Promise-результатами. Реализации сервиса на этапе 2 нет: интерфейс не возвращает fixtures и не используется как скрытый fallback. Сервис в дальнейшем создаётся в доверенном серверном контексте с авторизованным оператором; actor не берётся из клиентского payload. UI может импортировать типы, но вызывает серверные actions, а не БД.
+Здесь payload/serverPayload обозначают реальные данные интеграции. Сервис `RecallService` содержит `execute(command)` и `getSnapshot(query)` с Promise-результатами. Реализация этапа 3 — `createRecallService` в `src/lib/server/workflow/case-lifecycle.ts`; входные unknown повторно валидируются. Fixtures сервером не возвращаются как fallback. Сервис в дальнейшем создаётся в доверенном серверном контексте с авторизованным оператором; actor не берётся из клиентского payload. UI может импортировать типы, но вызывает серверные actions, а не БД.
 
 Старые `src/lib/types/domain.ts`, `src/lib/server/db/schema.ts` и `CaseDetailView` в `src/lib/server/cases/queries.ts` сохраняются. Автоматического преобразования старых данных в подтверждённый snapshot нет: `stockQuantity=0`, `Unknown`, `simulated_sent` и старый `closed` не доказывают новый контракт.
 
@@ -63,7 +63,7 @@ UNRESOLVED не имеет lots и не может быть KNOWN. WHOLE_PRODUCT
 | closure | NOT_READY + непустые blockers; READY_FOR_HUMAN_CLOSURE + пустые blockers; CLOSED + ссылка на отдельное human decision |
 | demo | Маркировка учебного дела |
 
-В v1 один case-контракт относится к одному productId. Уже существующая БД допускает несколько case_items/products на alert: многопродуктовую проекцию необходимо отдельно сверить с другом, не терять items при адаптации и не выбирать молча первый продукт. Новые stage пока не записываются в старый `cases.status`. `open` сам по себе не различает INVESTIGATING/RESPONDING/CLOSURE_REVIEW, поэтому однозначного автоматического mapping нет.
+В v1 один case-контракт относится к одному productId. Уже существующая БД допускает несколько case_items/products на alert: многопродуктовую проекцию необходимо отдельно сверить с другом, не терять items при адаптации и не выбирать молча первый продукт. Новый stage хранится в case_lifecycle.snapshot_json; старый `cases.status=open` сохраняется как совместимая проекция INVESTIGATING. `open` сам по себе не различает INVESTIGATING/RESPONDING/CLOSURE_REVIEW, поэтому однозначного автоматического mapping нет.
 
 Количество: `{ value: number | null, unit: 'ITEM', knowledgeStatus, sources, asOf }`. В v1 только целые неотрицательные штуки, без coercion строк и единиц массы. KNOWN требует число (включая настоящий 0), источник и время; при другом состоянии value строго null. Каждая source содержит sourceRef, sourceType, asOf, demo. Типы источников: RECEIPT, INVENTORY, SHIPMENT, RETAILER_RESPONSE, SALE, DERIVED. DERIVED должен ссылаться на доступные исходные записи; формула и исходные факты сохраняются сервером. Конфликтующие наблюдения остаются в исходных evidence/conflicts, не превращаются в одно произвольное число.
 
@@ -89,13 +89,13 @@ Closure blocker codes: INVESTIGATION_UNRESOLVED, SCOPE_UNCONFIRMED, EXPOSURE_NOT
 
 Три версии независимы: schemaVersion меняется при несовместимом формате, materialRevision — при изменении результата investigation, caseVersion — при любой сохранённой мутации дела. task approval может увеличить caseVersion без изменения materialRevision. В v1 любое изменение payload InvestigationOutcome (включая evidence/updatedAt) требует следующего materialRevision; это не означает, что нужно сбрасывать всё выполнение — сервис позже сравнивает охват и факты. ATTACH_RESULT отдельно увеличивает caseVersion.
 
-Требования к будущей серверной реализации:
+Правила серверной реализации (ingestion/ledger реализованы в этапе 3, будущие значимые операции ещё недоступны):
 
 1. Проверить доступ к case и входную схему. В локальном demo использовать фиксированного серверного оператора, явно demo; LLM не получает право выполнять значимые команды.
 2. В транзакции проверить ledger по `(caseId, commandId)`. Точная повторная команда возвращает `replayed=true` без повторного эффекта даже после изменения caseVersion. Тот же ключ с отличающимся payload → IDEMPOTENCY_CONFLICT. Сравнение по валидированному каноническому payload; массивы v1 сравниваются с учётом порядка.
 3. Для нового commandId проверить expectedCaseVersion; несовпадение → VERSION_CONFLICT без записи. После обновления UI новая попытка с изменённым payload использует новый commandId.
 4. Для ACCEPT_INVESTIGATION более низкая materialRevision → STALE_INVESTIGATION; та же revision с отличающимся outcome → IDEMPOTENCY_CONFLICT. Тот же outcome/revision с новым commandId и актуальной expectedCaseVersion — no-op с replayed=true, без увеличения версии. Более высокая revision принимается после проверки принадлежности; пропуски номеров допустимы.
-5. Атомарно сохранить state, audit, ledger, решения и новую caseVersion; отказ не оставляет частичных бизнес-изменений. Ссылки на старые решения/результаты сохранять в истории, применимость пересматривать по coverage. Здесь нет реализации ledger или фиктивной гарантии runtime-идемпотентности.
+5. Атомарно сохранить state, audit, ledger, решения и новую caseVersion; отказ не оставляет частичных бизнес-изменений. Ссылки на старые решения/результаты сохранять в истории, применимость пересматривать по coverage. Для ACCEPT_INVESTIGATION реализован ledger case_commands и immediate-транзакция; поведение проверено lifecycle tests.
 
 CommandResult: `{ ok:true, commandId, replayed, appliedCaseVersion, snapshot }` либо `{ ok:false, error }`. appliedCaseVersion — версия первоначального эффекта; snapshot — актуальное доступное состояние, его caseVersion при replay может быть выше. SnapshotResult: `{ ok:true, snapshot }` либо тот же error envelope.
 
@@ -113,7 +113,7 @@ CommandResult: `{ ok:true, commandId, replayed, appliedCaseVersion, snapshot }` 
 {"code":"CLOSURE_BLOCKED","message":"Exposure has not been calculated.","currentCaseVersion":1,"issueRefs":["demo:exposure-missing"]}
 ```
 
-Остальные коды: INVALID_INPUT, UNSUPPORTED_SCHEMA_VERSION, NOT_FOUND, FORBIDDEN, STALE_INVESTIGATION, IDEMPOTENCY_CONFLICT, INVALID_STATE, EVIDENCE_REQUIRED, NOT_IMPLEMENTED. currentCaseVersion=null означает, что версия недоступна/не раскрывается, не ноль. Будущий boundary сначала проверяет schemaVersion и kind scope для специализированных ошибок, затем Zod для INVALID_INPUT; schema.safeParse сейчас возвращает обычный ZodError, не выполняет этот mapping. При подключении ещё отсутствующей операции нужно явно вернуть NOT_IMPLEMENTED, не выдавать старый workflow за новый сервис.
+Остальные коды: INVALID_INPUT, UNSUPPORTED_SCHEMA_VERSION, NOT_FOUND, FORBIDDEN, STALE_INVESTIGATION, IDEMPOTENCY_CONFLICT, INVALID_STATE, EVIDENCE_REQUIRED, NOT_IMPLEMENTED. currentCaseVersion=null означает, что версия недоступна/не раскрывается, не ноль. Boundary этапа 3 сначала проверяет schemaVersion и kind scope для специализированных ошибок, затем Zod для INVALID_INPUT; schema.safeParse сейчас возвращает обычный ZodError, не выполняет этот mapping. При подключении ещё отсутствующей операции нужно явно вернуть NOT_IMPLEMENTED, не выдавать старый workflow за новый сервис.
 
 ## Fixtures и воспроизводимая проверка
 
@@ -140,7 +140,7 @@ npm run build
 node --import tsx --input-type=module -e 'import { investigationOutcomeSchema, caseSnapshotSchema } from "./src/lib/contracts/recall.ts"; import { contractFixtures } from "./src/lib/contracts/recall.fixtures.ts"; for (const f of contractFixtures) { console.log(f.name, investigationOutcomeSchema.safeParse(f.outcome).success, caseSnapshotSchema.safeParse(f.snapshot).success); }'
 ```
 
-Ожидается три строки с `true true`. Negative tests проверяют UNKNOWN≠0, provenance, unsupported scope/version, ссылки, разные identity/scope, несогласованные версии snapshot, strict command envelopes, отсутствие evidence и разделение task/decision/request статусов. Это проверки контракта; сохранение и конкурентная доставка пока не тестировались, поскольку обработчиков нет.
+Ожидается три строки с `true true`. Negative tests проверяют UNKNOWN≠0, provenance, unsupported scope/version, ссылки, разные identity/scope, несогласованные версии snapshot, strict command envelopes, отсутствие evidence и разделение task/decision/request статусов. Это проверки контракта; проверки runtime persistence/concurrency добавлены отдельно в case-lifecycle.test.ts.
 
 ## Владельцы и сверка перед подключением
 
@@ -152,4 +152,13 @@ node --import tsx --input-type=module -e 'import { investigationOutcomeSchema, c
 | src/lib/types/domain.ts | Менять только после сверки обеих сторон, поскольку уже используется существующим workflow |
 | package.json / package-lock.json | В этом этапе не менялись; при необходимости заранее выбрать одного редактора |
 
-Отдельно сверить: один product на case против текущих multi-item cases; выделение caseId до ingestion и владелец monitoring; revision при evidence-only update; значения новых stage/task/rule и перевод старых action drafts; серверный demo actor и resolution evidence/decision refs. Этот документ не заявляет, что друг уже согласовал формат или подключил свой код. Следующий этап не выполнялся.
+Отдельно сверить: один product на case против текущих multi-item cases; выделение caseId до ingestion и владелец monitoring; revision при evidence-only update; значения новых stage/task/rule и перевод старых action drafts; серверный demo actor и resolution evidence/decision refs. Этот документ не заявляет, что друг уже согласовал формат или подключил свой код. Этап 3 выполнен в границах runtime-уточнений ниже; этап 4 не начат.
+
+
+## Уточнения runtime этапа 3 (приоритет над проектными примерами этапа 2)
+
+- Reservation для существующего alert/product создаёт case и snapshot **version 1**, investigation/materialRevision=null, без case_items и фиктивных количеств. Поэтому первый реальный ACCEPT_INVESTIGATION использует expectedCaseVersion=1, не 0. Схема v1 сохраняет допустимость 0 для совместимости формата, но текущий сервер не создаёт case через ingestion: без reservation → NOT_FOUND, после reservation при 0 → VERSION_CONFLICT. Старый acceptInvestigationExample остаётся schema-only примером; рабочий пример — scripts/demo-lifecycle.ts.
+- Новый контекст пока только explicit demo: VERIRECALL_DEMO_MODE=true, actor demo_operator, demo:true; иначе FORBIDDEN. Решения/evidence остаются непроверенными ссылками, поэтому stage всегда INVESTIGATING и closure NOT_READY. Любое согласование из входного payload не устраняет конфликты и не повышает стадию.
+- Стадии: INVESTIGATING — резервирование/непроверенное расследование; RESPONDING требует серверно подтверждённых identity/scope; CONTAINED — доказанного результата containment; CLOSURE_REVIEW — пройденной readiness; CLOSED — отдельного актуального human decision в транзакции. Последние четыре перехода на этапе 3 запрещены, пока условия не реализованы.
+- Для изменения live состояния используются только новые команды. Старые команды для lifecycle case заблокированы; автоматическая конвертация legacy-case и несколько продуктов на один lifecycle-case отвергаются явно.
+- Реальные routes и поля server load документированы в HANDOFF_TO_FRIEND.md. Существующие enums не переименованы, контрактный модуль не копировался.

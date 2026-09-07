@@ -2,8 +2,10 @@ import { asc, desc, eq, inArray } from 'drizzle-orm';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { hasCaseLifecycle } from '../workflow/lifecycle-boundary';
 
 export interface CaseListItem {
+  versioned: boolean;
   caseRecord: typeof schema.cases.$inferSelect;
   alert: typeof schema.alerts.$inferSelect;
   itemCount: number;
@@ -149,6 +151,7 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
       const pendingTasks = tasks.filter((task) => task.status === 'pending');
       return {
         ...row,
+        versioned: hasCaseLifecycle(database, row.caseRecord.id),
         itemCount: items.length,
         totalStock: items.reduce((total, item) => total + item.stockQuantity, 0),
         completedTasks: tasks.filter((task) => task.status === 'completed').length,
@@ -160,7 +163,7 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
         simulatedCount: drafts.filter((draft) => draft.status === 'simulated_sent').length
       };
     })
-    .filter((row) => row.itemCount > 0);
+    .filter((row) => row.itemCount > 0 || row.versioned);
 }
 
 export function getCaseDetail(database: RecallDatabase, caseId: string): CaseDetailView | null {

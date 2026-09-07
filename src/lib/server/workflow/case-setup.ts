@@ -5,6 +5,7 @@ import { eq, inArray } from 'drizzle-orm';
 import type { ActionType } from '../../types/domain';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { hasCaseLifecycle } from './lifecycle-boundary';
 
 interface CaseSetupInput {
   caseId: string;
@@ -125,6 +126,7 @@ export function ensureCaseResponseRecords(
   database: RecallDatabase,
   input: CaseSetupInput
 ): CaseSetupResult {
+  if (hasCaseLifecycle(database, input.caseId)) throw new Error('Versioned cases require the lifecycle task engine.');
   const caseRecord = database
     .select({ caseRecord: schema.cases, alert: schema.alerts })
     .from(schema.cases)

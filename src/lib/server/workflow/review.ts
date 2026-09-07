@@ -7,6 +7,7 @@ import * as schema from '../db/schema';
 import { assessHarm, type HarmAssessment } from '../risk/harm';
 import { nextCaseNumber, severityForRisk } from './case-record';
 import { ensureCaseResponseRecords } from './case-setup';
+import { hasCaseLifecycle } from './lifecycle-boundary';
 
 export const evidenceTypes = [
   'barcode_photo',
@@ -398,6 +399,13 @@ export function getReviewQueueView(
   };
 }
 
+function assertLegacyReview(database: RecallDatabase, alertId: string): void {
+  const existing = database.select().from(schema.cases).where(eq(schema.cases.alertId, alertId)).get();
+  if (existing && hasCaseLifecycle(database, existing.id)) {
+    throw new ReviewWorkflowError('invalid_state', 'This alert uses a versioned investigation case; use its case commands.');
+  }
+}
+
 export function confirmReviewMatch(
   database: RecallDatabase,
   input: ReviewActorInput,
@@ -405,6 +413,7 @@ export function confirmReviewMatch(
 ): ConfirmMatchResult {
   return database.transaction((transaction) => {
     const record = reviewRecord(transaction, input.matchId);
+    assertLegacyReview(transaction, record.alert.id);
     if (record.match.status === 'rejected') {
       throw new ReviewWorkflowError('invalid_state', 'A rejected match cannot be confirmed.');
     }
@@ -503,6 +512,7 @@ export function rejectReviewMatch(
 ): RejectMatchResult {
   return database.transaction((transaction) => {
     const record = reviewRecord(transaction, input.matchId);
+    assertLegacyReview(transaction, record.alert.id);
     if (record.match.status === 'confirmed') {
       throw new ReviewWorkflowError('invalid_state', 'A confirmed match cannot be rejected.');
     }
@@ -565,6 +575,7 @@ export function requestMatchEvidence(
 
   return database.transaction((transaction) => {
     const record = reviewRecord(transaction, input.matchId);
+    assertLegacyReview(transaction, record.alert.id);
     if (record.match.status === 'confirmed' || record.match.status === 'rejected') {
       throw new ReviewWorkflowError(
         'invalid_state',
