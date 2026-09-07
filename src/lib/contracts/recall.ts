@@ -13,6 +13,25 @@ export type KnowledgeStatus = z.infer<typeof knowledgeStatusSchema>;
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export type HumanDecisionStatus = z.infer<typeof humanDecisionStatusSchema>;
 
+const traceabilityFields = {
+  sourceRef: text,
+  productId: id,
+  lot: text.nullable(),
+  occurredAt: timestamp,
+  demo: z.boolean()
+};
+const traceabilityQuantity = z.number().int().nonnegative();
+export const traceabilityRecordSchema = z.discriminatedUnion('type', [
+  z.strictObject({ ...traceabilityFields, type: z.literal('RECEIPT'), receiptRef: text, quantity: traceabilityQuantity }),
+  z.strictObject({ ...traceabilityFields, type: z.literal('INVENTORY'), locationRef: text, quantity: traceabilityQuantity }),
+  z.strictObject({ ...traceabilityFields, type: z.literal('SHIPMENT'), shipmentRef: text, destinationRef: text,
+    quantity: traceabilityQuantity, status: z.enum(['IN_TRANSIT', 'DELIVERED', 'RETURNED']) }),
+  z.strictObject({ ...traceabilityFields, type: z.literal('RETAILER_RESPONSE'), retailerRef: text, quantity: traceabilityQuantity }),
+  z.strictObject({ ...traceabilityFields, type: z.literal('SALE'), saleRef: text, quantity: traceabilityQuantity }),
+  z.strictObject({ ...traceabilityFields, type: z.literal('CONTAINMENT'), locationRef: text, quantity: traceabilityQuantity })
+]);
+export type TraceabilityRecord = z.infer<typeof traceabilityRecordSchema>;
+
 export const issueSchema = z.strictObject({
   id: text,
   code: text,
@@ -91,7 +110,7 @@ export type InvestigationOutcome = z.infer<typeof investigationOutcomeSchema>;
 
 export const sourceSchema = z.strictObject({
   sourceRef: text,
-  sourceType: z.enum(['RECEIPT', 'INVENTORY', 'SHIPMENT', 'RETAILER_RESPONSE', 'SALE', 'DERIVED']),
+  sourceType: z.enum(['RECEIPT', 'INVENTORY', 'SHIPMENT', 'RETAILER_RESPONSE', 'SALE', 'CONTAINMENT', 'DERIVED']),
   asOf: timestamp,
   demo: z.boolean()
 });
@@ -235,6 +254,8 @@ const mutationFields = {
 };
 export const recallCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ ...mutationFields, type: z.literal('ACCEPT_INVESTIGATION'), outcome: investigationOutcomeSchema }),
+  z.strictObject({ ...mutationFields, type: z.literal('CALCULATE_EXPOSURE'), records: z.array(traceabilityRecordSchema).min(1)
+    .refine((records) => new Set(records.map((record) => record.sourceRef)).size === records.length, 'Duplicate source references') }),
   z.strictObject({ ...mutationFields, type: z.literal('DECIDE_ACTION'), taskId: id, decision: z.enum(['APPROVED', 'REJECTED']), rationale: text, evidenceRefs: refs }),
   z.strictObject({ ...mutationFields, type: z.literal('ATTACH_RESULT'), taskId: id, evidenceRefs: refs.min(1), summary: text, demo: z.boolean() }),
   z.strictObject({ ...mutationFields, type: z.literal('REQUEST_CLOSURE'), rationale: text, evidenceRefs: refs.min(1) })

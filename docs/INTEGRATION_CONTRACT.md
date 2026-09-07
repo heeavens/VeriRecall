@@ -1,6 +1,6 @@
 # Интеграционный контракт VeriRecall, v1
 
-Обновлено после этапа 3, 2026-09-07. Герман реализует свой блок последовательно, друг подключится позже. Контракт v1 теперь имеет реальный persisted demo-сервис для reservation, ACCEPT_INVESTIGATION и чтения snapshot; остальные бизнес-операции ещё не реализованы. Рабочий запуск, HTTP/server примеры и ограничения: `docs/HANDOFF_TO_FRIEND.md`.
+Обновлено после этапа 4, 2026-09-07. Герман реализует свой блок последовательно, друг подключится позже. Контракт v1 имеет реальный persisted demo-сервис для reservation, ACCEPT_INVESTIGATION, CALCULATE_EXPOSURE и чтения snapshot; остальные значимые операции ещё не реализованы. Рабочий запуск, HTTP/server примеры и ограничения: `docs/HANDOFF_TO_FRIEND.md`.
 
 ## Один источник типов
 
@@ -80,6 +80,7 @@ Closure blocker codes: INVESTIGATION_UNRESOLVED, SCOPE_UNCONFIRMED, EXPOSURE_NOT
 | type / операция | Дополнительные поля | Семантика будущего обработчика |
 | --- | --- | --- |
 | ACCEPT_INVESTIGATION | outcome | Валидировать case/product и результат; сохранить, увеличить caseVersion, пересчитать зависимые проекции |
+| CALCULATE_EXPOSURE | records: непустой список TraceabilityRecord | Идемпотентно сохранить источники и пересчитать exposure для текущей BATCH_LOT; не использует LLM |
 | getSnapshot(query) | query: schemaVersion, caseId | Только чтение snapshot; не создаёт дело, задачи и audit |
 | DECIDE_ACTION | taskId, decision APPROVED/REJECTED, rationale, evidenceRefs | Записать human decision на актуальном основании/охвате; не заявлять выполненный результат |
 | ATTACH_RESULT | taskId, непустые evidenceRefs, summary, demo | Приложить результат; completion возможен лишь после проверки evidence, охвата и разрешений |
@@ -152,7 +153,7 @@ node --import tsx --input-type=module -e 'import { investigationOutcomeSchema, c
 | src/lib/types/domain.ts | Менять только после сверки обеих сторон, поскольку уже используется существующим workflow |
 | package.json / package-lock.json | В этом этапе не менялись; при необходимости заранее выбрать одного редактора |
 
-Отдельно сверить: один product на case против текущих multi-item cases; выделение caseId до ingestion и владелец monitoring; revision при evidence-only update; значения новых stage/task/rule и перевод старых action drafts; серверный demo actor и resolution evidence/decision refs. Этот документ не заявляет, что друг уже согласовал формат или подключил свой код. Этап 3 выполнен в границах runtime-уточнений ниже; этап 4 не начат.
+Отдельно сверить: один product на case против текущих multi-item cases; выделение caseId до ingestion и владелец monitoring; revision при evidence-only update; значения новых stage/task/rule и перевод старых action drafts; серверный demo actor и resolution evidence/decision refs. Этот документ не заявляет, что друг уже согласовал формат или подключил свой код. Этапы 3–4 выполнены в границах runtime-уточнений ниже; этап 5 не начат.
 
 
 ## Уточнения runtime этапа 3 (приоритет над проектными примерами этапа 2)
@@ -162,3 +163,15 @@ node --import tsx --input-type=module -e 'import { investigationOutcomeSchema, c
 - Стадии: INVESTIGATING — резервирование/непроверенное расследование; RESPONDING требует серверно подтверждённых identity/scope; CONTAINED — доказанного результата containment; CLOSURE_REVIEW — пройденной readiness; CLOSED — отдельного актуального human decision в транзакции. Последние четыре перехода на этапе 3 запрещены, пока условия не реализованы.
 - Для изменения live состояния используются только новые команды. Старые команды для lifecycle case заблокированы; автоматическая конвертация legacy-case и несколько продуктов на один lifecycle-case отвергаются явно.
 - Реальные routes и поля server load документированы в HANDOFF_TO_FRIEND.md. Существующие enums не переименованы, контрактный модуль не копировался.
+
+## TraceabilityRecord и расчёт этапа 4
+
+`TraceabilityRecord` находится в том же `$lib/contracts/recall` и является strict discriminated union. Общие поля: `sourceRef`, `productId`, `lot: string | null`, `occurredAt`, `demo`. Виды: RECEIPT (`receiptRef`, quantity), INVENTORY (`locationRef`, quantity), SHIPMENT (`shipmentRef`, destinationRef, quantity, status IN_TRANSIT/DELIVERED/RETURNED), RETAILER_RESPONSE (`retailerRef`, quantity), SALE (`saleRef`, quantity), CONTAINMENT (`locationRef`, quantity). Количество — целое неотрицательное число ITEM; нулевой факт допустим, неизвестность выражается отсутствием подходящего доказательства и null в результате.
+
+`sourceRef` уникален внутри case. Точный повтор не увеличивает количество; иной payload с тем же sourceRef возвращает IDEMPOTENCY_CONFLICT. Переход перевозки записывается новым sourceRef с тем же shipmentRef; расчёт выбирает последнее состояние, поэтому история IN_TRANSIT→DELIVERED→RETURNED не суммируется. INVENTORY, RETAILER_RESPONSE и CONTAINMENT также выбираются по последнему наблюдению для location/retailer и партии. RECEIPT и SALE — аддитивные исходные записи.
+
+Граница affected total — сумма RECEIPT только для `investigation.scope.lots`. Записи других партий сохраняются, но не входят в текущий результат; после расширения scope они участвуют в новом расчёте. Запись с `lot:null` не считается безопасно незатронутой: создаётся gap, соответствующее количество становится неизвестным. Продажи известны только при наличии SALE, включая явную запись quantity=0. Доставленная перевозка не доказывает остаток: нужен RETAILER_RESPONSE не старше 7 суток на момент расчёта и не предшествующий более новому движению к этому получателю.
+
+Распределение — warehouse + inTransit + retailer + sold + unaccounted. Contained хранится отдельно и не входит в сумму местонахождений. Если все компоненты известны, unaccounted выводится из receipts минус распределённые единицы; положительная разница создаёт TRACEABILITY_GAP. Если распределение 105 при receipts=100, receipts остаётся 100, unaccounted становится CONFLICTED/null и создаётся DISTRIBUTION_EXCEEDS_RECEIPTS с excess 5; отрицательная разница не обрезается до нуля.
+
+CALCULATE_EXPOSURE разрешён только для известного MATCH и известного BATCH_LOT. Команда проверяет expectedCaseVersion и productId всех records, сохраняет источники/snapshot/history/audit/ledger одной immediate-транзакцией. Exposure получает `basisMaterialRevision`, `calculatedAt`, sourceRef/sourceType/asOf/demo на каждом известном количестве. При новой materialRevision старый exposure сбрасывается в NOT_CALCULATED; сохранённые source records затем можно пересчитать новым commandId. Stage пока остаётся INVESTIGATING из-за непроверенных human decision refs. UI уже читает этот настоящий snapshot.

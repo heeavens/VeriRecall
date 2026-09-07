@@ -2,10 +2,12 @@ import { asc, desc, eq, inArray } from 'drizzle-orm';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { readCaseSnapshot } from '../workflow/case-lifecycle';
 import { hasCaseLifecycle } from '../workflow/lifecycle-boundary';
 
 export interface CaseListItem {
   versioned: boolean;
+  versionedExposure: { status: 'NOT_CALCULATED' | 'CALCULATED'; received: number | null } | null;
   caseRecord: typeof schema.cases.$inferSelect;
   alert: typeof schema.alerts.$inferSelect;
   itemCount: number;
@@ -123,6 +125,8 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
     .orderBy(desc(schema.cases.openedAt))
     .all()
     .map((row) => {
+      const versioned = hasCaseLifecycle(database, row.caseRecord.id);
+      const lifecycleSnapshot = versioned ? readCaseSnapshot(database, row.caseRecord.id) : null;
       const items = database
         .select()
         .from(schema.caseItems)
@@ -151,7 +155,11 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
       const pendingTasks = tasks.filter((task) => task.status === 'pending');
       return {
         ...row,
-        versioned: hasCaseLifecycle(database, row.caseRecord.id),
+        versioned,
+        versionedExposure: lifecycleSnapshot ? {
+          status: lifecycleSnapshot.exposure.status,
+          received: lifecycleSnapshot.exposure.received.value
+        } : null,
         itemCount: items.length,
         totalStock: items.reduce((total, item) => total + item.stockQuantity, 0),
         completedTasks: tasks.filter((task) => task.status === 'completed').length,

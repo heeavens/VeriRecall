@@ -67,13 +67,14 @@ describe('shared recall contract v1', () => {
   it('validates action, result and closure command examples and rejects absent evidence', () => {
     const base = { schemaVersion: 1, caseId: demoCaseId, commandId: acceptInvestigationExample.commandId, expectedCaseVersion: 1 };
     const commands = [
+      { ...base, type: 'CALCULATE_EXPOSURE', records: [{ type: 'RECEIPT', sourceRef: 'demo:receipt', productId: demoCaseId, lot: 'L-2403', occurredAt: confirmedLotOutcome.updatedAt, demo: true, receiptRef: 'R-1', quantity: 100 }] },
       { ...base, type: 'DECIDE_ACTION', taskId: demoCaseId, decision: 'APPROVED', rationale: 'Approve demo hold request', evidenceRefs: [] },
       { ...base, type: 'DECIDE_ACTION', taskId: demoCaseId, decision: 'REJECTED', rationale: 'Wrong coverage', evidenceRefs: [] },
       { ...base, type: 'ATTACH_RESULT', taskId: demoCaseId, evidenceRefs: ['demo:hold-result'], summary: 'Demo warehouse receipt', demo: true },
       { ...base, type: 'REQUEST_CLOSURE', evidenceRefs: ['demo:closure-evidence'], rationale: 'Request final human closure' }
     ];
     for (const command of commands) expect(recallCommandSchema.safeParse(command).success).toBe(true);
-    for (const command of commands.slice(2)) expect(recallCommandSchema.safeParse({ ...command, evidenceRefs: [] }).success).toBe(false);
+    for (const command of commands.slice(3)) expect(recallCommandSchema.safeParse({ ...command, evidenceRefs: [] }).success).toBe(false);
   });
 
   it('does not confuse requested tasks, completed results and human decisions', () => {

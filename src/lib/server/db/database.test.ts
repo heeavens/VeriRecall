@@ -46,7 +46,11 @@ describe('Stage 1 database', () => {
         'case_tasks',
         'evidence_requests',
         'action_drafts',
-        'audit_events'
+        'audit_events',
+        'case_lifecycle',
+        'case_revisions',
+        'case_commands',
+        'traceability_records'
       ])
     );
 
@@ -67,7 +71,9 @@ describe('Stage 1 database', () => {
         'cases_status_idx',
         'audit_events_case_id_idx',
         'case_items_case_product_batch_unique',
-        'case_tasks_case_type_unique'
+        'case_tasks_case_type_unique',
+        'traceability_records_source_unique',
+        'traceability_records_case_idx'
       ])
     );
   });

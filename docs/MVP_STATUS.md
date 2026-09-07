@@ -1,8 +1,20 @@
 # VeriRecall — состояние блока B
 
-Дата: 2026-09-07. **Этап 3 завершён: investigation ingestion, versioned snapshot и история сохраняются в SQLite и доступны серверу/UI.** Этап 4 не начат. Герман продолжает свой блок самостоятельно; друг подключается позже по `docs/HANDOFF_TO_FRIEND.md`.
+Дата: 2026-09-07. **Этап 4 завершён: exposure/traceability рассчитывается из сохранённых исходных записей и входит в настоящий CaseSnapshot.** Этап 5 не начат. Герман продолжает свой блок самостоятельно; друг подключается позже по `docs/HANDOFF_TO_FRIEND.md`.
 
-## Обновление после этапа 3
+## Обновление после этапа 4
+
+- Добавлен общий strict `TraceabilityRecord` и команда CALCULATE_EXPOSURE. Виды источников: receipt, inventory observation, shipment transition, retailer response, sale и containment. Неподдерживаемые/лишние поля, чужой productId, повтор sourceRef с иным payload и дубли внутри команды отклоняются.
+- Миграция `0003_traceability_exposure.sql` добавляет append-only traceability_records с уникальным `(caseId, sourceRef)` и заменяет уникальность materialRevision в истории обычным индексом: расчёт exposure создаёт отдельную caseVersion на том же результате investigation. Старые миграции не переписаны.
+- `src/lib/server/exposure/calculate.ts` считает только подтверждённые BATCH_LOT обычным кодом. Граница total — уникальные receipt records выбранных партий. Для inventory/retailer/containment берётся последнее наблюдение на location/lot; для shipment — последнее состояние shipmentRef. Доставка требует свежего retailer response (≤7 суток и после последнего движения). SALE обязателен даже для подтверждённого нуля.
+- Нормальный fixture даёт `received 100; warehouse 40; in transit 20; retailer 25; sold 5; unaccounted 10`; contained=40 хранится отдельно и не прибавляется к распределению. Каждое известное количество содержит sourceRef/sourceType/asOf/demo.
+- UNKNOWN total остаётся null. Shipment без batch даёт UNRESOLVED и gap. Неактуальный retailer response даёт PENDING. При 105/100 received остаётся 100, unaccounted становится CONFLICTED/null, сохраняется excess 5. Переходы shipment и возврат не суммируют историю; чужие партии не входят до расширения scope.
+- Источники, snapshot, history, audit и command ledger обновляются атомарно. Точный/семантический повтор не увеличивает количество и не создаёт новую историю. После расширения L-2403 → L-2403+L-2404 старый exposure сбрасывается, сохранённые records обеих партий пересчитываются: интеграционный тест получает received 120 без дублей.
+- Snapshot/UI показывают рассчитанные позиции, provenance/as-of, containment, gaps/conflicts и blockers ACTIVE_TRANSIT/TRACEABILITY_GAP/QUANTITY_CONFLICT. Stage остаётся INVESTIGATING и SCOPE_UNCONFIRMED до серверной проверки human decisions; задачи не создаются.
+- Проверки: 87 тестов в 17 файлах, check 0 errors/warnings и production build PASS. Отдельно покрыты восемь вариантов чистого расчёта и пять сценариев persistence/service. Реальный HTTP demo прошёл на чистой БД; после перезапуска сохранились caseVersion 3, три записи истории и рассчитанные значения. UI проверен в браузере на desktop и 390 px без ошибок консоли и горизонтального переполнения.
+- Изменение общего контракта для друга: импортировать `TraceabilityRecord` и CALCULATE_EXPOSURE из `$lib/contracts/recall`; правила и пример обновлены в INTEGRATION_CONTRACT.md и `scripts/demo-lifecycle.ts`. Package/lockfile не менялись.
+
+## История: обновление после этапа 3
 
 - Новые таблицы case_lifecycle, case_revisions, case_commands через новую миграцию `0002_case_lifecycle.sql`; старые миграции не изменены. Snapshot, история, audit и ledger записываются атомарно. Реализованы reservation по существующему alert/product, ACCEPT_INVESTIGATION и read snapshot; три версии остаются независимыми.
 - `src/lib/server/workflow/case-lifecycle.ts`: валидация неизвестного входа, проверка принадлежности product/case, immediate-транзакции, idempotency, stale revision и optimistic concurrency. Новый case резервируется с caseVersion=1, затем первый outcome создаёт caseVersion=2. Существующие legacy/multi-product cases не конвертируются автоматически.

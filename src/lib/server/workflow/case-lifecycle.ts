@@ -5,8 +5,9 @@ import { z } from 'zod';
 import {
   caseSnapshotSchema, getSnapshotQuerySchema, recallCommandSchema,
   type CaseSnapshot, type CommandResult, type ContractError, type InvestigationOutcome,
-  type RecallService, type SnapshotResult
+  type RecallCommand, type RecallService, type SnapshotResult, traceabilityRecordSchema
 } from '../../contracts/recall';
+import { calculateExposure } from '../exposure/calculate';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { nextCaseNumber, severityForRisk } from './case-record';
@@ -26,6 +27,32 @@ function canonical(value: unknown): string {
     return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+function lifecycleBlockers(snapshot: CaseSnapshot): Extract<CaseSnapshot['closure'], { status: 'NOT_READY' }>['blockers'] {
+  const blockers: Extract<CaseSnapshot['closure'], { status: 'NOT_READY' }>['blockers'] = [
+    { id: `${snapshot.caseId}:scope-review`, code: 'SCOPE_UNCONFIRMED', message: 'Identity and scope decisions require server verification. Referenced decisions are not yet verified.', critical: true, subjectRefs: [snapshot.productId], evidenceRefs: [] }
+  ];
+  if (snapshot.investigation?.knowledgeStatus !== 'KNOWN' || snapshot.investigation.identity.conclusion !== 'MATCH') {
+    blockers.push({ id: `${snapshot.caseId}:investigation`, code: 'INVESTIGATION_UNRESOLVED', message: 'The investigation requires review; uncertainty and conflicts remain open.', critical: true, subjectRefs: [snapshot.caseId], evidenceRefs: snapshot.investigation?.evidenceRefs ?? [] });
+  }
+  if (snapshot.exposure.status === 'NOT_CALCULATED') {
+    blockers.unshift({ id: `${snapshot.caseId}:exposure`, code: 'EXPOSURE_NOT_CALCULATED', message: 'Exposure has not been calculated; affected quantities are unknown.', critical: true, subjectRefs: [snapshot.caseId], evidenceRefs: [] });
+  }
+  if (snapshot.exposure.inTransit.knowledgeStatus === 'KNOWN' && (snapshot.exposure.inTransit.value ?? 0) > 0) {
+    blockers.push({ id: `${snapshot.caseId}:active-transit`, code: 'ACTIVE_TRANSIT', message: `${snapshot.exposure.inTransit.value} ITEM remain in active transit.`, critical: true, subjectRefs: [snapshot.caseId], evidenceRefs: snapshot.exposure.inTransit.sources.map((item) => item.sourceRef) });
+  }
+  if (snapshot.exposure.gaps.length) {
+    blockers.push({ id: `${snapshot.caseId}:traceability`, code: 'TRACEABILITY_GAP', message: 'Exposure contains unresolved traceability gaps.', critical: true, subjectRefs: snapshot.exposure.gaps.flatMap((item) => item.subjectRefs), evidenceRefs: snapshot.exposure.gaps.flatMap((item) => item.evidenceRefs) });
+  }
+  if (snapshot.exposure.conflicts.length) {
+    blockers.push({ id: `${snapshot.caseId}:quantity-conflict`, code: 'QUANTITY_CONFLICT', message: 'Exposure contains conflicting quantities.', critical: true, subjectRefs: [snapshot.caseId], evidenceRefs: snapshot.exposure.conflicts.flatMap((item) => item.evidenceRefs) });
+  }
+  return blockers.map((blocker) => ({
+    ...blocker,
+    subjectRefs: [...new Set(blocker.subjectRefs)],
+    evidenceRefs: [...new Set(blocker.evidenceRefs)]
+  }));
 }
 
 function inputVersionError(input: unknown): ReturnType<typeof failure> | null {
@@ -57,23 +84,51 @@ export function getCaseHistory(database: RecallDatabase, caseId: string) {
 
 function projectSnapshot(caseId: string, productId: string, caseVersion: number, updatedAt: string, outcome: InvestigationOutcome | null): CaseSnapshot {
   const quantity = (): CaseSnapshot['exposure']['received'] => ({ value: null, unit: 'ITEM', knowledgeStatus: 'UNKNOWN', sources: [], asOf: null });
-  const blockers: Extract<CaseSnapshot['closure'], { status: 'NOT_READY' }>['blockers'] = [
-    { id: `${caseId}:exposure`, code: 'EXPOSURE_NOT_CALCULATED', message: 'Exposure has not been calculated; affected quantities are unknown.', critical: true, subjectRefs: [caseId], evidenceRefs: [] },
-    { id: `${caseId}:scope-review`, code: 'SCOPE_UNCONFIRMED', message: 'Identity and scope decisions require server verification. Referenced decisions are not yet verified.', critical: true, subjectRefs: [productId], evidenceRefs: [] }
-  ];
-  if (!outcome || outcome.knowledgeStatus !== 'KNOWN' || outcome.identity.conclusion !== 'MATCH') {
-    blockers.push({ id: `${caseId}:investigation`, code: 'INVESTIGATION_UNRESOLVED', message: 'The investigation requires review; uncertainty and conflicts remain open.', critical: true, subjectRefs: [caseId], evidenceRefs: outcome?.evidenceRefs ?? [] });
-  }
-  return caseSnapshotSchema.parse({
+  const projected = {
     schemaVersion: 1, caseId, productId, caseVersion, materialRevision: outcome?.materialRevision ?? null,
     stage: 'INVESTIGATING', updatedAt, investigation: outcome,
     exposure: { status: 'NOT_CALCULATED', basisMaterialRevision: null, calculatedAt: null,
       received: quantity(), warehouse: quantity(), inTransit: quantity(), retailer: quantity(),
       sold: quantity(), unaccounted: quantity(), contained: quantity(), gaps: [], conflicts: [] },
     tasks: [], uncertainties: outcome?.gaps ?? [], conflicts: outcome?.conflicts ?? [],
-    attentionItems: [...blockers, ...(outcome?.gaps ?? []), ...(outcome?.conflicts ?? [])],
-    pendingDecisions: [], closure: { status: 'NOT_READY', blockers, decisionRef: null }, demo: true
+    attentionItems: [], pendingDecisions: [],
+    closure: { status: 'NOT_READY' as const, blockers: [], decisionRef: null }, demo: true
+  } satisfies CaseSnapshot;
+  const blockers = lifecycleBlockers(projected);
+  return caseSnapshotSchema.parse({
+    ...projected,
+    attentionItems: blockers,
+    closure: { status: 'NOT_READY', blockers, decisionRef: null }
   });
+}
+
+function commandReplay(
+  database: RecallDatabase,
+  command: RecallCommand,
+  current: CaseSnapshot,
+  payloadJson: string
+): CommandResult | null {
+  const previous = database.select().from(schema.caseCommands).where(and(
+    eq(schema.caseCommands.caseId, command.caseId),
+    eq(schema.caseCommands.commandId, command.commandId)
+  )).get();
+  if (!previous) return null;
+  return previous.payloadJson === payloadJson
+    ? { ok: true, commandId: command.commandId, replayed: true, appliedCaseVersion: previous.appliedCaseVersion, snapshot: current }
+    : failure('IDEMPOTENCY_CONFLICT', 'The command ID was already used with a different payload.', current.caseVersion);
+}
+
+function recordCommand(
+  database: RecallDatabase,
+  command: RecallCommand,
+  payloadJson: string,
+  appliedCaseVersion: number,
+  createdAt: string
+): void {
+  database.insert(schema.caseCommands).values({
+    id: randomUUID(), caseId: command.caseId, commandId: command.commandId,
+    payloadJson, appliedCaseVersion, createdAt
+  }).run();
 }
 
 function recordRevision(database: RecallDatabase, snapshot: CaseSnapshot, alertId: string, eventType: string) {
@@ -83,7 +138,11 @@ function recordRevision(database: RecallDatabase, snapshot: CaseSnapshot, alertI
     actorId, createdAt: snapshot.updatedAt }).run();
   database.insert(schema.auditEvents).values({ id: randomUUID(), caseId: snapshot.caseId, alertId,
     eventType, actorType: 'human', actorName: actorId,
-    summary: eventType === 'lifecycle_initialized' ? 'Initialized a demo investigation case.' : 'Saved a demo investigation revision; human decisions remain unverified.',
+    summary: eventType === 'lifecycle_initialized'
+      ? 'Initialized a demo investigation case.'
+      : eventType === 'exposure_calculated'
+        ? 'Calculated demo exposure from persisted traceability records.'
+        : 'Saved a demo investigation revision; human decisions remain unverified.',
     metadataJson: JSON.stringify({ caseVersion: snapshot.caseVersion, materialRevision: snapshot.materialRevision, demo: true }),
     createdAt: snapshot.updatedAt }).run();
 }
@@ -139,35 +198,124 @@ export function createRecallService(database: RecallDatabase, context: Lifecycle
       const parsed = recallCommandSchema.safeParse(input);
       if (!parsed.success) return failure('INVALID_INPUT', 'Invalid command or mismatched caseId.');
       const command = parsed.data;
-      if (command.type !== 'ACCEPT_INVESTIGATION') return failure('NOT_IMPLEMENTED', 'This stage supports investigation ingestion only.');
-      if (!command.outcome.demo) return failure('FORBIDDEN', 'The local demo service does not accept live investigation results.');
+      if (!['ACCEPT_INVESTIGATION', 'CALCULATE_EXPOSURE'].includes(command.type)) {
+        return failure('NOT_IMPLEMENTED', 'This stage supports investigation ingestion and exposure calculation only.');
+      }
+      if (command.type === 'ACCEPT_INVESTIGATION' && !command.outcome.demo) {
+        return failure('FORBIDDEN', 'The local demo service does not accept live investigation results.');
+      }
+      if (command.type === 'CALCULATE_EXPOSURE' && command.records.some((record) => !record.demo)) {
+        return failure('FORBIDDEN', 'The local demo service does not accept live traceability records.');
+      }
       return database.transaction((tx) => {
         const current = readCaseSnapshot(tx, command.caseId);
         if (!current) return failure('NOT_FOUND', 'Reserve the investigation case before sending an outcome.');
         const caseRecord = tx.select().from(schema.cases).where(eq(schema.cases.id, command.caseId)).get();
-        if (!caseRecord || current.productId !== command.outcome.productId) return failure('INVALID_INPUT', 'The outcome product does not belong to this case.');
+        if (!caseRecord) return failure('NOT_FOUND', 'The case no longer exists.');
+        if (command.type === 'ACCEPT_INVESTIGATION' && current.productId !== command.outcome.productId) {
+          return failure('INVALID_INPUT', 'The outcome product does not belong to this case.');
+        }
+        if (command.type === 'CALCULATE_EXPOSURE' && command.records.some((record) => record.productId !== current.productId)) {
+          return failure('INVALID_INPUT', 'Every traceability record must belong to the case product.');
+        }
         if (caseRecord.status !== 'open' || current.stage !== 'INVESTIGATING') return failure('INVALID_STATE', 'This stage cannot update or reopen an advanced case.', current.caseVersion);
         const payloadJson = canonical(command);
-        const previous = tx.select().from(schema.caseCommands).where(and(eq(schema.caseCommands.caseId, command.caseId), eq(schema.caseCommands.commandId, command.commandId))).get();
-        if (previous) {
-          return previous.payloadJson === payloadJson
-            ? { ok: true as const, commandId: command.commandId, replayed: true, appliedCaseVersion: previous.appliedCaseVersion, snapshot: current }
-            : failure('IDEMPOTENCY_CONFLICT', 'The command ID was already used with a different payload.', current.caseVersion);
-        }
+        const replay = commandReplay(tx, command, current, payloadJson);
+        if (replay) return replay;
         if (command.expectedCaseVersion !== current.caseVersion) return failure('VERSION_CONFLICT', 'Refresh the case before retrying.', current.caseVersion);
-        if (current.materialRevision !== null && command.outcome.materialRevision < current.materialRevision) return failure('STALE_INVESTIGATION', 'An older investigation cannot replace the current revision.', current.caseVersion);
-        const sameRevision = command.outcome.materialRevision === current.materialRevision;
-        if (sameRevision && canonical(command.outcome) !== canonical(current.investigation)) return failure('IDEMPOTENCY_CONFLICT', 'This investigation revision already has a different payload.', current.caseVersion);
         const updatedAt = clock().toISOString();
-        const snapshot = sameRevision ? current : projectSnapshot(command.caseId, current.productId, current.caseVersion + 1, updatedAt, command.outcome);
-        if (!sameRevision) {
-          tx.update(schema.caseLifecycle).set({ caseVersion: snapshot.caseVersion, materialRevision: snapshot.materialRevision,
-            snapshotJson: JSON.stringify(snapshot), updatedAt }).where(eq(schema.caseLifecycle.caseId, command.caseId)).run();
-          recordRevision(tx, snapshot, caseRecord.alertId, 'investigation_received');
+        if (command.type === 'ACCEPT_INVESTIGATION') {
+          if (current.materialRevision !== null && command.outcome.materialRevision < current.materialRevision) return failure('STALE_INVESTIGATION', 'An older investigation cannot replace the current revision.', current.caseVersion);
+          const sameRevision = command.outcome.materialRevision === current.materialRevision;
+          if (sameRevision && canonical(command.outcome) !== canonical(current.investigation)) return failure('IDEMPOTENCY_CONFLICT', 'This investigation revision already has a different payload.', current.caseVersion);
+          const snapshot = sameRevision ? current : projectSnapshot(command.caseId, current.productId, current.caseVersion + 1, updatedAt, command.outcome);
+          if (!sameRevision) {
+            tx.update(schema.caseLifecycle).set({ caseVersion: snapshot.caseVersion, materialRevision: snapshot.materialRevision,
+              snapshotJson: JSON.stringify(snapshot), updatedAt }).where(eq(schema.caseLifecycle.caseId, command.caseId)).run();
+            recordRevision(tx, snapshot, caseRecord.alertId, 'investigation_received');
+          }
+          recordCommand(tx, command, payloadJson, snapshot.caseVersion, updatedAt);
+          return { ok: true as const, commandId: command.commandId, replayed: sameRevision, appliedCaseVersion: snapshot.caseVersion, snapshot };
         }
-        tx.insert(schema.caseCommands).values({ id: randomUUID(), caseId: command.caseId, commandId: command.commandId,
-          payloadJson, appliedCaseVersion: snapshot.caseVersion, createdAt: updatedAt }).run();
-        return { ok: true as const, commandId: command.commandId, replayed: sameRevision, appliedCaseVersion: snapshot.caseVersion, snapshot };
+
+        if (command.type !== 'CALCULATE_EXPOSURE') {
+          return failure('NOT_IMPLEMENTED', 'This command is not implemented.', current.caseVersion);
+        }
+
+        if (!current.investigation || current.investigation.identity.conclusion !== 'MATCH' ||
+            current.investigation.identity.knowledgeStatus !== 'KNOWN' ||
+            current.investigation.scope.kind !== 'BATCH_LOT' ||
+            current.investigation.scope.knowledgeStatus !== 'KNOWN') {
+          return failure('INVALID_STATE', 'Exposure requires a known MATCH identity and known BATCH_LOT scope.', current.caseVersion);
+        }
+
+        const prepared: Array<{ record: typeof command.records[number]; recordJson: string }> = [];
+        for (const record of command.records) {
+          const validated = traceabilityRecordSchema.parse(record);
+          const existing = tx.select().from(schema.traceabilityRecords).where(and(
+            eq(schema.traceabilityRecords.caseId, command.caseId),
+            eq(schema.traceabilityRecords.sourceRef, validated.sourceRef)
+          )).get();
+          const recordJson = canonical(validated);
+          if (existing) {
+            if (existing.payloadJson !== recordJson) {
+              return failure('IDEMPOTENCY_CONFLICT', `Source ${validated.sourceRef} already has different content.`, current.caseVersion);
+            }
+            continue;
+          }
+          prepared.push({ record: validated, recordJson });
+        }
+
+        for (const { record, recordJson } of prepared) {
+          tx.insert(schema.traceabilityRecords).values({
+            id: randomUUID(), caseId: command.caseId, sourceRef: record.sourceRef,
+            recordType: record.type, payloadJson: recordJson,
+            occurredAt: record.occurredAt, createdAt: updatedAt
+          }).run();
+        }
+
+        const exposureIsCurrent = current.exposure.status === 'CALCULATED' &&
+          current.exposure.basisMaterialRevision === current.materialRevision;
+        if (prepared.length === 0 && exposureIsCurrent) {
+          recordCommand(tx, command, payloadJson, current.caseVersion, updatedAt);
+          return { ok: true as const, commandId: command.commandId, replayed: true, appliedCaseVersion: current.caseVersion, snapshot: current };
+        }
+
+        const records = tx.select().from(schema.traceabilityRecords)
+          .where(eq(schema.traceabilityRecords.caseId, command.caseId)).all()
+          .map((row) => traceabilityRecordSchema.parse(JSON.parse(row.payloadJson)));
+        const exposure = calculateExposure({
+          caseId: current.caseId,
+          productId: current.productId,
+          materialRevision: current.materialRevision!,
+          lots: current.investigation.scope.lots,
+          records,
+          calculatedAt: updatedAt
+        });
+        const draft: CaseSnapshot = {
+          ...current,
+          caseVersion: current.caseVersion + 1,
+          updatedAt,
+          exposure,
+          uncertainties: [...current.investigation.gaps, ...exposure.gaps],
+          conflicts: [...current.investigation.conflicts, ...exposure.conflicts],
+          attentionItems: [],
+          closure: { status: 'NOT_READY', blockers: [], decisionRef: null }
+        };
+        const blockers = lifecycleBlockers(draft);
+        const snapshot = caseSnapshotSchema.parse({
+          ...draft,
+          attentionItems: blockers,
+          closure: { status: 'NOT_READY', blockers, decisionRef: null }
+        });
+        tx.update(schema.caseLifecycle).set({
+          caseVersion: snapshot.caseVersion,
+          snapshotJson: JSON.stringify(snapshot),
+          updatedAt
+        }).where(eq(schema.caseLifecycle.caseId, command.caseId)).run();
+        recordRevision(tx, snapshot, caseRecord.alertId, 'exposure_calculated');
+        recordCommand(tx, command, payloadJson, snapshot.caseVersion, updatedAt);
+        return { ok: true as const, commandId: command.commandId, replayed: false, appliedCaseVersion: snapshot.caseVersion, snapshot };
       }, { behavior: 'immediate' });
     }
   } satisfies RecallService;

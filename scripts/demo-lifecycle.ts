@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { commandResultSchema, snapshotResultSchema } from '../src/lib/contracts/recall';
 import { confirmedLotOutcome } from '../src/lib/contracts/recall.fixtures';
 import { loadDemoFixtures } from '../src/lib/server/db/demo-fixtures';
+import { normalExposureRecords, withProduct } from '../src/lib/server/exposure/fixtures';
 
 // Explicit demo client; the server never imports these fixtures as fallback data.
 const baseUrl = process.env.VERIRECALL_BASE_URL;
@@ -29,8 +30,17 @@ const input = {
 };
 const accepted = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, input));
 if (!accepted.ok) throw new Error(accepted.error.message);
-const replay = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, input));
-if (!replay.ok || !replay.replayed) throw new Error('Expected an idempotent replay.');
+const investigationReplay = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, input));
+if (!investigationReplay.ok || !investigationReplay.replayed) throw new Error('Expected an idempotent investigation replay.');
+const exposureInput = {
+  type: 'CALCULATE_EXPOSURE', schemaVersion: 1, caseId: input.caseId,
+  commandId: randomUUID(), expectedCaseVersion: accepted.snapshot.caseVersion,
+  records: withProduct(normalExposureRecords, candidate.productId)
+};
+const calculated = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, exposureInput));
+if (!calculated.ok) throw new Error(calculated.error.message);
+const exposureReplay = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, exposureInput));
+if (!exposureReplay.ok || !exposureReplay.replayed) throw new Error('Expected an idempotent exposure replay.');
 const read = snapshotResultSchema.parse(await (await fetch(`${origin}/api/cases/${input.caseId}/snapshot`)).json());
-if (!read.ok || read.snapshot.caseVersion !== accepted.snapshot.caseVersion) throw new Error('Snapshot read failed.');
-console.log(JSON.stringify({ caseUrl: `${origin}/cases/${input.caseId}`, result: accepted }, null, 2));
+if (!read.ok || read.snapshot.caseVersion !== calculated.snapshot.caseVersion) throw new Error('Snapshot read failed.');
+console.log(JSON.stringify({ caseUrl: `${origin}/cases/${input.caseId}`, result: calculated }, null, 2));

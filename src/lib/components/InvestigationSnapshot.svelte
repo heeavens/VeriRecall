@@ -5,6 +5,21 @@
     history: Array<{ caseVersion: number; materialRevision: number | null; createdAt: string; actorId: string }>;
     caseNumber: string;
   } = $props();
+
+  const positions = $derived([
+    { label: 'Affected received total', quantity: snapshot.exposure.received },
+    { label: 'Warehouse', quantity: snapshot.exposure.warehouse },
+    { label: 'In transit', quantity: snapshot.exposure.inTransit },
+    { label: 'Retailer reported', quantity: snapshot.exposure.retailer },
+    { label: 'Sold', quantity: snapshot.exposure.sold },
+    { label: 'Unaccounted', quantity: snapshot.exposure.unaccounted }
+  ]);
+
+  function quantityLabel(quantity: typeof snapshot.exposure.received): string {
+    return quantity.knowledgeStatus === 'KNOWN'
+      ? `${quantity.value} ${quantity.unit}`
+      : quantity.knowledgeStatus;
+  }
 </script>
 
 <section class="investigation">
@@ -23,7 +38,29 @@
   </article>
   <article class="card">
     <h2>Exposure</h2>
-    <p>Unknown — not calculated. No affected quantity has been established.</p>
+    {#if snapshot.exposure.status === 'CALCULATED'}
+      <p>Calculated from persisted source records for investigation revision {snapshot.exposure.basisMaterialRevision}.</p>
+      <dl class="positions">
+        {#each positions as position}
+          <div>
+            <dt>{position.label}</dt>
+            <dd>{quantityLabel(position.quantity)}</dd>
+            <small>{position.quantity.asOf ?? 'No reliable as-of time'} · {position.quantity.sources.length} source(s)</small>
+          </div>
+        {/each}
+      </dl>
+      <p><strong>Contained:</strong> {quantityLabel(snapshot.exposure.contained)}. Containment is a property of units and is not added to their location totals.</p>
+      {#if snapshot.exposure.gaps.length}
+        <h3>Traceability gaps</h3>
+        <ul>{#each snapshot.exposure.gaps as item}<li><strong>{item.code}</strong>: {item.message}</li>{/each}</ul>
+      {/if}
+      {#if snapshot.exposure.conflicts.length}
+        <h3>Quantity conflicts</h3>
+        <ul>{#each snapshot.exposure.conflicts as item}<li><strong>{item.code}</strong>: {item.message}</li>{/each}</ul>
+      {/if}
+    {:else}
+      <p>Unknown — not calculated. No affected quantity has been established.</p>
+    {/if}
     <p>Task assessment is pending. An empty task list does not mean the case is ready to close.</p>
   </article>
   <article class="card">
@@ -42,8 +79,14 @@
   .investigation { max-width: 1000px; margin: 0 auto; padding: 16px; overflow-wrap: anywhere; }
   h1 { font-size: 28px; margin: 16px 0; }
   h2 { font-size: 20px; margin-bottom: 12px; }
+  h3 { font-size: 17px; margin: 20px 0 8px; }
   p, li { font-size: 16px; line-height: 1.6; }
   article { padding: 24px; margin: 20px 0; }
   ul, ol { padding-left: 24px; }
+  .positions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+  .positions div { border: 1px solid #e8e3ef; border-radius: 10px; padding: 14px; }
+  dt, small { color: #716b7b; }
+  dd { margin: 6px 0; font-size: 20px; font-weight: 700; }
   a { text-decoration: underline; }
+  @media (max-width: 680px) { .positions { grid-template-columns: 1fr; } }
 </style>

@@ -46,6 +46,16 @@
     if (item.caseRecord.status === 'contained') return 'Review the record and close the case';
     return 'Review the incident record';
   }
+
+  function affectedStock(item: (typeof data.cases)[number]): string {
+    if (!item.versioned) return `${item.totalStock} units`;
+    if (item.versionedExposure?.status === 'CALCULATED') {
+      return item.versionedExposure.received === null
+        ? 'Unknown — unresolved'
+        : `${item.versionedExposure.received} affected units`;
+    }
+    return 'Unknown — not calculated';
+  }
 </script>
 
 <svelte:head>
@@ -117,7 +127,7 @@
             <dl class="case-row__scope">
               <div>
                 <dt>Affected stock</dt>
-                <dd>{item.versioned ? 'Unknown — not calculated' : `${item.totalStock} units`}</dd>
+                <dd>{affectedStock(item)}</dd>
               </div>
               <div>
                 <dt>Affected SKUs</dt>

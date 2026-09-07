@@ -308,7 +308,7 @@ export const caseRevisions = sqliteTable('case_revisions', {
   createdAt: text('created_at').notNull()
 }, (table) => [
   uniqueIndex('case_revisions_version_unique').on(table.caseId, table.caseVersion),
-  uniqueIndex('case_revisions_material_unique').on(table.caseId, table.materialRevision)
+  index('case_revisions_material_idx').on(table.caseId, table.materialRevision)
 ]);
 
 export const caseCommands = sqliteTable('case_commands', {
@@ -319,3 +319,16 @@ export const caseCommands = sqliteTable('case_commands', {
   appliedCaseVersion: integer('applied_case_version').notNull(),
   createdAt: text('created_at').notNull()
 }, (table) => [uniqueIndex('case_commands_key_unique').on(table.caseId, table.commandId)]);
+
+export const traceabilityRecords = sqliteTable('traceability_records', {
+  id: text('id').primaryKey(),
+  caseId: text('case_id').notNull().references(() => caseLifecycle.caseId, { onDelete: 'cascade' }),
+  sourceRef: text('source_ref').notNull(),
+  recordType: text('record_type').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  occurredAt: text('occurred_at').notNull(),
+  createdAt: text('created_at').notNull()
+}, (table) => [
+  uniqueIndex('traceability_records_source_unique').on(table.caseId, table.sourceRef),
+  index('traceability_records_case_idx').on(table.caseId)
+]);
