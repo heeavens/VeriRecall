@@ -1,6 +1,22 @@
-# VeriRecall — аудит блока B, промпт 1
+# VeriRecall — состояние блока B
 
-Дата: 2026-09-07. **Аудит завершён; новый блок B реализован частично.** Новые бизнес-функции не добавлялись, этап 2 не начат.
+Дата: 2026-09-07. **Этап 2 завершён: минимальный контракт реализован и проверен; новый backend блока B пока не подключён.** Этап 3 не начат.
+
+## Обновление после этапа 2
+
+- Добавлен единый модуль `src/lib/contracts/recall.ts`: Zod-схемы и выведенные типы InvestigationOutcome/CaseSnapshot, quantity/provenance, независимые knowledge/task/decision статусы, команды, ошибки и интерфейс RecallService. Обе стороны должны импортировать `$lib/contracts/recall`; существующие domain.ts, schema и UI не менялись.
+- `src/lib/contracts/recall.fixtures.ts`: подтверждённая L-2403, неизвестный scope и расширение L-2403 + L-2404. Во всех snapshot exposure NOT_CALCULATED, неизвестные количества null, closure NOT_READY. Fixtures не подключены к production workflow.
+- `docs/INTEGRATION_CONTRACT.md`: поля, валидные/ошибочные примеры, правила трёх версий, idempotency/concurrency, операции UI и владельцы. Контракт подготовлен для сверки, согласие/подключение друга ещё не подтверждено.
+- Ключевые вопросы сверки: один product на case против существующих multi-item cases; резервирование caseId до ingestion; revision при изменении только evidence; новые stage/task/rule относительно старых enums; доверенный demo actor и разрешение evidence/decision refs. WHOLE_PRODUCT в v1 явно не поддерживается.
+- Проверено: `npm run check` — 0 errors/warnings; `npm test` — 61 тест в 14 файлах, включая 11 новых contract tests; `npm run build` — PASS с прежним сообщением adapter-auto об отсутствии production environment. CLI-проверка трёх fixtures из INTEGRATION_CONTRACT.md выдала три `true true`.
+- Новые проверки покрывают UNKNOWN≠0, обязательные источники, неподдерживаемый scope/version, strict payload, согласованность snapshot, отсутствие evidence и разделение запроса/выполнения/решения. Они **не** доказывают транзакционную идемпотентность, права или closure policy: серверных обработчиков ещё нет.
+- Для ручной проверки: выполнить команды из раздела «Fixtures и воспроизводимая проверка» в INTEGRATION_CONTRACT.md. Нового интерфейса на этом этапе нет; браузерный прогон и миграции повторно не запускались, поскольку UI/БД не менялись.
+- Осталось после сверки: реализация ingestion/persistence/version ledger и реального snapshot, затем exposure/tasks/approvals/closure/reopen по отдельно разрешённым этапам. Старые проблемы бизнес-логики из аудита ниже остаются открытыми.
+- Ветка `herman_dev`; пользовательский untracked `VERIRECALL_6_DAY_CODEX_PLAN.md` не менялся и не включается в коммит. Изменения схемы БД, зависимостей и lockfile отсутствуют.
+
+## Исторический аудит этапа 1
+
+Разделы ниже фиксируют состояние **до этапа 2**. Указанное там отсутствие типов/контракта устранено обновлением выше; отсутствие нового persistence и бизнес-операций остаётся актуальным.
 
 ## Основание и Git
 
