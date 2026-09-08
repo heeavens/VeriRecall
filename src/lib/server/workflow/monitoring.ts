@@ -3,12 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 
 import {
-  actionTypes,
-  type ActionType,
   type AlertSource,
+  type AlertStatus,
   type FuzzyMatcher,
-  type LlmClient,
-  type NormalizedAlert
+  type LlmClient
 } from '../../types/domain';
 import { normalizeAlert } from '../alerts/normalization';
 import { alertReferenceKey, ArchiveAlertSource } from '../alerts/archive-source';
@@ -17,35 +15,14 @@ import * as schema from '../db/schema';
 import { LocalFuzzyMatcher } from '../matching/fuzzy-matcher';
 import { classifyScore, findTopCandidates } from '../matching/scoring';
 import { createLlmClient } from '../llm/client';
-import { nextCaseNumber, severityForRisk } from './case-record';
-import { ensureCaseResponseRecords } from './case-setup';
+import { assessHarm } from '../risk/harm';
 
 export interface MonitoringCycleSummary {
   imported: number;
-  matched: number;
+  highConfidence: number;
   review: number;
   ignored: number;
-}
-
-async function generatedDraftBodies(
-  llmClient: LlmClient,
-  alert: NormalizedAlert,
-  candidate: ReturnType<typeof findTopCandidates>[number]
-): Promise<Partial<Record<ActionType, string>>> {
-  const context = {
-    sourceReference: alert.sourceReference,
-    sku: candidate.product.sku,
-    productName: candidate.product.name,
-    brand: candidate.product.brand,
-    batch: candidate.product.batch ?? alert.batch ?? 'Unknown',
-    stockQuantity: candidate.product.stockQuantity,
-    supplierName: candidate.product.supplierName ?? 'Unknown supplier',
-    risk: alert.risk
-  };
-  const drafts = await Promise.all(
-    actionTypes.map(async (type) => [type, await llmClient.draftAction(type, context)] as const)
-  );
-  return Object.fromEntries(drafts) as Partial<Record<ActionType, string>>;
+  durationMs: number;
 }
 
 export async function runMonitoringCycle(
@@ -54,6 +31,7 @@ export async function runMonitoringCycle(
   matcher: FuzzyMatcher = new LocalFuzzyMatcher(),
   llmClient: LlmClient = createLlmClient()
 ): Promise<MonitoringCycleSummary> {
+  const startedAt = performance.now();
   const existingReferences = new Set(
     database
       .select({ source: schema.alerts.source, sourceReference: schema.alerts.sourceReference })
@@ -66,7 +44,13 @@ export async function runMonitoringCycle(
   const setting = database.select().from(schema.settings).get();
   const confidenceThreshold = setting?.confidenceThreshold ?? 85;
   const reviewFloor = setting?.reviewFloor ?? 55;
-  const summary: MonitoringCycleSummary = { imported: 0, matched: 0, review: 0, ignored: 0 };
+  const summary: MonitoringCycleSummary = {
+    imported: 0,
+    highConfidence: 0,
+    review: 0,
+    ignored: 0,
+    durationMs: 0
+  };
 
   for (const incomingAlert of incomingAlerts) {
     const extractedAlert = await llmClient.extractAlert(JSON.stringify(incomingAlert));
@@ -76,13 +60,12 @@ export async function runMonitoringCycle(
     if (bestCandidate) {
       bestCandidate.explanation = await llmClient.explainMatch(bestCandidate.breakdown);
     }
-    const alertStatus = bestCandidate
+    const classification = bestCandidate
       ? classifyScore(bestCandidate.breakdown, confidenceThreshold, reviewFloor)
       : 'not_relevant';
-    const draftBodies =
-      alertStatus === 'matched' && bestCandidate
-        ? await generatedDraftBodies(llmClient, normalizedAlert, bestCandidate)
-        : undefined;
+    const alertStatus: AlertStatus =
+      classification === 'matched' ? 'needs_review' : classification;
+    const harm = assessHarm(normalizedAlert);
     const result = database.transaction((transaction) => {
       const alreadyImported = transaction
         .select({ id: schema.alerts.id })
@@ -134,14 +117,13 @@ export async function runMonitoringCycle(
             actorType: 'agent',
             actorName: 'extraction_adapter',
             summary: 'Extracted, validated and normalized archived alert fields.',
-            metadataJson: JSON.stringify({ validation: 'zod', deterministicFallback: true }),
+            metadataJson: JSON.stringify({ validation: 'zod', extractionMode: 'validated_adapter' }),
             createdAt: now
           }
         ])
         .run();
 
       candidates.forEach((candidate, index) => {
-        const isConfirmed = index === 0 && alertStatus === 'matched';
         const matchId = randomUUID();
         transaction
           .insert(schema.matches)
@@ -156,9 +138,9 @@ export async function runMonitoringCycle(
             batchScore: candidate.breakdown.batch,
             hasHardConflict: candidate.breakdown.hasHardConflict,
             explanation: candidate.explanation,
-            status: isConfirmed ? 'confirmed' : 'candidate',
+            status: 'candidate',
             createdAt: now,
-            decidedAt: isConfirmed ? now : null
+            decidedAt: null
           })
           .run();
         transaction
@@ -176,6 +158,7 @@ export async function runMonitoringCycle(
               rank: index + 1,
               threshold: confidenceThreshold,
               reviewFloor,
+              harm,
               breakdown: candidate.breakdown,
               explanation: candidate.explanation
             }),
@@ -184,87 +167,41 @@ export async function runMonitoringCycle(
           .run();
       });
 
-      if (alertStatus === 'matched' && bestCandidate) {
-        const caseId = randomUUID();
-        transaction
-          .insert(schema.cases)
-          .values({
-            id: caseId,
-            caseNumber: nextCaseNumber(transaction),
-            alertId,
-            status: 'open',
-            severity: severityForRisk(normalizedAlert.risk),
-            openedAt: now,
-            closedAt: null
-          })
-          .run();
-        transaction
-          .insert(schema.caseItems)
-          .values({
-            id: randomUUID(),
-            caseId,
-            productId: bestCandidate.product.id,
-            batch: bestCandidate.product.batch ?? normalizedAlert.batch ?? 'Unknown',
-            stockQuantity: bestCandidate.product.stockQuantity
-          })
-          .run();
-        transaction
-          .insert(schema.auditEvents)
-          .values({
-            id: randomUUID(),
-            caseId,
-            alertId,
-            eventType: 'case_opened',
-            actorType: 'agent',
-            actorName: 'monitoring_agent',
-            summary: `Opened a case for confirmed match ${bestCandidate.product.sku}.`,
-            metadataJson: JSON.stringify({
-              productId: bestCandidate.product.id,
-              score: bestCandidate.breakdown.total,
-              threshold: confidenceThreshold
-            }),
-            createdAt: now
-          })
-          .run();
-        ensureCaseResponseRecords(transaction, {
-          caseId,
+      transaction
+        .insert(schema.auditEvents)
+        .values({
+          id: randomUUID(),
+          alertId,
+          eventType: alertStatus === 'needs_review' ? 'sent_to_review' : 'alert_not_relevant',
           actorType: 'agent',
           actorName: 'monitoring_agent',
-          createdAt: now,
-          draftBodies
-        });
-      } else {
-        transaction
-          .insert(schema.auditEvents)
-          .values({
-            id: randomUUID(),
-            alertId,
-            eventType: alertStatus === 'needs_review' ? 'sent_to_review' : 'alert_not_relevant',
-            actorType: 'agent',
-            actorName: 'monitoring_agent',
-            summary:
-              alertStatus === 'needs_review'
-                ? 'Sent the best catalogue candidate to human review.'
+          summary:
+            classification === 'matched'
+              ? 'Recommended a high-confidence candidate for mandatory human confirmation.'
+              : alertStatus === 'needs_review'
+                ? 'Sent the uncertain catalogue candidate to human review.'
                 : 'Classified the alert as not relevant to the catalogue.',
-            metadataJson: JSON.stringify({
-              bestScore: bestCandidate?.breakdown.total ?? null,
-              threshold: confidenceThreshold,
-              reviewFloor
-            }),
-            createdAt: now
-          })
-          .run();
-      }
+          metadataJson: JSON.stringify({
+            classification,
+            bestScore: bestCandidate?.breakdown.total ?? null,
+            threshold: confidenceThreshold,
+            reviewFloor,
+            harm
+          }),
+          createdAt: now
+        })
+        .run();
 
-      return alertStatus;
+      return classification;
     });
 
     if (!result) continue;
     summary.imported += 1;
-    if (result === 'matched') summary.matched += 1;
+    if (result === 'matched') summary.highConfidence += 1;
     else if (result === 'needs_review') summary.review += 1;
     else summary.ignored += 1;
   }
 
+  summary.durationMs = Math.max(1, Math.round(performance.now() - startedAt));
   return summary;
 }

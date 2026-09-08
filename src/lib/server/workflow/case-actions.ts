@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { hasCaseLifecycle } from './lifecycle-boundary';
 
 export class CaseWorkflowError extends Error {
   constructor(
@@ -36,6 +37,8 @@ export interface CompleteTaskInput {
 export interface CloseCaseInput {
   caseId: string;
   actorName: string;
+  closureNote: string;
+  evidenceReference: string;
 }
 
 export interface DraftMutationResult {
@@ -61,9 +64,37 @@ function cleanActorName(value: string): string {
   return actorName;
 }
 
+function cleanClosureEvidence(input: CloseCaseInput): {
+  closureNote: string;
+  evidenceReference: string;
+} {
+  const closureNote = input.closureNote.trim();
+  const evidenceReference = input.evidenceReference.trim();
+  if (closureNote.length < 20) {
+    throw new CaseWorkflowError(
+      'invalid_input',
+      'Add a closure note of at least 20 characters describing the containment evidence.'
+    );
+  }
+  if (evidenceReference.length < 3) {
+    throw new CaseWorkflowError(
+      'invalid_input',
+      'Add an evidence reference, such as a ticket, document, stock record or supplier reply.'
+    );
+  }
+  return { closureNote, evidenceReference };
+}
+
+function assertLegacyCase(database: RecallDatabase, caseId: string): void {
+  if (hasCaseLifecycle(database, caseId)) {
+    throw new CaseWorkflowError('invalid_state', 'Use versioned case commands; legacy actions cannot modify this investigation.');
+  }
+}
+
 function caseRecord(database: RecallDatabase, caseId: string) {
   const record = database.select().from(schema.cases).where(eq(schema.cases.id, caseId)).get();
   if (!record) throw new CaseWorkflowError('not_found', 'The recall case could not be found.');
+  assertLegacyCase(database, caseId);
   return record;
 }
 
@@ -101,6 +132,7 @@ export function updateActionDraft(
       .where(eq(schema.actionDrafts.id, input.actionId))
       .get();
     if (!draft) throw new CaseWorkflowError('not_found', 'The action draft could not be found.');
+    assertLegacyCase(transaction, draft.draft.caseId);
     if (draft.caseRecord.status === 'closed') {
       throw new CaseWorkflowError('invalid_state', 'Drafts cannot change after a case is closed.');
     }
@@ -172,6 +204,7 @@ export function approveActionDraft(
       .where(eq(schema.actionDrafts.id, input.actionId))
       .get();
     if (!record) throw new CaseWorkflowError('not_found', 'The action draft could not be found.');
+    assertLegacyCase(transaction, record.draft.caseId);
     if (record.draft.status === 'simulated_sent') {
       return {
         actionId: record.draft.id,
@@ -312,6 +345,7 @@ export function closeRecallCase(
   now = new Date()
 ): CaseMutationResult {
   const actorName = cleanActorName(input.actorName);
+  const { closureNote, evidenceReference } = cleanClosureEvidence(input);
 
   return database.transaction((transaction) => {
     const record = caseRecord(transaction, input.caseId);
@@ -346,7 +380,11 @@ export function closeRecallCase(
         actorType: 'human',
         actorName,
         summary: `Closed ${record.caseNumber} after containment tasks were confirmed.`,
-        metadataJson: JSON.stringify({ caseId: record.id }),
+        metadataJson: JSON.stringify({
+          caseId: record.id,
+          closureNote,
+          evidenceReference
+        }),
         createdAt: closedAt
       })
       .run();

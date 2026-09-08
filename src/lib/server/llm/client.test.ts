@@ -108,9 +108,9 @@ describe('Stage 6 LLM clients', () => {
     const client = createLlmClient({ OPENAI_API_KEY: '', OPENAI_MODEL: 'gpt-test' });
 
     expect(client).toBeInstanceOf(FallbackLlmClient);
-    await expect(runMonitoringCycle(connection.db, undefined, undefined, client)).resolves.toEqual({
+    await expect(runMonitoringCycle(connection.db, undefined, undefined, client)).resolves.toMatchObject({
       imported: 3,
-      matched: 1,
+      highConfidence: 1,
       review: 1,
       ignored: 1
     });
@@ -119,9 +119,9 @@ describe('Stage 6 LLM clients', () => {
   it('continues the workflow when every primary API request fails', async () => {
     const client = new ResilientLlmClient(new FailingLlmClient(), new FallbackLlmClient());
 
-    await expect(runMonitoringCycle(connection.db, undefined, undefined, client)).resolves.toEqual({
+    await expect(runMonitoringCycle(connection.db, undefined, undefined, client)).resolves.toMatchObject({
       imported: 3,
-      matched: 1,
+      highConfidence: 1,
       review: 1,
       ignored: 1
     });

@@ -11,6 +11,7 @@ import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
 import { auditEvents, products } from '../db/schema';
+import { confirmReviewMatch, legacyReviewCaseMode } from '../workflow/review';
 import {
   CaseReportError,
   CaseReportExporter,
@@ -27,8 +28,11 @@ beforeEach(() => {
   migrate(connection.db, { migrationsFolder: resolve('drizzle') });
   const fixtures = loadDemoFixtures();
   seedDemoData(connection.db, fixtures);
-  caseId = fixtures.cases[0]?.id ?? '';
-  const productId = fixtures.caseItems[0]?.productId ?? '';
+  caseId = confirmReviewMatch(connection.db, {
+    matchId: '50000000-0000-4000-8000-000000000001',
+    actorName: 'Herman'
+  }, new Date(), legacyReviewCaseMode).caseId;
+  const productId = fixtures.matches[0]?.productId ?? '';
   connection.db
     .update(products)
     .set({ name: '=HYPERLINK("https://invalid.test")' })

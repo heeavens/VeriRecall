@@ -15,6 +15,7 @@ import { approveActionDraft, closeRecallCase } from './case-actions';
 import {
   confirmReviewMatch,
   getReviewQueueView,
+  legacyReviewCaseMode,
   requestMatchEvidence
 } from './review';
 
@@ -40,11 +41,14 @@ describe('Stage 7 final demo flow', () => {
     expect(setup.productCount).toBeGreaterThan(0);
 
     const dashboard = getDashboardView(connection.db);
-    expect(new Set(dashboard.alerts.map((alert) => alert.status))).toEqual(
-      new Set(['matched', 'needs_review', 'not_relevant'])
+    expect(new Set(dashboard.alerts.map((alert) => alert.identityOutcome))).toEqual(
+      new Set(['high_confidence', 'needs_review', 'not_relevant'])
     );
 
-    const review = getReviewQueueView(connection.db);
+    const initialReview = getReviewQueueView(connection.db);
+    const uncertain = initialReview.items.find((item) => !item.isHighConfidence);
+    expect(uncertain).toBeDefined();
+    const review = getReviewQueueView(connection.db, uncertain!.matchId);
     expect(review.selected).not.toBeNull();
     const evidence = requestMatchEvidence(
       connection.db,
@@ -66,7 +70,8 @@ describe('Stage 7 final demo flow', () => {
     const confirmed = confirmReviewMatch(
       connection.db,
       { matchId: review.selected!.match.id, actorName: 'Herman' },
-      new Date('2026-08-31T09:01:00Z')
+      new Date('2026-08-31T09:01:00Z'),
+      legacyReviewCaseMode
     );
     expect(confirmed.caseId).toBe(evidence.caseId);
 
@@ -89,7 +94,12 @@ describe('Stage 7 final demo flow', () => {
 
     closeRecallCase(
       connection.db,
-      { caseId: confirmed.caseId, actorName: 'Herman' },
+      {
+        caseId: confirmed.caseId,
+        actorName: 'Herman',
+        closureNote: 'Verified the sales hold, supplier reply and customer action records.',
+        evidenceReference: 'INCIDENT-EVIDENCE-2026-1042'
+      },
       new Date('2026-08-31T09:10:00Z')
     );
     const closed = getCaseDetail(connection.db, confirmed.caseId);
@@ -98,6 +108,7 @@ describe('Stage 7 final demo flow', () => {
       closedAt: '2026-08-31T09:10:00.000Z'
     });
     expect(closed?.timeline.some((event) => event.eventType === 'case_closed')).toBe(true);
+    expect(closed?.closureEvidence?.reference).toBe('INCIDENT-EVIDENCE-2026-1042');
 
     const exporter = new CaseReportExporter(
       connection.db,
@@ -107,6 +118,8 @@ describe('Stage 7 final demo flow', () => {
     expect(csv).toContain('Case summary');
     expect(csv).toContain('closed');
     expect(csv).toContain('simulated_sent');
+    expect(csv).toContain('Closure evidence');
+    expect(csv).toContain('INCIDENT-EVIDENCE-2026-1042');
 
     const pdf = await exporter.exportCase(confirmed.caseId, 'pdf');
     expect((await PDFDocument.load(pdf)).getPageCount()).toBeGreaterThan(0);

@@ -46,7 +46,11 @@ describe('Stage 1 database', () => {
         'case_tasks',
         'evidence_requests',
         'action_drafts',
-        'audit_events'
+        'audit_events',
+        'case_lifecycle',
+        'case_revisions',
+        'case_commands',
+        'traceability_records'
       ])
     );
 
@@ -67,7 +71,9 @@ describe('Stage 1 database', () => {
         'cases_status_idx',
         'audit_events_case_id_idx',
         'case_items_case_product_batch_unique',
-        'case_tasks_case_type_unique'
+        'case_tasks_case_type_unique',
+        'traceability_records_source_unique',
+        'traceability_records_case_idx'
       ])
     );
   });
@@ -88,7 +94,7 @@ describe('Stage 1 database', () => {
       purchases: 8,
       alerts: 3,
       matches: 3,
-      cases: 1,
+      cases: 0,
       scenarios: {
         highConfidence: 1,
         uncertain: 1,
@@ -116,10 +122,10 @@ describe('Stage 1 database', () => {
 
     expect(scenarios).toEqual([
       {
-        alertStatus: 'matched',
-        matchStatus: 'confirmed',
+        alertStatus: 'needs_review',
+        matchStatus: 'candidate',
         hasHardConflict: 0,
-        caseId: '60000000-0000-4000-8000-000000000001'
+        caseId: null
       },
       {
         alertStatus: 'needs_review',

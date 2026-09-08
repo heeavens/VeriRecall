@@ -284,3 +284,51 @@ export type Purchase = typeof purchases.$inferSelect;
 export type NewPurchase = typeof purchases.$inferInsert;
 export type Alert = typeof alerts.$inferSelect;
 export type NewAlert = typeof alerts.$inferInsert;
+
+// Versioned block B state is separate from the legacy checklist projection.
+export const caseLifecycle = sqliteTable('case_lifecycle', {
+  caseId: text('case_id').primaryKey().references(() => cases.id, { onDelete: 'cascade' }),
+  productId: text('product_id').notNull().references(() => products.id),
+  caseVersion: integer('case_version').notNull(),
+  materialRevision: integer('material_revision'),
+  snapshotJson: text('snapshot_json').notNull(),
+  updatedAt: text('updated_at').notNull()
+}, (table) => [
+  check('case_lifecycle_version_check', sql`${table.caseVersion} > 0`),
+  check('case_lifecycle_revision_check', sql`${table.materialRevision} is null or ${table.materialRevision} > 0`)
+]);
+
+export const caseRevisions = sqliteTable('case_revisions', {
+  id: text('id').primaryKey(),
+  caseId: text('case_id').notNull().references(() => caseLifecycle.caseId, { onDelete: 'cascade' }),
+  caseVersion: integer('case_version').notNull(),
+  materialRevision: integer('material_revision'),
+  snapshotJson: text('snapshot_json').notNull(),
+  actorId: text('actor_id').notNull(),
+  createdAt: text('created_at').notNull()
+}, (table) => [
+  uniqueIndex('case_revisions_version_unique').on(table.caseId, table.caseVersion),
+  index('case_revisions_material_idx').on(table.caseId, table.materialRevision)
+]);
+
+export const caseCommands = sqliteTable('case_commands', {
+  id: text('id').primaryKey(),
+  caseId: text('case_id').notNull().references(() => caseLifecycle.caseId, { onDelete: 'cascade' }),
+  commandId: text('command_id').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  appliedCaseVersion: integer('applied_case_version').notNull(),
+  createdAt: text('created_at').notNull()
+}, (table) => [uniqueIndex('case_commands_key_unique').on(table.caseId, table.commandId)]);
+
+export const traceabilityRecords = sqliteTable('traceability_records', {
+  id: text('id').primaryKey(),
+  caseId: text('case_id').notNull().references(() => caseLifecycle.caseId, { onDelete: 'cascade' }),
+  sourceRef: text('source_ref').notNull(),
+  recordType: text('record_type').notNull(),
+  payloadJson: text('payload_json').notNull(),
+  occurredAt: text('occurred_at').notNull(),
+  createdAt: text('created_at').notNull()
+}, (table) => [
+  uniqueIndex('traceability_records_source_unique').on(table.caseId, table.sourceRef),
+  index('traceability_records_case_idx').on(table.caseId)
+]);

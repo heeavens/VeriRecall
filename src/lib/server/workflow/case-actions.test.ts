@@ -17,16 +17,17 @@ import {
   completeCaseTask,
   updateActionDraft
 } from './case-actions';
-import { confirmReviewMatch } from './review';
+import { confirmReviewMatch, legacyReviewCaseMode } from './review';
 
 type TestConnection = ReturnType<typeof createDatabaseConnection>;
 
-const seededCaseId = '60000000-0000-4000-8000-000000000001';
-const blockSaleDraftId = '90000000-0000-4000-8000-000000000001';
+const highConfidenceMatchId = '50000000-0000-4000-8000-000000000001';
 const uncertainMatchId = '50000000-0000-4000-8000-000000000002';
 
 let temporaryDirectory: string;
 let connection: TestConnection;
+let seededCaseId: string;
+let blockSaleDraftId: string;
 
 function caseEventCount(caseId: string): number {
   return connection.db
@@ -41,6 +42,16 @@ beforeEach(() => {
   connection = createDatabaseConnection(join(temporaryDirectory, 'recallops.db'));
   migrate(connection.db, { migrationsFolder: resolve('drizzle') });
   seedDemoData(connection.db, loadDemoFixtures());
+  const confirmed = confirmReviewMatch(
+    connection.db,
+    { matchId: highConfidenceMatchId, actorName: 'Herman' },
+    new Date('2026-08-29T09:00:00Z'),
+    legacyReviewCaseMode
+  );
+  seededCaseId = confirmed.caseId;
+  blockSaleDraftId = getCaseDetail(connection.db, seededCaseId)!.drafts.find(
+    (draft) => draft.type === 'block_sale'
+  )!.id;
 });
 
 afterEach(() => {
@@ -65,7 +76,8 @@ describe('Stage 5 incident response workflow', () => {
     const result = confirmReviewMatch(
       connection.db,
       { matchId: uncertainMatchId, actorName: 'Herman' },
-      new Date('2026-08-29T13:00:00Z')
+      new Date('2026-08-29T13:00:00Z'),
+      legacyReviewCaseMode
     );
     const detail = getCaseDetail(connection.db, result.caseId);
 
@@ -163,7 +175,7 @@ describe('Stage 5 incident response workflow', () => {
       completedAt: '2026-08-29T15:00:00.000Z'
     });
     expect(caseEventCount(seededCaseId)).toBe(countAfterFirst);
-    expect(new Set(timeline.map((event) => event.actorType))).toEqual(new Set(['agent', 'human']));
+    expect(new Set(timeline.map((event) => event.actorType))).toEqual(new Set(['human']));
     expect(timeline.filter((event) => event.eventType === 'action_simulated_sent')).toHaveLength(1);
   });
 
@@ -189,7 +201,12 @@ describe('Stage 5 incident response workflow', () => {
     expect(() =>
       closeRecallCase(
         connection.db,
-        { caseId: seededCaseId, actorName: 'Herman' },
+        {
+          caseId: seededCaseId,
+          actorName: 'Herman',
+          closureNote: 'All containment tasks are complete and verified.',
+          evidenceReference: 'STOCK-HOLD-1042'
+        },
         new Date('2026-08-29T16:00:00Z')
       )
     ).toThrow('Complete every available containment task before closing this case.');
@@ -212,15 +229,34 @@ describe('Stage 5 incident response workflow', () => {
     expect(connection.db.select().from(cases).where(eq(cases.id, seededCaseId)).get())
       .toMatchObject({ status: 'contained', closedAt: null });
 
+    expect(() =>
+      closeRecallCase(connection.db, {
+        caseId: seededCaseId,
+        actorName: 'Herman',
+        closureNote: 'Too short',
+        evidenceReference: 'STOCK-HOLD-1042'
+      })
+    ).toThrow('Add a closure note of at least 20 characters');
+
     const first = closeRecallCase(
       connection.db,
-      { caseId: seededCaseId, actorName: 'Herman' },
+      {
+        caseId: seededCaseId,
+        actorName: 'Herman',
+        closureNote: 'All containment tasks are complete and verified.',
+        evidenceReference: 'STOCK-HOLD-1042'
+      },
       new Date('2026-08-29T16:10:00Z')
     );
     const countAfterFirst = caseEventCount(seededCaseId);
     const repeated = closeRecallCase(
       connection.db,
-      { caseId: seededCaseId, actorName: 'Herman' },
+      {
+        caseId: seededCaseId,
+        actorName: 'Herman',
+        closureNote: 'All containment tasks are complete and verified.',
+        evidenceReference: 'STOCK-HOLD-1042'
+      },
       new Date('2026-08-29T16:11:00Z')
     );
 
@@ -229,5 +265,11 @@ describe('Stage 5 incident response workflow', () => {
     expect(connection.db.select().from(cases).where(eq(cases.id, seededCaseId)).get())
       .toMatchObject({ status: 'closed', closedAt: '2026-08-29T16:10:00.000Z' });
     expect(caseEventCount(seededCaseId)).toBe(countAfterFirst);
+    expect(getCaseDetail(connection.db, seededCaseId)?.closureEvidence).toEqual({
+      note: 'All containment tasks are complete and verified.',
+      reference: 'STOCK-HOLD-1042',
+      actorName: 'Herman',
+      recordedAt: '2026-08-29T16:10:00.000Z'
+    });
   });
 });

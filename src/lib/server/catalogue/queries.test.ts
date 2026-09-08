@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
+import { confirmReviewMatch, legacyReviewCaseMode } from '../workflow/review';
 import { getCatalogueView } from './queries';
 
 type TestConnection = ReturnType<typeof createDatabaseConnection>;
@@ -42,9 +43,13 @@ describe('catalogue view', () => {
   it('summarises imported identifiers and links products to alerts and cases', () => {
     const fixtures = loadDemoFixtures();
     seedDemoData(connection.db, fixtures);
+    confirmReviewMatch(connection.db, {
+      matchId: '50000000-0000-4000-8000-000000000001',
+      actorName: 'Herman'
+    }, new Date(), legacyReviewCaseMode);
 
     const view = getCatalogueView(connection.db);
-    const confirmedProductId = fixtures.caseItems[0].productId;
+    const confirmedProductId = fixtures.matches[0].productId;
     const uncertainMatch = fixtures.matches.find((match) => match.hasHardConflict);
     const irrelevantMatch = fixtures.matches.find(
       (match) => match.alertId === fixtures.alerts.find((alert) => alert.status === 'not_relevant')?.id

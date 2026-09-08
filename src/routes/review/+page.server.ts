@@ -10,6 +10,7 @@ import {
   requestMatchEvidence,
   ReviewWorkflowError
 } from '$lib/server/workflow/review';
+import { localLifecycleContext } from '$lib/server/workflow/lifecycle-http';
 
 import type { Actions, PageServerLoad } from './$types';
 
@@ -17,6 +18,8 @@ const actorSchema = z.object({
   matchId: z.string().uuid(),
   actorName: z.string().trim().min(1).max(80)
 });
+
+const confirmSchema = actorSchema.pick({ matchId: true });
 
 const evidenceSchema = actorSchema.extend({
   requestedEvidence: z.array(z.enum(evidenceTypes)).min(1)
@@ -40,28 +43,30 @@ export const load: PageServerLoad = ({ url }) =>
 export const actions: Actions = {
   confirm: async ({ request }) => {
     const formData = await request.formData();
-    const input = actorSchema.safeParse({
-      matchId: formData.get('matchId'),
-      actorName: formData.get('actorName')
-    });
+    const input = confirmSchema.safeParse({ matchId: formData.get('matchId') });
     if (!input.success) {
       return fail(400, {
         kind: 'confirm' as const,
         success: false as const,
-        message: 'Choose a valid match and enter the reviewer name.'
+        message: 'Choose a valid match.'
       });
     }
 
     try {
-      const result = confirmReviewMatch(db, input.data);
+      const result = confirmReviewMatch(
+        db,
+        { ...input.data, actorName: 'demo_operator' },
+        new Date(),
+        localLifecycleContext()
+      );
       return {
         kind: 'confirm' as const,
         success: true as const,
         caseId: result.caseId,
         caseNumber: result.caseNumber,
-        message: result.changed
-          ? `Match confirmed. ${result.caseNumber} is ready with containment tasks and prepared actions awaiting approval.`
-          : `This match was already confirmed in ${result.caseNumber}.`
+        message: result.lifecycleChanged
+          ? `Match confirmed. ${result.caseNumber} now has a versioned investigation snapshot; review scope and calculate exposure before acting.`
+          : `This match was already integrated in ${result.caseNumber}.`
       };
     } catch (error) {
       return workflowFailure('confirm', error);

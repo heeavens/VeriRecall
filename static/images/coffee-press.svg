@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-labelledby="title description">
+  <title id="title">Costa Coffee press demo illustration</title>
+  <desc id="description">A glass coffee press filled with dark coffee beside a small cup.</desc>
+  <rect width="640" height="420" rx="32" fill="#f7f2ee"/>
+  <ellipse cx="316" cy="345" rx="190" ry="25" fill="#d8cec7" opacity=".65"/>
+  <rect x="185" y="114" width="210" height="218" rx="28" fill="#fdfcfb" stroke="#7f6b60" stroke-width="10"/>
+  <path d="M195 230h190v90H195Z" fill="#6f4e37" opacity=".92"/>
+  <path d="M395 163h48c45 0 55 119 2 119h-50" fill="none" stroke="#7f6b60" stroke-width="18"/>
+  <path d="M290 64v78M238 84h104" stroke="#332b2b" stroke-width="14" stroke-linecap="round"/>
+  <path d="M226 150h128" stroke="#9f1d2e" stroke-width="14" stroke-linecap="round"/>
+  <path d="M470 276h76v48c0 21-17 38-38 38s-38-17-38-38Z" fill="#9f1d2e"/>
+  <path d="M546 288h18c23 0 23 35 0 35h-18" fill="none" stroke="#9f1d2e" stroke-width="10"/>
+</svg>

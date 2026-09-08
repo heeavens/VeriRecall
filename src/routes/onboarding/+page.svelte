@@ -178,7 +178,7 @@
                 <div class="flex items-center justify-between gap-4">
                   <div>
                     <b class="block text-[12px]">Confidence threshold</b>
-                    <span class="mt-1 block text-[9px] text-[#716b7b]">Automatic matches must meet or exceed this score.</span>
+                    <span class="mt-1 block text-[9px] text-[#716b7b]">Candidates at or above this score receive a high-confidence recommendation; a person still decides.</span>
                   </div>
                   <output for="confidenceThreshold" class="rounded-md bg-[#f1e9ff] px-2 py-1 text-[11px] font-bold text-[#6330c8]">{threshold}%</output>
                 </div>

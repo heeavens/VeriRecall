@@ -1,0 +1,17 @@
+[
+  {
+    "source": "safety_gate",
+    "sourceReference": "DEMO-SG-COFFEE-001",
+    "expectedSku": "COF-1042"
+  },
+  {
+    "source": "safety_gate",
+    "sourceReference": "DEMO-SG-COFFEE-002",
+    "expectedSku": "COF-1290"
+  },
+  {
+    "source": "rasff",
+    "sourceReference": "DEMO-RASFF-COFFEE-003",
+    "expectedSku": null
+  }
+]

@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
 
+  import InvestigationSnapshot from '$lib/components/InvestigationSnapshot.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import WorkflowBreadcrumbs from '$lib/components/WorkflowBreadcrumbs.svelte';
 
@@ -10,6 +11,8 @@
   let { data, form }: PageProps = $props();
 
   let actorName = $state('Herman');
+  let closureNote = $state('');
+  let evidenceReference = $state('');
   let closeOpen = $state(false);
   let submittingTaskId = $state<string | null>(null);
   let closing = $state(false);
@@ -122,6 +125,14 @@
 
 <svelte:window onkeydown={closeOnEscape} />
 
+{#if data.snapshot}
+  <InvestigationSnapshot
+    snapshot={data.snapshot}
+    history={data.history}
+    caseNumber={data.caseRecord.caseNumber}
+    productName={data.alert.productName}
+  />
+{:else}
 {#if form?.message}
   <div
     class={`case-notice ${form.success ? '' : 'case-notice--error'}`}
@@ -147,7 +158,7 @@
       <div class="case-heading__title">
         <h1 id="case-title">{data.caseRecord.caseNumber}</h1>
         <span class={`badge ${statusClass(data.caseRecord.status)}`}>{statusLabel(data.caseRecord.status)}</span>
-        <span class="badge badge-red">{data.caseRecord.severity} severity</span>
+        <span class="badge badge-red">{data.caseRecord.severity} official-alert harm</span>
       </div>
       <h2>{data.alert.productName}</h2>
       <div class="case-heading__meta">
@@ -183,7 +194,11 @@
       <span>{data.caseRecord.status === 'closed' ? 'Case complete' : 'Next required action'}</span>
       {#if data.caseRecord.status === 'closed'}
         <h2>Containment is complete and the incident record is closed</h2>
-        <p>Review the timeline or export the record if evidence is required.</p>
+        {#if data.closureEvidence}
+          <p>{data.closureEvidence.note} · Evidence: {data.closureEvidence.reference}</p>
+        {:else}
+          <p>This legacy record has no structured closure evidence. Review the timeline before relying on it.</p>
+        {/if}
       {:else if canClose}
         <h2>Review the record and close the case</h2>
         <p>Every available containment task is complete. Closure still requires your confirmation.</p>
@@ -416,22 +431,53 @@
         <div class="modal-body">
           <div class="closure-ready">
             <Icon name="shield-check" size={18} />
-            <div><strong>Containment checklist complete</strong><p>Closure records your name and the current UTC timestamp.</p></div>
+            <div><strong>Containment checklist complete</strong><p>Closure records your name, evidence and the current UTC timestamp.</p></div>
           </div>
           <label>
             <span class="label">Closing reviewer</span>
             <input class="input-ui" name="visibleActorName" bind:value={actorName} maxlength="80" required />
           </label>
+          <label>
+            <span class="label">Closure evidence note</span>
+            <textarea
+              class="input-ui closure-note"
+              name="closureNote"
+              bind:value={closureNote}
+              minlength="20"
+              maxlength="2000"
+              rows="4"
+              placeholder="Describe how affected stock, customers and supplier actions were verified."
+              required
+            ></textarea>
+          </label>
+          <label>
+            <span class="label">Evidence reference</span>
+            <input
+              class="input-ui"
+              name="evidenceReference"
+              bind:value={evidenceReference}
+              minlength="3"
+              maxlength="500"
+              placeholder="e.g. STOCK-HOLD-1042 or supplier reply URL"
+              required
+            />
+          </label>
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" type="button" onclick={() => (closeOpen = false)}>Cancel</button>
-          <button class="btn btn-primary" type="submit" disabled={!canClose || !actorName.trim() || closing}>
+          <button
+            class="btn btn-primary"
+            type="submit"
+            disabled={!canClose || !actorName.trim() || closureNote.trim().length < 20 || evidenceReference.trim().length < 3 || closing}
+          >
             {closing ? 'Closing case…' : 'Confirm Closure'}
           </button>
         </div>
       </form>
     </div>
   </div>
+{/if}
+
 {/if}
 
 <style>
@@ -452,6 +498,11 @@
     padding: 11px 13px;
     color: #237c50;
     font-size: 10px;
+  }
+
+  .closure-note {
+    min-height: 92px;
+    resize: vertical;
   }
 
   .case-notice--error {

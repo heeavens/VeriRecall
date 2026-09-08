@@ -38,10 +38,24 @@
   }
 
   function nextAction(item: (typeof data.cases)[number]): string {
+    if (item.versionedStage === 'CLOSED') return 'No further action required';
+    if (item.versionedStage === 'CLOSURE_REVIEW') return 'Record the final closure decision';
+    if (item.versioned && item.nextTaskLabel) return item.nextTaskLabel;
+    if (item.versioned) return 'Review investigation and unresolved evidence';
     if (item.caseRecord.status === 'closed') return 'No further action required';
     if (item.nextTaskLabel) return item.nextTaskLabel;
     if (item.caseRecord.status === 'contained') return 'Review the record and close the case';
     return 'Review the incident record';
+  }
+
+  function affectedStock(item: (typeof data.cases)[number]): string {
+    if (!item.versioned) return `${item.totalStock} units`;
+    if (item.versionedExposure?.status === 'CALCULATED') {
+      return item.versionedExposure.received === null
+        ? 'Unknown — unresolved'
+        : `${item.versionedExposure.received} affected units`;
+    }
+    return 'Unknown — not calculated';
   }
 </script>
 
@@ -104,7 +118,7 @@
               <div class="case-row__title">
                 <a href={`/cases/${item.caseRecord.id}`}>{item.caseRecord.caseNumber}</a>
                 <span class={`badge ${statusClass(item.caseRecord.status)}`}>
-                  {statusLabel(item.caseRecord.status)}
+                  {item.versionedStage ?? statusLabel(item.caseRecord.status)}
                 </span>
               </div>
               <strong>{item.alert.productName}</strong>
@@ -114,11 +128,11 @@
             <dl class="case-row__scope">
               <div>
                 <dt>Affected stock</dt>
-                <dd>{item.totalStock} units</dd>
+                <dd>{affectedStock(item)}</dd>
               </div>
               <div>
                 <dt>Affected SKUs</dt>
-                <dd>{item.itemCount} affected SKU {item.itemCount === 1 ? 'record' : 'records'}</dd>
+                <dd>{item.versioned ? 'Scope requires review' : `${item.itemCount} affected SKU records`}</dd>
               </div>
               <div>
                 <dt>Progress</dt>
@@ -149,7 +163,7 @@
       <div class="case-empty">
         <span><Icon name="briefcase-business" size={21} /></span>
         <h2>No Cases yet</h2>
-        <p>A case appears after a high-confidence or human-confirmed catalogue match.</p>
+        <p>Cases appear after investigation begins or a person confirms a catalogue match.</p>
         <a class="btn btn-secondary" href="/review">Open Review Queue</a>
       </div>
     {/if}

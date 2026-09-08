@@ -2,10 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 
+import type { InvestigationOutcome } from '../../contracts/recall';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { assessHarm, type HarmAssessment } from '../risk/harm';
+import { applyConfirmedReviewOutcomeInTransaction, readCaseSnapshot, type LifecycleContext } from './case-lifecycle';
 import { nextCaseNumber, severityForRisk } from './case-record';
 import { ensureCaseResponseRecords } from './case-setup';
+import { hasCaseLifecycle } from './lifecycle-boundary';
 
 export const evidenceTypes = [
   'barcode_photo',
@@ -26,6 +30,8 @@ export interface ReviewQueueItem {
   candidateSku: string;
   totalScore: number;
   hasHardConflict: boolean;
+  isHighConfidence: boolean;
+  harm: HarmAssessment;
   status: (typeof schema.matches.$inferSelect)['status'];
 }
 
@@ -42,6 +48,8 @@ export interface ReviewMatchView {
   match: typeof schema.matches.$inferSelect;
   product: typeof schema.products.$inferSelect;
   threshold: number;
+  isHighConfidence: boolean;
+  harm: HarmAssessment;
   affectedPurchaseCount: number;
   signals: ReviewSignal[];
   positiveReasons: string[];
@@ -76,7 +84,13 @@ export interface ConfirmMatchResult {
   caseId: string;
   caseNumber: string;
   changed: boolean;
+  versioned: boolean;
+  lifecycleChanged: boolean;
 }
+
+export type ReviewCaseMode = LifecycleContext | { mode: 'legacy' };
+
+export const legacyReviewCaseMode: ReviewCaseMode = { mode: 'legacy' };
 
 export interface RejectMatchResult {
   matchId: string;
@@ -98,6 +112,85 @@ type ReviewRecord = {
 };
 
 type CaseRecord = typeof schema.cases.$inferSelect;
+
+function confirmedReviewOutcome(
+  record: ReviewRecord,
+  caseId: string,
+  updatedAt: string
+): InvestigationOutcome {
+  const alertEvidence = `demo:alert:${record.alert.id}`;
+  const catalogueEvidence = `demo:catalogue:${record.product.id}`;
+  const matchEvidence = `demo:match:${record.match.id}`;
+  const reviewDecision = `demo:review-decision:${record.match.id}`;
+  const identityEvidence = [alertEvidence, catalogueEvidence, matchEvidence];
+  const identityConflict = record.match.hasHardConflict
+    ? [{
+        id: `demo:identity-conflict:${record.match.id}`,
+        code: 'EAN_CONFLICT',
+        message: 'The official warning and catalogue EAN values conflict; confirmation does not erase this fact.',
+        critical: true,
+        subjectRefs: [record.product.id],
+        evidenceRefs: [alertEvidence, catalogueEvidence]
+      }]
+    : [];
+  const batchesMatch = Boolean(record.alert.batch && record.product.batch &&
+    record.alert.batch === record.product.batch);
+  const batchConflict = Boolean(record.alert.batch && record.product.batch &&
+    record.alert.batch !== record.product.batch);
+  const scopeEvidence = batchesMatch
+    ? [`demo:alert-batch:${record.alert.id}`, `demo:catalogue-batch:${record.product.id}`]
+    : [];
+  const scopeGap = batchesMatch
+    ? []
+    : [{
+        id: `demo:scope-gap:${record.match.id}`,
+        code: batchConflict ? 'BATCH_CONFLICT' : 'BATCH_MISSING',
+        message: batchConflict
+          ? 'The official warning and catalogue lot values conflict.'
+          : 'A confirmed lot boundary is unavailable; obtain batch evidence before calculating exposure.',
+        critical: true,
+        subjectRefs: [record.product.id],
+        evidenceRefs: batchConflict ? [alertEvidence, catalogueEvidence] : []
+      }];
+  const conflicts = [
+    ...identityConflict,
+    ...(batchConflict ? scopeGap : [])
+  ];
+  const gaps = batchConflict ? [] : scopeGap;
+  const evidenceRefs = [...new Set([...identityEvidence, ...scopeEvidence])];
+
+  return {
+    schemaVersion: 1,
+    caseId,
+    productId: record.product.id,
+    materialRevision: 1,
+    updatedAt,
+    knowledgeStatus: conflicts.length ? 'CONFLICTED' : gaps.length ? 'UNRESOLVED' : 'KNOWN',
+    identity: record.match.hasHardConflict
+      ? {
+          knowledgeStatus: 'CONFLICTED', conclusion: 'UNRESOLVED',
+          evidenceRefs: identityEvidence, decisionRefs: [reviewDecision]
+        }
+      : {
+          knowledgeStatus: 'KNOWN', conclusion: 'MATCH',
+          evidenceRefs: identityEvidence, decisionRefs: [reviewDecision]
+        },
+    scope: batchesMatch
+      ? {
+          kind: 'BATCH_LOT', knowledgeStatus: 'KNOWN', lots: [record.product.batch!],
+          evidenceRefs: scopeEvidence, decisionRefs: []
+        }
+      : {
+          kind: 'UNRESOLVED', knowledgeStatus: batchConflict ? 'CONFLICTED' : 'UNKNOWN',
+          reason: scopeGap[0].message, evidenceRefs: [], decisionRefs: []
+        },
+    evidenceRefs,
+    decisionRefs: [reviewDecision],
+    gaps,
+    conflicts,
+    demo: true
+  };
+}
 
 export class ReviewWorkflowError extends Error {
   constructor(
@@ -254,7 +347,7 @@ function ensureCase(
     caseNumber: nextCaseNumber(database),
     alertId: record.alert.id,
     status: 'open',
-    severity: severityForRisk(record.alert.risk),
+    severity: severityForRisk(record.alert.risk, record.alert.description),
     openedAt: createdAt,
     closedAt: null
   };
@@ -290,6 +383,8 @@ export function getReviewQueueView(
   database: RecallDatabase,
   requestedMatchId?: string | null
 ): ReviewQueueView {
+  const threshold =
+    database.select().from(schema.settings).get()?.confidenceThreshold ?? 85;
   const rows = database
     .select({ alert: schema.alerts, match: schema.matches, product: schema.products })
     .from(schema.matches)
@@ -318,11 +413,17 @@ export function getReviewQueueView(
       candidateSku: row.product.sku,
       totalScore: row.match.totalScore,
       hasHardConflict: row.match.hasHardConflict,
+      isHighConfidence:
+        row.match.totalScore >= threshold && !row.match.hasHardConflict,
+      harm: assessHarm(row.alert),
       status: row.match.status
     });
   }
 
-  const items = [...queue.values()];
+  const items = [...queue.values()].sort(
+    (left, right) =>
+      right.harm.score - left.harm.score || right.totalScore - left.totalScore
+  );
   const requestedIndex = requestedMatchId
     ? items.findIndex((item) => item.matchId === requestedMatchId)
     : -1;
@@ -347,8 +448,6 @@ export function getReviewQueueView(
     .where(eq(schema.evidenceRequests.matchId, record.match.id))
     .orderBy(desc(schema.evidenceRequests.createdAt))
     .get();
-  const threshold =
-    database.select().from(schema.settings).get()?.confidenceThreshold ?? 85;
   const affectedPurchaseCount =
     database
       .select({ value: count() })
@@ -361,6 +460,9 @@ export function getReviewQueueView(
     selected: {
       ...record,
       threshold,
+      isHighConfidence:
+        record.match.totalScore >= threshold && !record.match.hasHardConflict,
+      harm: assessHarm(record.alert),
       affectedPurchaseCount,
       signals,
       positiveReasons: signals
@@ -384,13 +486,42 @@ export function getReviewQueueView(
   };
 }
 
+function assertReviewCaseCompatible(
+  database: RecallDatabase,
+  alertId: string,
+  productId: string,
+  versioned: boolean
+): void {
+  const existing = database.select().from(schema.cases).where(eq(schema.cases.alertId, alertId)).get();
+  if (existing && hasCaseLifecycle(database, existing.id)) {
+    const snapshot = readCaseSnapshot(database, existing.id);
+    if (!versioned || snapshot?.productId !== productId) {
+      throw new ReviewWorkflowError('invalid_state', 'This alert uses a different versioned investigation case.');
+    }
+  }
+}
+
+function assertLegacyReview(database: RecallDatabase, alertId: string): void {
+  const existing = database.select().from(schema.cases).where(eq(schema.cases.alertId, alertId)).get();
+  if (existing && hasCaseLifecycle(database, existing.id)) {
+    throw new ReviewWorkflowError('invalid_state', 'This alert uses a versioned investigation case; use its case commands.');
+  }
+}
+
 export function confirmReviewMatch(
   database: RecallDatabase,
   input: ReviewActorInput,
-  now = new Date()
+  now: Date,
+  caseMode: ReviewCaseMode
 ): ConfirmMatchResult {
+  if (caseMode.mode === 'disabled') {
+    throw new ReviewWorkflowError('invalid_state', 'Versioned review integration requires explicit local demo mode.');
+  }
+  const versioned = caseMode.mode === 'demo';
   return database.transaction((transaction) => {
+    let lifecycleChanged = false;
     const record = reviewRecord(transaction, input.matchId);
+    assertReviewCaseCompatible(transaction, record.alert.id, record.product.id, versioned);
     if (record.match.status === 'rejected') {
       throw new ReviewWorkflowError('invalid_state', 'A rejected match cannot be confirmed.');
     }
@@ -466,18 +597,38 @@ export function confirmReviewMatch(
         })
         .run();
     }
-    ensureCaseResponseRecords(transaction, {
-      caseId: ensuredCase.caseRecord.id,
-      actorType: 'human',
-      actorName: input.actorName,
-      createdAt
-    });
+    if (versioned) {
+      const outcome = confirmedReviewOutcome(
+        record,
+        ensuredCase.caseRecord.id,
+        record.match.decidedAt ?? createdAt
+      );
+      const integrated = applyConfirmedReviewOutcomeInTransaction(transaction, {
+        caseId: ensuredCase.caseRecord.id,
+        productId: record.product.id,
+        eventId: record.match.id,
+        outcome
+      }, caseMode, new Date(outcome.updatedAt));
+      if (!integrated.ok) {
+        throw new ReviewWorkflowError('invalid_state', integrated.error.message);
+      }
+      lifecycleChanged = !integrated.replayed;
+    } else {
+      ensureCaseResponseRecords(transaction, {
+        caseId: ensuredCase.caseRecord.id,
+        actorType: 'human',
+        actorName: input.actorName,
+        createdAt
+      });
+    }
 
     return {
       matchId: record.match.id,
       caseId: ensuredCase.caseRecord.id,
       caseNumber: ensuredCase.caseRecord.caseNumber,
-      changed
+      changed,
+      versioned,
+      lifecycleChanged
     };
   });
 }
@@ -489,6 +640,7 @@ export function rejectReviewMatch(
 ): RejectMatchResult {
   return database.transaction((transaction) => {
     const record = reviewRecord(transaction, input.matchId);
+    assertLegacyReview(transaction, record.alert.id);
     if (record.match.status === 'confirmed') {
       throw new ReviewWorkflowError('invalid_state', 'A confirmed match cannot be rejected.');
     }
@@ -551,6 +703,7 @@ export function requestMatchEvidence(
 
   return database.transaction((transaction) => {
     const record = reviewRecord(transaction, input.matchId);
+    assertLegacyReview(transaction, record.alert.id);
     if (record.match.status === 'confirmed' || record.match.status === 'rejected') {
       throw new ReviewWorkflowError(
         'invalid_state',

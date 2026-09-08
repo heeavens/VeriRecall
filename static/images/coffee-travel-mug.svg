@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-labelledby="title description">
+  <title id="title">Costa Coffee travel mug demo illustration</title>
+  <desc id="description">A red reusable coffee cup with a dark lid and a coffee bean symbol.</desc>
+  <rect width="640" height="420" rx="32" fill="#f8f4f1"/>
+  <ellipse cx="320" cy="334" rx="150" ry="28" fill="#d8cec7" opacity=".65"/>
+  <path d="M218 126h204l-24 212H242Z" fill="#9f1d2e"/>
+  <path d="M205 106c0-18 15-32 33-32h164c18 0 33 14 33 32v28H205Z" fill="#332b2b"/>
+  <rect x="238" y="80" width="164" height="24" rx="12" fill="#504444"/>
+  <ellipse cx="320" cy="226" rx="58" ry="72" fill="#fff7ed"/>
+  <path d="M320 177c31 21 34 69 0 98-34-29-31-77 0-98Z" fill="#6f4e37"/>
+  <path d="M320 184c-15 28-12 57 0 83" fill="none" stroke="#fff7ed" stroke-width="6" stroke-linecap="round"/>
+</svg>

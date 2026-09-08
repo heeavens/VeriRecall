@@ -1,9 +1,15 @@
 import { asc, desc, eq, inArray } from 'drizzle-orm';
 
+import type { CaseSnapshot } from '../../contracts/recall';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { readCaseSnapshot } from '../workflow/case-lifecycle';
+import { hasCaseLifecycle } from '../workflow/lifecycle-boundary';
 
 export interface CaseListItem {
+  versioned: boolean;
+  versionedStage: CaseSnapshot['stage'] | null;
+  versionedExposure: { status: 'NOT_CALCULATED' | 'CALCULATED'; received: number | null } | null;
   caseRecord: typeof schema.cases.$inferSelect;
   alert: typeof schema.alerts.$inferSelect;
   itemCount: number;
@@ -44,6 +50,12 @@ export interface CaseDetailView {
   totalStock: number;
   completedTasks: number;
   actionableTasks: number;
+  closureEvidence: {
+    note: string;
+    reference: string;
+    actorName: string;
+    recordedAt: string;
+  } | null;
 }
 
 export interface ActionDraftView {
@@ -115,6 +127,8 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
     .orderBy(desc(schema.cases.openedAt))
     .all()
     .map((row) => {
+      const versioned = hasCaseLifecycle(database, row.caseRecord.id);
+      const lifecycleSnapshot = versioned ? readCaseSnapshot(database, row.caseRecord.id) : null;
       const items = database
         .select()
         .from(schema.caseItems)
@@ -141,20 +155,36 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
         .all();
       const actionableTasks = tasks.filter((task) => task.status !== 'not_available').length;
       const pendingTasks = tasks.filter((task) => task.status === 'pending');
+      const lifecycleTasks = lifecycleSnapshot?.tasks.filter((task) =>
+        !['CANCELLED', 'SUPERSEDED'].includes(task.status)
+      ) ?? [];
+      const pendingLifecycleTasks = lifecycleTasks.filter((task) => task.status !== 'COMPLETED');
       return {
         ...row,
+        versioned,
+        versionedStage: lifecycleSnapshot?.stage ?? null,
+        versionedExposure: lifecycleSnapshot ? {
+          status: lifecycleSnapshot.exposure.status,
+          received: lifecycleSnapshot.exposure.received.value
+        } : null,
         itemCount: items.length,
         totalStock: items.reduce((total, item) => total + item.stockQuantity, 0),
-        completedTasks: tasks.filter((task) => task.status === 'completed').length,
-        actionableTasks,
-        pendingTasks: pendingTasks.length,
-        nextTaskLabel: pendingTasks[0]?.label ?? null,
+        completedTasks: lifecycleSnapshot
+          ? lifecycleTasks.filter((task) => task.status === 'COMPLETED').length
+          : tasks.filter((task) => task.status === 'completed').length,
+        actionableTasks: lifecycleSnapshot ? lifecycleTasks.length : actionableTasks,
+        pendingTasks: lifecycleSnapshot ? pendingLifecycleTasks.length : pendingTasks.length,
+        nextTaskLabel: lifecycleSnapshot
+          ? pendingLifecycleTasks.find((task) => task.blocking)?.title ?? pendingLifecycleTasks[0]?.title ?? null
+          : pendingTasks[0]?.label ?? null,
         draftCount: drafts.length,
-        pendingApprovals: drafts.filter((draft) => draft.status === 'draft').length,
+        pendingApprovals: lifecycleSnapshot
+          ? lifecycleSnapshot.pendingDecisions.filter((decision) => decision.type === 'APPROVE_ACTION').length
+          : drafts.filter((draft) => draft.status === 'draft').length,
         simulatedCount: drafts.filter((draft) => draft.status === 'simulated_sent').length
       };
     })
-    .filter((row) => row.itemCount > 0);
+    .filter((row) => row.itemCount > 0 || row.versioned);
 }
 
 export function getCaseDetail(database: RecallDatabase, caseId: string): CaseDetailView | null {
@@ -205,6 +235,26 @@ export function getCaseDetail(database: RecallDatabase, caseId: string): CaseDet
     .orderBy(desc(schema.matches.totalScore))
     .get() ?? null;
   const actionableTasks = tasks.filter((task) => task.status !== 'not_available').length;
+  const closureEvent = [...timeline].reverse().find((event) => event.eventType === 'case_closed');
+  let closureEvidence: CaseDetailView['closureEvidence'] = null;
+  if (closureEvent) {
+    try {
+      const metadata = JSON.parse(closureEvent.metadataJson) as {
+        closureNote?: unknown;
+        evidenceReference?: unknown;
+      };
+      if (typeof metadata.closureNote === 'string' && typeof metadata.evidenceReference === 'string') {
+        closureEvidence = {
+          note: metadata.closureNote,
+          reference: metadata.evidenceReference,
+          actorName: closureEvent.actorName,
+          recordedAt: closureEvent.createdAt
+        };
+      }
+    } catch {
+      closureEvidence = null;
+    }
+  }
 
   return {
     ...record,
@@ -216,7 +266,8 @@ export function getCaseDetail(database: RecallDatabase, caseId: string): CaseDet
     timeline,
     totalStock: items.reduce((total, row) => total + row.item.stockQuantity, 0),
     completedTasks: tasks.filter((task) => task.status === 'completed').length,
-    actionableTasks
+    actionableTasks,
+    closureEvidence
   };
 }
 

@@ -6,6 +6,7 @@ import type { ReportExporter } from '../../types/domain';
 import { getCaseDetail, type CaseDetailView } from '../cases/queries';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { hasCaseLifecycle } from '../workflow/lifecycle-boundary';
 
 type ReportFormat = 'csv' | 'pdf';
 type ReportRow = [section: string, field: string, value: string, details: string];
@@ -33,7 +34,7 @@ function decisionSummary(detail: CaseDetailView): string {
     .find((event) => ['match_confirmed', 'match_rejected'].includes(event.eventType));
   if (decision) return `${decision.summary} (${decision.actorName}, ${decision.createdAt})`;
   if (detail.match?.status === 'confirmed') {
-    return `Automatically confirmed by matching_agent at ${detail.match.decidedAt ?? detail.match.createdAt}`;
+    return `Confirmed identity status recorded at ${detail.match.decidedAt ?? detail.match.createdAt}; decision event unavailable.`;
   }
   return text(detail.match?.status);
 }
@@ -42,7 +43,7 @@ export function buildCaseReportRows(detail: CaseDetailView, generatedAt: string)
   const rows: ReportRow[] = [
     ['Case summary', 'Case number', detail.caseRecord.caseNumber, ''],
     ['Case summary', 'Status', detail.caseRecord.status, ''],
-    ['Case summary', 'Severity', detail.caseRecord.severity, ''],
+    ['Case summary', 'Official alert harm priority', detail.caseRecord.severity, ''],
     ['Case summary', 'Opened at', detail.caseRecord.openedAt, ''],
     ['Case summary', 'Closed at', text(detail.caseRecord.closedAt), ''],
     ['Case summary', 'Generated at', generatedAt, ''],
@@ -61,6 +62,19 @@ export function buildCaseReportRows(detail: CaseDetailView, generatedAt: string)
     ['Affected products', 'Total stock', String(detail.totalStock), `${detail.items.length} item(s)`],
     ['Affected customers', 'Count', String(detail.customers.length), '']
   ];
+
+  if (detail.closureEvidence) {
+    rows.push(
+      ['Closure evidence', 'Reviewer note', detail.closureEvidence.note, ''],
+      ['Closure evidence', 'Evidence reference', detail.closureEvidence.reference, ''],
+      [
+        'Closure evidence',
+        'Recorded by',
+        detail.closureEvidence.actorName,
+        detail.closureEvidence.recordedAt
+      ]
+    );
+  }
 
   for (const { item, product } of detail.items) {
     rows.push([
@@ -187,6 +201,7 @@ export class CaseReportExporter implements ReportExporter {
   ) {}
 
   async exportCase(caseId: string, format: ReportFormat): Promise<Uint8Array> {
+    if (hasCaseLifecycle(this.database, caseId)) throw new CaseReportError('Versioned investigation reports are not implemented; read the case snapshot.');
     const detail = getCaseDetail(this.database, caseId);
     if (!detail) throw new CaseReportError('Recall case not found.');
     const generatedAt = this.now();

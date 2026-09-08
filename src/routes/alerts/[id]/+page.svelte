@@ -4,7 +4,7 @@
 
   import type { PageProps } from './$types';
 
-  type AlertStatus = 'matched' | 'needs_review' | 'not_relevant';
+  type IdentityOutcome = PageProps['data']['identityOutcome'];
 
   interface ScoreSignal {
     label: string;
@@ -43,8 +43,9 @@
     if (bestMatch.hasHardConflict) return 'Hard identifier conflict';
     if (!data.alert.batch || !bestMatch.product.batch) return 'Missing batch evidence';
     if (!data.alert.ean || !bestMatch.product.ean) return 'Missing barcode evidence';
-    if (data.alert.status === 'needs_review') return 'Score requires review';
-    if (data.alert.status === 'matched') return 'Above configured threshold';
+    if (data.identityOutcome === 'high_confidence') return 'Above recommendation threshold; human confirmation required';
+    if (data.identityOutcome === 'needs_review') return 'Score requires review';
+    if (data.identityOutcome === 'confirmed') return 'Identity confirmed by a person';
     return 'Below review floor';
   });
 
@@ -52,21 +53,23 @@
     return source === 'safety_gate' ? 'EU Safety Gate' : 'RASFF';
   }
 
-  function statusLabel(status: AlertStatus): string {
-    if (status === 'matched') return 'Confirmed match';
-    if (status === 'needs_review') return 'Needs review';
+  function statusLabel(outcome: IdentityOutcome): string {
+    if (outcome === 'confirmed') return 'Human confirmed';
+    if (outcome === 'high_confidence') return 'High-confidence candidate';
+    if (outcome === 'needs_review') return 'Needs review';
     return 'Not relevant';
   }
 
-  function statusClass(status: AlertStatus): string {
-    if (status === 'matched') return 'bg-[#ecfbf3] text-[#2aa96b]';
-    if (status === 'needs_review') return 'bg-[#edf4ff] text-[#4c80df]';
+  function statusClass(outcome: IdentityOutcome): string {
+    if (outcome === 'confirmed') return 'bg-[#ecfbf3] text-[#2aa96b]';
+    if (outcome === 'high_confidence') return 'bg-[#f2eaff] text-[#7845dc]';
+    if (outcome === 'needs_review') return 'bg-[#edf4ff] text-[#4c80df]';
     return 'bg-[#f3f2f5] text-[#787280]';
   }
 
-  function reviewOwner(status: AlertStatus): string {
-    if (status === 'needs_review') return 'Unassigned';
-    if (status === 'matched') return 'Confirmed by matching rules';
+  function reviewOwner(outcome: IdentityOutcome): string {
+    if (outcome === 'confirmed') return 'Human-confirmed identity';
+    if (outcome === 'high_confidence' || outcome === 'needs_review') return 'Human decision required';
     return 'Not required';
   }
 
@@ -174,15 +177,15 @@
         <h1 id="alert-title" class="text-[23px] font-bold tracking-[-0.03em] text-[#17151c]">
           {data.alert.productName}
         </h1>
-        <span class={`badge ${statusClass(data.alert.status)}`}>{statusLabel(data.alert.status)}</span>
-        <span class="badge bg-[#fff0f0] text-[#e14f55]">{data.alert.risk}</span>
+        <span class={`badge ${statusClass(data.identityOutcome)}`}>{statusLabel(data.identityOutcome)}</span>
+        <span class="badge bg-[#fff0f0] text-[#e14f55]">{data.harm.level} source harm</span>
       </div>
 
       <div class="mt-2 flex flex-wrap gap-x-8 gap-y-1 text-[10px] text-[#716b7b]">
         <span>Alert: <b class="text-[#17151c]">{data.alert.sourceReference}</b></span>
         <span>Source: <b class="text-[#17151c]">{sourceLabel(data.alert.source)}</b></span>
         <span>Published: <b class="text-[#17151c]">{formatDate(data.alert.publishedAt)}</b></span>
-        <span>Reviewer: <b class="text-[#17151c]">{reviewOwner(data.alert.status)}</b></span>
+        <span>Reviewer: <b class="text-[#17151c]">{reviewOwner(data.identityOutcome)}</b></span>
       </div>
     </div>
 
@@ -201,7 +204,7 @@
               <span class="text-[9px] font-semibold tracking-[0.14em] text-[#e14f55] uppercase">Official alert</span>
               <h2 class="mt-1 text-[14px] font-bold text-[#17151c]">{sourceLabel(data.alert.source)} record</h2>
             </div>
-            <span class="badge max-w-[48%] bg-[#fff0f0] text-[#e14f55]">{data.alert.risk}</span>
+            <span class="badge max-w-[48%] bg-[#fff0f0] text-[#e14f55]">{data.harm.level} harm · {data.alert.risk}</span>
           </header>
 
           <div class="p-4">
@@ -321,13 +324,13 @@
             {/each}
           </div>
 
-          <div class={`mt-5 flex items-start gap-3 rounded-xl border p-4 ${bestMatch.hasHardConflict || data.alert.status === 'needs_review' ? 'border-[#f5d8a7] bg-[#fffaf0]' : 'border-[#d7f2e3] bg-[#f4fcf7]'}`}>
-            <span class={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${bestMatch.hasHardConflict || data.alert.status === 'needs_review' ? 'bg-[#ffedc9] text-[#bf7f19]' : 'bg-[#e1f7ea] text-[#2aa96b]'}`}>
+          <div class={`mt-5 flex items-start gap-3 rounded-xl border p-4 ${data.identityOutcome !== 'confirmed' ? 'border-[#f5d8a7] bg-[#fffaf0]' : 'border-[#d7f2e3] bg-[#f4fcf7]'}`}>
+            <span class={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${data.identityOutcome !== 'confirmed' ? 'bg-[#ffedc9] text-[#bf7f19]' : 'bg-[#e1f7ea] text-[#2aa96b]'}`}>
               <Icon name="triangle-alert" size={16} />
             </span>
             <div>
               <b class="text-[11px]">
-                {data.alert.status === 'needs_review' ? 'Human confirmation required' : data.alert.status === 'matched' ? 'Match classified automatically' : 'Candidate retained for traceability'}
+                {data.identityOutcome === 'confirmed' ? 'Identity confirmed by a person' : data.identityOutcome === 'not_relevant' ? 'Candidate retained for traceability' : 'Human identity confirmation required'}
               </b>
               <p class="mt-1 text-[10px] leading-4 text-[#7b6848]">{bestMatch.explanation}</p>
             </div>
@@ -369,7 +372,7 @@
       <article class="rounded-[13px] border border-[#eae4f2] bg-white p-4 shadow-[0_1px_2px_rgba(40,24,65,0.025)]">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-[14px] font-bold">Decision Summary</h2>
-          <span class={`badge ${statusClass(data.alert.status)}`}>{statusLabel(data.alert.status)}</span>
+          <span class={`badge ${statusClass(data.identityOutcome)}`}>{statusLabel(data.identityOutcome)}</span>
         </div>
 
         {#if bestMatch}
@@ -384,7 +387,7 @@
           </div>
 
           <dl class="mt-4 space-y-3 text-[10px]">
-            <div class="flex justify-between gap-4"><dt class="text-[#716b7b]">Classification</dt><dd class="text-right font-semibold">{statusLabel(data.alert.status)}</dd></div>
+            <div class="flex justify-between gap-4"><dt class="text-[#716b7b]">Classification</dt><dd class="text-right font-semibold">{statusLabel(data.identityOutcome)}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-[#716b7b]">Review reason</dt><dd class={`text-right font-semibold ${bestMatch.hasHardConflict ? 'text-[#e14f55]' : ''}`}>{reviewReason}</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-[#716b7b]">Potentially affected</dt><dd class="text-right font-semibold">{bestMatch.product.stockQuantity} units</dd></div>
             <div class="flex justify-between gap-4"><dt class="text-[#716b7b]">Candidates scored</dt><dd class="text-right font-semibold">{data.candidates.length}</dd></div>

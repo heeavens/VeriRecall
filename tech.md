@@ -328,7 +328,7 @@ totalScore = round(45*ean + 25*name + 20*brand + 10*batch)
 
 ### Классификация
 
-- `score >= confidenceThreshold` и нет hard conflict: создать кейс автоматически;
+- `score >= confidenceThreshold` и нет hard conflict: пометить кандидата как high-confidence recommendation и отправить на обязательное human confirmation;
 - `reviewFloor <= score < confidenceThreshold`: добавить в Review Queue;
 - hard conflict при достаточно близких brand/name: всегда Review Queue;
 - `score < reviewFloor` и нет сильного идентификатора: `not_relevant`;
@@ -372,7 +372,7 @@ Human-in-the-loop переходы:
 - **Reject:** `match → rejected`, алерт становится `not_relevant`, записать решение;
 - **Request evidence:** `match → awaiting_evidence`, создать evidence request и supplier draft, ничего не отправлять;
 - **Approve & send:** сохранить имя человека и время, затем только имитировать отправку со статусом `simulated_sent`;
-- **Close case:** разрешить только после явного подтверждения обязательных checklist items.
+- **Close case:** разрешить только после явного подтверждения обязательных checklist items, closure note и ссылки/номера доказательства.
 
 Повторный вызов одной мутации не должен создавать второй кейс, второй draft или дублирующий эффект.
 
@@ -477,7 +477,7 @@ Human-in-the-loop переходы:
 | `/onboarding?/uploadCatalog` | multipart file → import summary и row errors |
 | `/onboarding?/uploadCustomers` | multipart file → import summary и row errors |
 | `/onboarding?/complete` | `{ confidenceThreshold }` → settings + monitoring cycle |
-| `/api/monitor` POST | `{}` → counts: imported/matched/review/ignored |
+| `/api/monitor` POST | `{}` → counts: imported/highConfidence/review/ignored и фактический durationMs |
 | `/review?/confirm` | `{ matchId }` → case id |
 | `/review?/reject` | `{ matchId, reason? }` → updated match |
 | `/review?/requestEvidence` | `{ matchId, evidenceTypes[] }` → evidence request + draft |
@@ -542,7 +542,7 @@ PDF/CSV отчёт содержит:
 
 Seed должен гарантировать три понятных сценария:
 
-1. **High confidence:** exact EAN + brand + близкое название → автоматически открыт case.
+1. **High confidence:** exact EAN + brand + близкое название → обязательная human identity review; case открывается только после подтверждения человеком.
 2. **Uncertain:** brand/name близки, но EAN конфликтует или отсутствует batch → Review Queue и запрос barcode photo.
 3. **Not relevant:** другой brand/category и низкий score → серый статус без кейса.
 
@@ -575,7 +575,7 @@ Seed должен гарантировать три понятных сцена�
 2. EAN conflict создаёт hard conflict и Review Queue;
 3. missing fields не перенормируют score;
 4. threshold boundaries 54/55/84/85 классифицируются правильно;
-5. повторный monitoring cycle не дублирует alert/case;
+5. повторный monitoring cycle не дублирует alerts/matches, а до human confirmation не создаёт case;
 6. confirm создаёт case и audit event в одной операции;
 7. action остаётся draft до ручного approve;
 8. повторный approve не создаёт второй эффект;
@@ -727,7 +727,7 @@ Do not start or propose implementation of Stage N+1. A PASS report is required b
 - формулу четырёх сигналов и hard-conflict rules;
 - top-3 candidates;
 - идемпотентный `runMonitoringCycle()`;
-- automatic case для high-confidence match;
+- high-confidence recommendation с обязательным human confirmation до создания case;
 - Review Queue status для uncertain match;
 - `not_relevant` для low score;
 - Dashboard counters и Alert Feed.
