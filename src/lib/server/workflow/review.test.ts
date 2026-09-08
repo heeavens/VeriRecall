@@ -192,7 +192,7 @@ describe('Stage 4 human review workflow', () => {
       auditEvents: tableCount('audit_events')
     }).toEqual(afterFirst);
     expect(connection.db.select().from(evidenceRequests).where(eq(evidenceRequests.id, first.evidenceRequestId)).get())
-      .toMatchObject({ status: 'pending' });
+      .toMatchObject({ caseId: null, questionRef: null, status: 'pending' });
     expect(connection.db.select().from(actionDrafts).where(eq(actionDrafts.id, first.draftId)).get())
       .toMatchObject({ status: 'draft', type: 'notify_supplier' });
     expect(connection.db.select().from(matches).where(eq(matches.id, uncertainMatchId)).get())

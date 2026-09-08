@@ -73,6 +73,7 @@ describe('Stage 1 database', () => {
         'audit_events_case_id_idx',
         'case_items_case_product_batch_unique',
         'case_tasks_case_type_unique',
+        'evidence_requests_case_question_created_idx',
         'investigation_evidence_case_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
@@ -93,6 +94,27 @@ describe('Stage 1 database', () => {
       openedAt: '2026-09-08T12:00:00.000Z',
       closedAt: null
     }).run();
+
+    const requestInsert = connection.sqlite.prepare(`
+      insert into evidence_requests (
+        id, match_id, case_id, question_ref, requested_evidence,
+        recipient, status, created_at, resolved_at
+      ) values (?, ?, ?, ?, '["batch_label_photo"]', null, 'pending', ?, null)
+    `);
+    expect(() => requestInsert.run(
+      '90000000-0000-4000-8000-000000000091',
+      fixtures.matches[0].id,
+      caseId,
+      null,
+      '2026-09-08T12:00:00.000Z'
+    )).toThrow(/evidence_requests_versioned_question_check/);
+    expect(() => requestInsert.run(
+      '90000000-0000-4000-8000-000000000092',
+      fixtures.matches[0].id,
+      null,
+      'demo:scope-gap:test',
+      '2026-09-08T12:00:00.000Z'
+    )).toThrow(/evidence_requests_versioned_question_check/);
 
     const insert = connection.sqlite.prepare(`
       insert into investigation_evidence (

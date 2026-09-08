@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { count } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -12,6 +12,8 @@ import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
 import { readCaseSnapshot, reserveInvestigationCase } from '../workflow/case-lifecycle';
+import { confirmReviewMatch } from '../workflow/review';
+import { requestInvestigationEvidence } from './evidence-requests';
 import {
   EvidenceRegistryError,
   getInvestigationEvidence,
@@ -65,6 +67,29 @@ function structuredEvidence(
 
 function record(input: RecordInvestigationEvidenceInput) {
   return recordInvestigationEvidence(connection.db, input, new Date(receivedAt));
+}
+
+function versionedGapRequest() {
+  const matchId = '50000000-0000-4000-8000-000000000002';
+  const confirmed = confirmReviewMatch(
+    connection.db,
+    { matchId, actorName: 'demo_operator' },
+    new Date('2026-09-08T10:00:00.000Z'),
+    { mode: 'demo' }
+  );
+  const snapshot = readCaseSnapshot(connection.db, confirmed.caseId);
+  const gap = snapshot?.investigation?.gaps.find((issue) => issue.code === 'BATCH_MISSING');
+  if (!snapshot || !gap) throw new Error('Expected a current versioned batch gap.');
+  const requestId = '90000000-0000-4000-8000-000000000001';
+  requestInvestigationEvidence(connection.db, {
+    requestId,
+    caseId: snapshot.caseId,
+    questionRef: gap.id,
+    expectedCaseVersion: snapshot.caseVersion,
+    requestedEvidence: ['batch_label_photo'],
+    demo: true
+  }, { mode: 'demo' }, new Date('2026-09-08T11:00:00.000Z'));
+  return { gap, requestId, snapshot };
 }
 
 function workflowCounts() {
@@ -258,6 +283,44 @@ describe('investigation evidence registry', () => {
     };
 
     expect(record(input).evidence).toEqual({ ...input, receivedAt });
+  });
+
+  it('links receipt to the exact versioned request question without changing request or case state', () => {
+    const { gap, requestId, snapshot } = versionedGapRequest();
+    const requestBefore = connection.db.select().from(schema.evidenceRequests)
+      .where(eq(schema.evidenceRequests.id, requestId)).get();
+    const snapshotBefore = readCaseSnapshot(connection.db, snapshot.caseId);
+    const beforeWorkflowCounts = workflowCounts();
+    const evidence = structuredEvidence(snapshot.caseId, {
+      evidenceRef: 'evidence:external:batch-label-001',
+      questionRef: gap.id,
+      evidenceRequestId: requestId,
+      sourceKind: 'EXTERNAL_PARTY',
+      sourceIdentifier: 'supplier:batch-label-001'
+    });
+
+    expect(record(evidence)).toMatchObject({
+      replayed: false,
+      evidence: { caseId: snapshot.caseId, questionRef: gap.id, evidenceRequestId: requestId }
+    });
+    expect(connection.db.select().from(schema.evidenceRequests)
+      .where(eq(schema.evidenceRequests.id, requestId)).get()).toEqual(requestBefore);
+    expect(requestBefore).toMatchObject({ status: 'pending', resolvedAt: null });
+    expect(readCaseSnapshot(connection.db, snapshot.caseId)).toEqual(snapshotBefore);
+    expect(workflowCounts()).toEqual(beforeWorkflowCounts);
+  });
+
+  it('rejects receipt whose question does not match its versioned request', () => {
+    const { requestId, snapshot } = versionedGapRequest();
+
+    expectRegistryError(() => record(structuredEvidence(snapshot.caseId, {
+      evidenceRef: 'evidence:external:wrong-question',
+      questionRef: 'demo:another-current-looking-question',
+      evidenceRequestId: requestId,
+      sourceKind: 'EXTERNAL_PARTY',
+      sourceIdentifier: 'supplier:wrong-question'
+    })), 'EVIDENCE_REQUEST_QUESTION_MISMATCH');
+    expect(connection.db.select().from(schema.investigationEvidence).all()).toEqual([]);
   });
 
   it('leaves the authoritative case snapshot byte-for-byte unchanged', () => {

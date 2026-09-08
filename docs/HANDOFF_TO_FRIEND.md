@@ -137,3 +137,15 @@ Migration `0004_last_thunderbolt.sql` introduces the server-owned `investigation
 The record proves receipt and preserves provenance only. It does not prove an extracted claim, resolve an investigation question, or authorize an operational decision. Structured content is canonicalized and SHA-256 hashed by the server; locator evidence requires the caller to supply the SHA-256 hash for bytes the registry does not fetch. Evidence-request linkage is optional, but when supplied it must resolve through `evidence_requests.match_id → matches.alert_id → cases.alert_id` to the same case.
 
 `InvestigationOutcome.evidenceRefs` remains an opaque-ref contract and is unchanged. Wiring those refs to this registry, receiving supplier responses, extracting/assessing claims, resolving KnowledgeGaps, and integrating AI are deliberately deferred. `AI_EXTRACTED` is not a raw evidence source kind; future AI output must be modeled as a derived/proposed claim from registered source evidence.
+
+## Versioned gap evidence-request boundary
+
+Migration `0005_majestic_centennial.sql` adds nullable `case_id` and `question_ref` to the existing `evidence_requests` table. The database permits only null/null legacy ownership or non-null/non-null versioned ownership; the indexed pair is deliberately non-unique because one current question may have multiple request attempts.
+
+Use `requestInvestigationEvidence` from `src/lib/server/investigation/evidence-requests.ts` for the server-only versioned path. It accepts a UUID idempotency key, case ID, exact current gap ID, expected case version, and a non-empty subset of the three existing artifact names. It validates the current snapshot, currently permits only the producer's `BATCH_MISSING` Issue, derives exactly one legacy-compatible match from the authoritative alert/product, and records one `pending` request plus one audit event atomically. `pending` means the attempt exists; it does not mean sent, received, sufficient, or resolved.
+
+Do not call legacy `requestMatchEvidence` for a versioned investigation. That flow remains unchanged for pure legacy Review and stores null `case_id`/`question_ref`; its match status and action drafts are not versioned truth. The required `match_id` relation and its legacy cascade behavior are intentionally retained, so this is not yet a complete ownership/deletion redesign.
+
+When `investigation_evidence.evidence_request_id` points to a versioned request, the evidence registry now requires the same case and question as that request in addition to the authoritative match/product ownership check. Legacy requests cannot prove question identity. Receipt leaves the request `pending`, keeps `resolved_at` null, and does not mutate the snapshot or any knowledge state.
+
+Identity UNKNOWN still has no requestable Issue, conflicts are not requestable, and no new question may be invented. Dispatch, supplier upload/receipt wiring, claim extraction or assessment, gap resolution, InvestigationOutcome revision, and AI remain deliberately unimplemented.

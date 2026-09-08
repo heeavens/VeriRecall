@@ -80,6 +80,7 @@ export type EvidenceRegistryErrorCode =
   | 'CASE_NOT_FOUND'
   | 'EVIDENCE_REQUEST_NOT_FOUND'
   | 'EVIDENCE_REQUEST_CASE_MISMATCH'
+  | 'EVIDENCE_REQUEST_QUESTION_MISMATCH'
   | 'EVIDENCE_CONFLICT';
 
 export class EvidenceRegistryError extends Error {
@@ -157,12 +158,15 @@ function recordsAreEqual(
 function assertEvidenceRequestOwnership(
   database: RecallDatabase,
   caseId: string,
+  questionRef: string,
   evidenceRequestId: string
 ): void {
   const request = database
     .select({
       id: schema.evidenceRequests.id,
-      caseId: schema.cases.id,
+      explicitCaseId: schema.evidenceRequests.caseId,
+      explicitQuestionRef: schema.evidenceRequests.questionRef,
+      derivedCaseId: schema.cases.id,
       requestProductId: schema.matches.productId,
       lifecycleProductId: schema.caseLifecycle.productId
     })
@@ -179,9 +183,25 @@ function assertEvidenceRequestOwnership(
       'The related evidence request does not exist.'
     );
   }
-  if (request.caseId !== caseId || (
+  const hasExplicitVersionedLink = request.explicitCaseId !== null ||
+    request.explicitQuestionRef !== null;
+  if (hasExplicitVersionedLink && request.explicitCaseId !== caseId) {
+    throw new EvidenceRegistryError(
+      'EVIDENCE_REQUEST_CASE_MISMATCH',
+      'The evidence request does not belong to the owning case.'
+    );
+  }
+  if (hasExplicitVersionedLink && request.explicitQuestionRef !== questionRef) {
+    throw new EvidenceRegistryError(
+      'EVIDENCE_REQUEST_QUESTION_MISMATCH',
+      'The evidence request does not belong to the investigation question.'
+    );
+  }
+  if (request.derivedCaseId !== caseId || (
     request.lifecycleProductId !== null &&
     request.lifecycleProductId !== request.requestProductId
+  ) || (
+    hasExplicitVersionedLink && request.lifecycleProductId === null
   )) {
     throw new EvidenceRegistryError(
       'EVIDENCE_REQUEST_CASE_MISMATCH',
@@ -224,7 +244,12 @@ export function recordInvestigationEvidence(
     }
 
     if (prepared.evidenceRequestId !== null) {
-      assertEvidenceRequestOwnership(transaction, prepared.caseId, prepared.evidenceRequestId);
+      assertEvidenceRequestOwnership(
+        transaction,
+        prepared.caseId,
+        prepared.questionRef,
+        prepared.evidenceRequestId
+      );
     }
 
     const insertedRecord = {

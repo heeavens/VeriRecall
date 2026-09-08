@@ -230,12 +230,102 @@ describe('persisted case lifecycle', () => {
       migrate(legacy.db, { migrationsFolder: legacyFolder });
       seedDemoData(legacy.db, fixtures);
       const before = legacy.db.select().from(schema.products).all();
+      const legacyRequest = {
+        id: '90000000-0000-4000-8000-000000000090',
+        matchId: candidate.id,
+        requestedEvidence: '["batch_label_photo"]',
+        recipient: 'legacy@example.test',
+        status: 'pending',
+        createdAt: '2026-09-07T12:30:00.000Z',
+        resolvedAt: null
+      };
+      legacy.sqlite.prepare(`
+        insert into evidence_requests (
+          id, match_id, requested_evidence, recipient, status, created_at, resolved_at
+        ) values (@id, @matchId, @requestedEvidence, @recipient, @status, @createdAt, @resolvedAt)
+      `).run(legacyRequest);
       migrate(legacy.db, { migrationsFolder: resolve('drizzle') });
       migrate(legacy.db, { migrationsFolder: resolve('drizzle') });
       expect(legacy.db.select().from(schema.products).all()).toEqual(before);
       expect(legacy.db.select().from(schema.caseLifecycle).all()).toEqual([]);
       expect(legacy.db.select().from(schema.investigationEvidence).all()).toEqual([]);
+      expect(legacy.db.select().from(schema.evidenceRequests).all()).toEqual([{
+        ...legacyRequest,
+        caseId: null,
+        questionRef: null
+      }]);
       expect(legacy.sqlite.pragma('foreign_key_check')).toEqual([]);
     } finally { legacy.sqlite.close(); }
+  });
+
+  it('upgrades a populated 0004 database without breaking existing evidence-request links', () => {
+    const preBridgeFolder = join(directory, 'pre-bridge-migrations');
+    mkdirSync(join(preBridgeFolder, 'meta'), { recursive: true });
+    for (const file of [
+      '0000_initial.sql',
+      '0001_last_living_lightning.sql',
+      '0002_case_lifecycle.sql',
+      '0003_traceability_exposure.sql',
+      '0004_last_thunderbolt.sql'
+    ]) cpSync(join('drizzle', file), join(preBridgeFolder, file));
+    const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
+    journal.entries = journal.entries.slice(0, 5);
+    writeFileSync(join(preBridgeFolder, 'meta/_journal.json'), JSON.stringify(journal));
+    const existing = createDatabaseConnection(join(directory, 'pre-bridge.db'));
+    try {
+      migrate(existing.db, { migrationsFolder: preBridgeFolder });
+      seedDemoData(existing.db, fixtures);
+      const reserved = reserveInvestigationCase(
+        existing.db,
+        reservation,
+        context,
+        new Date('2026-09-07T12:00:00.000Z')
+      );
+      if (!reserved.ok) throw new Error(reserved.error.message);
+      const requestId = '90000000-0000-4000-8000-000000000093';
+      existing.sqlite.prepare(`
+        insert into evidence_requests (
+          id, match_id, requested_evidence, recipient, status, created_at, resolved_at
+        ) values (?, ?, ?, null, 'pending', ?, null)
+      `).run(requestId, candidate.id, '["batch_label_photo"]', '2026-09-07T12:30:00.000Z');
+      existing.sqlite.prepare(`
+        insert into investigation_evidence (
+          evidence_ref, case_id, question_ref, evidence_request_id,
+          source_kind, source_identifier, received_at, valid_as_of,
+          content_kind, content_json, content_locator, integrity_hash, demo
+        ) values (?, ?, ?, ?, 'EXTERNAL_PARTY', ?, ?, null,
+          'STRUCTURED', '{}', null, ?, 1)
+      `).run(
+        'evidence:legacy-request:pre-bridge',
+        reserved.snapshot.caseId,
+        'question:legacy-compatible',
+        requestId,
+        'supplier:pre-bridge',
+        '2026-09-07T13:00:00.000Z',
+        'a'.repeat(64)
+      );
+
+      migrate(existing.db, { migrationsFolder: resolve('drizzle') });
+      migrate(existing.db, { migrationsFolder: resolve('drizzle') });
+
+      expect(existing.db.select().from(schema.evidenceRequests).all()).toEqual([{
+        id: requestId,
+        matchId: candidate.id,
+        caseId: null,
+        questionRef: null,
+        requestedEvidence: '["batch_label_photo"]',
+        recipient: null,
+        status: 'pending',
+        createdAt: '2026-09-07T12:30:00.000Z',
+        resolvedAt: null
+      }]);
+      expect(existing.db.select().from(schema.investigationEvidence).all()).toEqual([
+        expect.objectContaining({
+          evidenceRef: 'evidence:legacy-request:pre-bridge',
+          evidenceRequestId: requestId
+        })
+      ]);
+      expect(existing.sqlite.pragma('foreign_key_check')).toEqual([]);
+    } finally { existing.sqlite.close(); }
   });
 });

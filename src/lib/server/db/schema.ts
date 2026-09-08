@@ -234,12 +234,25 @@ export const evidenceRequests = sqliteTable('evidence_requests', {
   matchId: text('match_id')
     .notNull()
     .references(() => matches.id, { onDelete: 'cascade' }),
+  caseId: text('case_id').references(() => cases.id),
+  questionRef: text('question_ref'),
   requestedEvidence: text('requested_evidence').notNull(),
   recipient: text('recipient'),
   status: text('status').notNull(),
   createdAt: text('created_at').notNull(),
   resolvedAt: text('resolved_at')
-});
+}, (table) => [
+  index('evidence_requests_case_question_created_idx').on(
+    table.caseId,
+    table.questionRef,
+    table.createdAt
+  ),
+  check(
+    'evidence_requests_versioned_question_check',
+    sql`(${table.caseId} is null and ${table.questionRef} is null)
+        or (${table.caseId} is not null and ${table.questionRef} is not null)`
+  )
+]);
 
 export const investigationEvidence = sqliteTable(
   'investigation_evidence',
