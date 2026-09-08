@@ -14,7 +14,7 @@
 - `REQUEST_CLOSURE` повторно проверяет readiness и caseVersion внутри SQLite immediate-транзакции, валидирует evidence и одновременно пишет CLOSE_CASE decision, snapshot/history/audit/ledger и legacy closed-проекцию.
 - Новая materialRevision или materially изменившийся exposure после CLOSED открывают дело. Старые решения/results/history сохраняются; утратившие применимость approvals становятся STALE. Evidence-only update с теми же фактами сохраняет CLOSED и completed work.
 - UI case detail показывает настоящий stage, exposure, blockers, tasks, pending reviews, recorded decisions и отдельную closure form. Реестр Cases показывает versioned stage и актуальные task counts.
-- Review confirm теперь строит InvestigationOutcome из сохранённых alert/catalogue/match и атомарно создаёт или обновляет versioned CaseSnapshot. Повтор не дублирует effect; уже подтверждённое legacy-дело из общей базы подключается один раз. Hard conflict и неизвестный scope не исчезают.
+- Review confirm теперь строит InvestigationOutcome из сохранённых alert/catalogue/match и атомарно создаёт или обновляет versioned CaseSnapshot. Чистый producer вынесен в `src/lib/server/investigation/outcome-producer.ts`, валидирует результат общей `investigationOutcomeSchema` и не обращается к БД, LLM, exposure или task engine. Повтор не дублирует effect; уже подтверждённое legacy-дело из общей базы подключается один раз. Hard conflict и неизвестный scope не исчезают.
 - Публичный Review route требует явный локальный demo mode и использует фиксированного server-side `demo_operator`. Отключённый режим отклоняет операцию без legacy fallback.
 - Локальный demo catalogue содержит 15 синтетических товаров Costa Coffee и три явно демонстрационных кофейных предупреждения. Названия, категории, поставщики и изображения согласованы; это не реальные отзывы бренда.
 - Versioned case UI ведёт пользователя по четырём шагам: product match, human review, affected stock, actions/closure. Главная карточка показывает следующее действие; review содержит чек-лист и пример комментария, а версии, machine fields и audit history убраны в раскрываемый технический блок.
@@ -58,7 +58,7 @@ npm run dev -- --host 127.0.0.1 --port 5187
 ## Изменения общего формата для сверки с другом
 
 - Импортировать только `$lib/contracts/recall`; не копировать интерфейсы.
-- Review UI уже подключён: его confirm action создаёт versioned snapshot. При замене demo investigation producer нужно сохранить форму `InvestigationOutcome` и не возвращать legacy tasks как текущее состояние.
+- Review UI уже подключён: его confirm action создаёт versioned snapshot через `produceInvestigationOutcome`. Следующие investigation rules нужно добавлять в этот producer boundary, сохраняя форму `InvestigationOutcome` и не возвращая legacy tasks как текущее состояние.
 - CaseSnapshot теперь обязательно содержит `decisions`, а HumanDecision — `uncertaintyRefs`, `conflictRefs`, `consequence` и `actorRole` вместе с прежним basis/evidence/rationale.
 - DECIDE_INVESTIGATION добавлена; DECIDE_ACTION и REQUEST_CLOSURE требуют полный evidence basis и `demo:true`.
 - UI должен различать PENDING и recorded decisions, RESPONDING/CLOSURE_REVIEW/CLOSED, stale approvals, null quantities и машинные closure blockers.
