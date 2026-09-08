@@ -450,30 +450,32 @@ export function confirmReviewMatch(
 
     const createdAt = now.toISOString();
     const ensuredCase = ensureCase(transaction, record, createdAt);
-    const batch = record.product.batch ?? record.alert.batch ?? 'Unknown';
-    const existingItem = transaction
-      .select({ id: schema.caseItems.id })
-      .from(schema.caseItems)
-      .where(
-        and(
-          eq(schema.caseItems.caseId, ensuredCase.caseRecord.id),
-          eq(schema.caseItems.productId, record.product.id),
-          eq(schema.caseItems.batch, batch)
+    if (!versioned) {
+      const batch = record.product.batch ?? record.alert.batch ?? 'Unknown';
+      const existingItem = transaction
+        .select({ id: schema.caseItems.id })
+        .from(schema.caseItems)
+        .where(
+          and(
+            eq(schema.caseItems.caseId, ensuredCase.caseRecord.id),
+            eq(schema.caseItems.productId, record.product.id),
+            eq(schema.caseItems.batch, batch)
+          )
         )
-      )
-      .get();
+        .get();
 
-    if (!existingItem) {
-      transaction
-        .insert(schema.caseItems)
-        .values({
-          id: randomUUID(),
-          caseId: ensuredCase.caseRecord.id,
-          productId: record.product.id,
-          batch,
-          stockQuantity: record.product.stockQuantity
-        })
-        .run();
+      if (!existingItem) {
+        transaction
+          .insert(schema.caseItems)
+          .values({
+            id: randomUUID(),
+            caseId: ensuredCase.caseRecord.id,
+            productId: record.product.id,
+            batch,
+            stockQuantity: record.product.stockQuantity
+          })
+          .run();
+      }
     }
 
     if (ensuredCase.created) {

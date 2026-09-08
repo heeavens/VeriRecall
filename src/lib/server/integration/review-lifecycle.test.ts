@@ -8,6 +8,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { InvestigationOutcome, TraceabilityRecord } from '../../contracts/recall';
+import { getCaseDetail } from '../cases/queries';
 import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
@@ -105,6 +106,123 @@ describe('review to versioned case integration', () => {
       .where(eq(schema.caseCommands.caseId, first.caseId)).all()).toHaveLength(1);
     expect(connection.db.select().from(schema.caseTasks)
       .where(eq(schema.caseTasks.caseId, first.caseId)).all()).toHaveLength(0);
+    expect(connection.db.select().from(schema.caseItems)
+      .where(eq(schema.caseItems.caseId, first.caseId)).all()).toHaveLength(0);
+  });
+
+  it('keeps missing versioned scope isolated from legacy case items and exposure', async () => {
+    const matchId = '50000000-0000-4000-8000-000000000001';
+    const match = connection.db.select().from(schema.matches)
+      .where(eq(schema.matches.id, matchId)).get()!;
+    connection.db.update(schema.alerts).set({ batch: null })
+      .where(eq(schema.alerts.id, match.alertId)).run();
+    connection.db.update(schema.products).set({ batch: null })
+      .where(eq(schema.products.id, match.productId)).run();
+
+    const result = confirmReviewMatch(
+      connection.db,
+      { matchId, actorName: 'Herman' },
+      new Date('2026-09-08T12:00:00Z'),
+      { mode: 'demo' }
+    );
+    const snapshot = readCaseSnapshot(connection.db, result.caseId)!;
+
+    expect(snapshot).toMatchObject({
+      investigation: {
+        knowledgeStatus: 'UNRESOLVED',
+        identity: { knowledgeStatus: 'KNOWN', conclusion: 'MATCH' },
+        scope: { kind: 'UNRESOLVED', knowledgeStatus: 'UNKNOWN' }
+      },
+      exposure: { status: 'NOT_CALCULATED' },
+      tasks: []
+    });
+    expect(connection.db.select().from(schema.caseItems)
+      .where(eq(schema.caseItems.caseId, result.caseId)).all()).toHaveLength(0);
+    expect(getCaseDetail(connection.db, result.caseId)?.customers).toEqual([]);
+
+    const service = createRecallService(
+      connection.db,
+      { mode: 'demo' },
+      () => new Date('2026-09-08T12:30:00Z')
+    );
+    expect(await service.execute({
+      type: 'CALCULATE_EXPOSURE', schemaVersion: 1, caseId: result.caseId,
+      commandId: randomUUID(), expectedCaseVersion: snapshot.caseVersion,
+      records: [{
+        type: 'RECEIPT', sourceRef: 'demo:scope-isolation:receipt',
+        productId: match.productId, lot: 'MFT24', occurredAt: '2026-09-08T10:00:00.000Z',
+        demo: true, receiptRef: 'SCOPE-ISOLATION-RECEIPT', quantity: 1
+      }]
+    })).toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
+    expect(readCaseSnapshot(connection.db, result.caseId)).toEqual(snapshot);
+    expect(connection.db.select().from(schema.traceabilityRecords)
+      .where(eq(schema.traceabilityRecords.caseId, result.caseId)).all()).toHaveLength(0);
+  });
+
+  it('ignores a retained legacy Unknown item after upgrading the case', () => {
+    const matchId = '50000000-0000-4000-8000-000000000001';
+    const match = connection.db.select().from(schema.matches)
+      .where(eq(schema.matches.id, matchId)).get()!;
+    connection.db.update(schema.alerts).set({ batch: null })
+      .where(eq(schema.alerts.id, match.alertId)).run();
+    connection.db.update(schema.products).set({ batch: null })
+      .where(eq(schema.products.id, match.productId)).run();
+
+    const legacy = confirmReviewMatch(
+      connection.db,
+      { matchId, actorName: 'Herman' },
+      new Date('2026-09-08T12:00:00Z'),
+      legacyReviewCaseMode
+    );
+    const legacyItems = connection.db.select().from(schema.caseItems)
+      .where(eq(schema.caseItems.caseId, legacy.caseId)).all();
+    expect(legacyItems).toEqual([expect.objectContaining({ batch: 'Unknown' })]);
+    expect(getCaseDetail(connection.db, legacy.caseId)?.customers).toHaveLength(3);
+
+    confirmReviewMatch(
+      connection.db,
+      { matchId, actorName: 'Herman' },
+      new Date('2026-09-08T12:01:00Z'),
+      { mode: 'demo' }
+    );
+    const snapshotBeforeRead = readCaseSnapshot(connection.db, legacy.caseId);
+
+    expect(snapshotBeforeRead).toMatchObject({
+      investigation: {
+        identity: { knowledgeStatus: 'KNOWN', conclusion: 'MATCH' },
+        scope: { kind: 'UNRESOLVED', knowledgeStatus: 'UNKNOWN' }
+      }
+    });
+    expect(getCaseDetail(connection.db, legacy.caseId)?.customers).toEqual([]);
+    expect(connection.db.select().from(schema.caseItems)
+      .where(eq(schema.caseItems.caseId, legacy.caseId)).all()).toEqual(legacyItems);
+    expect(readCaseSnapshot(connection.db, legacy.caseId)).toEqual(snapshotBeforeRead);
+  });
+
+  it('retains the Unknown wildcard projection for a purely legacy case', () => {
+    const matchId = '50000000-0000-4000-8000-000000000001';
+    const match = connection.db.select().from(schema.matches)
+      .where(eq(schema.matches.id, matchId)).get()!;
+    connection.db.update(schema.alerts).set({ batch: null })
+      .where(eq(schema.alerts.id, match.alertId)).run();
+    connection.db.update(schema.products).set({ batch: null })
+      .where(eq(schema.products.id, match.productId)).run();
+
+    const legacy = confirmReviewMatch(
+      connection.db,
+      { matchId, actorName: 'Herman' },
+      new Date('2026-09-08T12:00:00Z'),
+      legacyReviewCaseMode
+    );
+
+    expect(connection.db.select().from(schema.caseItems)
+      .where(eq(schema.caseItems.caseId, legacy.caseId)).all())
+      .toEqual([expect.objectContaining({ batch: 'Unknown' })]);
+    expect(getCaseDetail(connection.db, legacy.caseId)?.customers)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ batch: 'MFT24', productId: match.productId })
+      ]));
+    expect(getCaseDetail(connection.db, legacy.caseId)?.customers).toHaveLength(3);
   });
 
   it('records a strong heuristic Review confirmation without claiming known identity', () => {

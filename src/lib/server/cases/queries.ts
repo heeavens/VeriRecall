@@ -195,6 +195,7 @@ export function getCaseDetail(database: RecallDatabase, caseId: string): CaseDet
     .where(eq(schema.cases.id, caseId))
     .get();
   if (!record) return null;
+  const versioned = hasCaseLifecycle(database, caseId);
 
   const items = database
     .select({ item: schema.caseItems, product: schema.products })
@@ -260,7 +261,7 @@ export function getCaseDetail(database: RecallDatabase, caseId: string): CaseDet
     ...record,
     match,
     items,
-    customers: affectedCustomers(database, items),
+    customers: versioned ? [] : affectedCustomers(database, items),
     tasks,
     drafts,
     timeline,
