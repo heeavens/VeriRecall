@@ -15,7 +15,7 @@ import * as schema from '../db/schema';
 import { getCasesView } from '../cases/queries';
 import { CaseReportExporter } from '../exports/case-report';
 import { closeRecallCase, completeCaseTask } from './case-actions';
-import { confirmReviewMatch, rejectReviewMatch, requestMatchEvidence } from './review';
+import { confirmReviewMatch, legacyReviewCaseMode, rejectReviewMatch, requestMatchEvidence } from './review';
 import { createRecallService, getCaseHistory, readCaseSnapshot, reserveInvestigationCase } from './case-lifecycle';
 
 let directory: string;
@@ -197,7 +197,7 @@ describe('persisted case lifecycle', () => {
 
   it('does not silently convert a legacy case or reserve an unrelated product', () => {
     expect(reserveInvestigationCase(connection.db, { ...reservation, productId: randomUUID() }, context)).toMatchObject({ ok: false });
-    const legacy = confirmReviewMatch(connection.db, { matchId: candidate.id, actorName: 'Herman' });
+    const legacy = confirmReviewMatch(connection.db, { matchId: candidate.id, actorName: 'Herman' }, new Date(), legacyReviewCaseMode);
     const before = counts();
     expect(reserveInvestigationCase(connection.db, reservation, context)).toMatchObject({ ok: false, error: { code: 'INVALID_STATE' } });
     expect(readCaseSnapshot(connection.db, legacy.caseId)).toBeNull();
@@ -208,7 +208,7 @@ describe('persisted case lifecycle', () => {
     const initial = reserve();
     const before = counts();
     for (const action of [
-      () => confirmReviewMatch(connection.db, { matchId: candidate.id, actorName: 'Herman' }),
+      () => confirmReviewMatch(connection.db, { matchId: candidate.id, actorName: 'Herman' }, new Date(), legacyReviewCaseMode),
       () => rejectReviewMatch(connection.db, { matchId: candidate.id, actorName: 'Herman' }),
       () => requestMatchEvidence(connection.db, { matchId: candidate.id, actorName: 'Herman', requestedEvidence: ['barcode_photo'] }),
       () => completeCaseTask(connection.db, { caseId: initial.caseId, taskId: randomUUID(), actorName: 'Herman' }),

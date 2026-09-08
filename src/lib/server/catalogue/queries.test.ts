@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
-import { confirmReviewMatch } from '../workflow/review';
+import { confirmReviewMatch, legacyReviewCaseMode } from '../workflow/review';
 import { getCatalogueView } from './queries';
 
 type TestConnection = ReturnType<typeof createDatabaseConnection>;
@@ -46,7 +46,7 @@ describe('catalogue view', () => {
     confirmReviewMatch(connection.db, {
       matchId: '50000000-0000-4000-8000-000000000001',
       actorName: 'Herman'
-    });
+    }, new Date(), legacyReviewCaseMode);
 
     const view = getCatalogueView(connection.db);
     const confirmedProductId = fixtures.matches[0].productId;

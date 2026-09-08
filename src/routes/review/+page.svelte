@@ -404,7 +404,7 @@
         <section class="decision-option decision-option--confirm">
           <span class="decision-option__icon"><Icon name="check" size={18} /></span>
           <h3>Same product</h3>
-          <p>Opens a case with affected stock, containment tasks and prepared actions awaiting approval.</p>
+          <p>Opens or updates the versioned case. Scope review and exposure calculation remain required before tasks are created.</p>
           <button class="btn btn-primary" type="button" onclick={() => openDecision('confirm')}>
             Confirm match
           </button>
@@ -453,7 +453,7 @@
           <h2 id="decision-dialog-title">
             {decisionOpen === 'confirm' ? 'Confirm this catalogue match?' : 'Reject this catalogue match?'}
           </h2>
-          <p>This decision will be recorded as {actorName}.</p>
+          <p>This decision will be recorded as {decisionOpen === 'confirm' ? 'the local demo case manager' : actorName}.</p>
         </div>
         <button class="icon-button" type="button" aria-label="Close" onclick={closeDecision}>
           <Icon name="x" size={16} />
@@ -467,7 +467,7 @@
         </div>
         <p class:decision-dialog__warning={decisionOpen === 'reject'}>
           {decisionOpen === 'confirm'
-            ? 'A case will be opened or reused, affected stock will be added, and containment tasks plus actions awaiting approval will be prepared. Nothing is sent automatically.'
+            ? 'A versioned case will be opened or updated from this review. Unknown exposure stays unknown until it is calculated, and no external action is sent.'
             : 'The alert will be marked not relevant to your catalogue and no new recall case will be created. This does not change the official source warning.'}
         </p>
       </div>
@@ -475,7 +475,9 @@
         <button class="btn btn-secondary" type="button" onclick={closeDecision}>Cancel</button>
         <form method="POST" action={decisionOpen === 'confirm' ? '?/confirm' : '?/reject'} use:enhance={enhanceDecision} aria-busy={submitting === 'decision'}>
           <input type="hidden" name="matchId" value={selected.match.id} />
-          <input type="hidden" name="actorName" value={actorName} />
+          {#if decisionOpen === 'reject'}
+            <input type="hidden" name="actorName" value={actorName} />
+          {/if}
           <button class={decisionOpen === 'confirm' ? 'btn btn-primary' : 'btn btn-danger'} type="submit" disabled={submitting !== null}>
             {submitting === 'decision' ? 'Saving decision…' : decisionOpen === 'confirm' ? 'Confirm and open case' : 'Reject match'}
           </button>

@@ -1,6 +1,6 @@
 # Передача блока B следующему разработчику
 
-Актуально после этапа 6, 2026-09-08. Герман реализовал versioned Case, exposure, Dynamic Task Engine, human decisions, closure readiness, закрытие и повторное открытие. Друг подключается позже и должен использовать этот серверный путь и единый контракт, не создавать копию типов или параллельное состояние дела.
+Актуально после этапа 7, 2026-09-08. Герман реализовал versioned Case, exposure, Dynamic Task Engine, human decisions, closure/reopen и подключил существующий Review UI к этому пути. Друг подключается позже и должен использовать единый контракт и настоящий snapshot, не создавать копию типов или параллельное состояние дела.
 
 ## Что импортировать
 
@@ -29,8 +29,11 @@ import {
 | POST `/api/cases/{id}/commands` | `RecallCommand` → `CommandResult` |
 | GET `/api/cases/{id}/snapshot` | `SnapshotResult`, `Cache-Control: no-store` |
 | `/cases/{id}` | Настоящий `CaseSnapshot` и сохранённая история |
+| POST `/review?/confirm` | Существующая SvelteKit form action; в demo mode подтверждает match и атомарно создаёт/обновляет versioned snapshot |
 
 POST требует JSON и same-origin `Origin`. Локальный путь включается только с `VERIRECALL_DEMO_MODE=true`; actor и роль берутся из доверенного server context: `demo_operator` / `CASE_MANAGER`. Клиент не передаёт actor/time. Все human/action/evidence команды содержат `demo:true`, а evidence refs имеют явный префикс `demo:`. Это фиксированный хакатонный режим, не production auth.
+
+Review form использует обычный form content type, но его versioned confirm также требует `VERIRECALL_DEMO_MODE=true`; actor для этой операции задаётся сервером. При disabled mode сервер возвращает 409 и не выполняет legacy fallback. Confirm строит начальный InvestigationOutcome только из persisted alert/catalogue/match. Hard EAN conflict остаётся CONFLICTED, missing batch — UNKNOWN/UNRESOLVED, exposure — NOT_CALCULATED/null.
 
 Поддерживаемые команды:
 
@@ -111,8 +114,8 @@ VERIRECALL_BASE_URL=http://127.0.0.1:5186 \
 
 Текущее состояние decisions/tasks/closure хранится в `case_lifecycle.snapshot_json`; все существенные версии — в `case_revisions`; idempotency — в `case_commands`; traceability — в отдельной append-only таблице. Изменения snapshot/history/audit/ledger и legacy status выполняются одной SQLite immediate-транзакцией. Этапу 6 новая миграция не нужна. Старый stage-5 JSON нормализуется только при чтении storage; публичная Zod-схема не принимает неполные объекты.
 
-Legacy `case_tasks`, `action_drafts`, старый close и exporter не используются для versioned case. Один новый lifecycle case относится к одному productId. Автоматическая конвертация legacy или multi-product case отсутствует.
+Legacy `case_tasks`, `action_drafts`, старый close и exporter не используются как источник versioned state. Один lifecycle case относится к одному productId. Review bridge умеет один раз дополнить уже подтверждённое однопродуктовое legacy case snapshot/history/ledger, не удаляя старые строки; несовпадающий product и multi-product conversion блокируются.
 
 Остаточные ограничения: нет production identity/role provider и resolver внешней подлинности evidence; разрешён только фиксированный demo operator. Acceptance некритической residual uncertainty не реализован, поэтому такие проблемы не обходятся. `CONTAINED` есть в контракте, но текущий минимальный путь сразу показывает `CLOSURE_REVIEW`, когда containment и все остальные readiness conditions одновременно выполнены. Внешние действия остаются только явно demo-записями.
 
-Полный формат и invariants: `docs/INTEGRATION_CONTRACT.md`. Фактические проверки этапа: `docs/STAGE_6_QUALITY.md`. Следующая стадия не реализована.
+Полный формат и invariants: `docs/INTEGRATION_CONTRACT.md`. Git refs и сквозные проверки: `docs/INTEGRATION_CHECK.md`; quality gates: `docs/STAGE_7_QUALITY.md`. Следующая стадия не реализована.

@@ -11,7 +11,7 @@ import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
 import { auditEvents, products } from '../db/schema';
-import { confirmReviewMatch } from '../workflow/review';
+import { confirmReviewMatch, legacyReviewCaseMode } from '../workflow/review';
 import {
   CaseReportError,
   CaseReportExporter,
@@ -31,7 +31,7 @@ beforeEach(() => {
   caseId = confirmReviewMatch(connection.db, {
     matchId: '50000000-0000-4000-8000-000000000001',
     actorName: 'Herman'
-  }).caseId;
+  }, new Date(), legacyReviewCaseMode).caseId;
   const productId = fixtures.matches[0]?.productId ?? '';
   connection.db
     .update(products)

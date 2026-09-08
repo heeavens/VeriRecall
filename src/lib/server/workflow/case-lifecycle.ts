@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
-  caseSnapshotSchema, getSnapshotQuerySchema, recallCommandSchema,
+  caseSnapshotSchema, getSnapshotQuerySchema, investigationOutcomeSchema, recallCommandSchema,
   type CaseSnapshot, type CommandResult, type ContractError, type InvestigationOutcome,
   type RecallCommand, type RecallService, type SnapshotResult, traceabilityRecordSchema
 } from '../../contracts/recall';
@@ -360,6 +360,102 @@ function recordRevision(
       ...eventMetadata
     }),
     createdAt: snapshot.updatedAt }).run();
+}
+
+const confirmedReviewInputSchema = z.strictObject({
+  caseId: z.string().uuid(),
+  productId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  outcome: investigationOutcomeSchema
+}).superRefine((value, validation) => {
+  if (value.caseId !== value.outcome.caseId || value.productId !== value.outcome.productId) {
+    validation.addIssue({ code: 'custom', message: 'Review integration identity must match its outcome' });
+  }
+});
+
+/** Apply a confirmed review inside the caller's existing database transaction. */
+export function applyConfirmedReviewOutcomeInTransaction(
+  database: RecallDatabase,
+  input: unknown,
+  context: LifecycleContext,
+  now = new Date()
+): CommandResult {
+  if (context.mode !== 'demo') {
+    return failure('FORBIDDEN', 'Versioned review integration requires explicit local demo mode.');
+  }
+  const parsed = confirmedReviewInputSchema.safeParse(input);
+  if (!parsed.success) return failure('INVALID_INPUT', 'Invalid confirmed review integration payload.');
+  const { caseId, productId, eventId, outcome } = parsed.data;
+  const caseRecord = database.select().from(schema.cases).where(eq(schema.cases.id, caseId)).get();
+  if (!caseRecord) return failure('NOT_FOUND', 'The confirmed review case does not exist.');
+  const confirmedMatch = database.select().from(schema.matches).where(and(
+    eq(schema.matches.alertId, caseRecord.alertId),
+    eq(schema.matches.productId, productId),
+    eq(schema.matches.status, 'confirmed')
+  )).get();
+  if (!confirmedMatch) {
+    return failure('FORBIDDEN', 'A current human-confirmed catalogue match is required.');
+  }
+
+  const updatedAt = now.toISOString();
+  let current = readCaseSnapshot(database, caseId);
+  if (!current) {
+    current = projectSnapshot(caseId, productId, 1, updatedAt, null);
+    database.insert(schema.caseLifecycle).values({
+      caseId, productId, caseVersion: 1, materialRevision: null,
+      snapshotJson: JSON.stringify(current), updatedAt
+    }).run();
+    recordRevision(database, current, caseRecord.alertId, 'lifecycle_initialized',
+      'Initialized a versioned case from the confirmed demo review.');
+  }
+  if (current.productId !== productId) {
+    return failure('INVALID_INPUT', 'The confirmed product does not belong to this versioned case.', current.caseVersion);
+  }
+
+  const command = {
+    type: 'ACCEPT_INVESTIGATION' as const,
+    schemaVersion: 1 as const,
+    caseId,
+    commandId: eventId,
+    expectedCaseVersion: 1,
+    outcome
+  };
+  const payloadJson = canonical(command);
+  const replay = commandReplay(database, command, current, payloadJson);
+  if (replay) return replay;
+  if (current.materialRevision !== null) {
+    if (outcome.materialRevision < current.materialRevision) {
+      return failure('STALE_INVESTIGATION', 'An older review outcome cannot replace the current revision.', current.caseVersion);
+    }
+    if (outcome.materialRevision === current.materialRevision) {
+      if (canonical(outcome) !== canonical(current.investigation)) {
+        return failure('IDEMPOTENCY_CONFLICT', 'This review revision already has different content.', current.caseVersion);
+      }
+      recordCommand(database, command, payloadJson, current.caseVersion, updatedAt);
+      return { ok: true, commandId: eventId, replayed: true,
+        appliedCaseVersion: current.caseVersion, snapshot: current };
+    }
+  }
+  if (current.caseVersion !== 1 || current.materialRevision !== null) {
+    return failure('VERSION_CONFLICT', 'The review bridge only initializes an unversioned or reserved case.', current.caseVersion);
+  }
+
+  const snapshot = carryOrInvalidateTasks(
+    projectSnapshot(caseId, productId, 2, updatedAt, outcome),
+    current
+  );
+  database.update(schema.caseLifecycle).set({
+    caseVersion: snapshot.caseVersion,
+    materialRevision: snapshot.materialRevision,
+    snapshotJson: JSON.stringify(snapshot),
+    updatedAt
+  }).where(eq(schema.caseLifecycle.caseId, caseId)).run();
+  recordRevision(database, snapshot, caseRecord.alertId, 'investigation_received',
+    'Accepted the confirmed review as a versioned demo InvestigationOutcome.',
+    { matchId: confirmedMatch.id, integrationEventId: eventId });
+  recordCommand(database, command, payloadJson, snapshot.caseVersion, updatedAt);
+  return { ok: true, commandId: eventId, replayed: false,
+    appliedCaseVersion: snapshot.caseVersion, snapshot };
 }
 
 export function reserveInvestigationCase(database: RecallDatabase, input: unknown, context: LifecycleContext, now = new Date()): SnapshotResult {

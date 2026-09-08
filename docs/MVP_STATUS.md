@@ -1,6 +1,6 @@
 # VeriRecall — состояние блока B
 
-Дата: 2026-09-08. **Этап 6 завершён: human decisions, консервативная closure readiness, атомарное закрытие и повторное открытие работают через versioned Case.** Этап 7 не начат. Герман продолжает блок самостоятельно; друг подключается позже по `docs/HANDOFF_TO_FRIEND.md`.
+Дата: 2026-09-08. **Этап 7 завершён в `herman_dev`: Review/Investigation UI соединён с versioned Case, общая база мигрируется, сквозной domain flow проверен.** Этап 8 не начат. Герман продолжает блок самостоятельно; друг подключается позже по `docs/HANDOFF_TO_FRIEND.md`.
 
 ## Что работает
 
@@ -14,6 +14,8 @@
 - `REQUEST_CLOSURE` повторно проверяет readiness и caseVersion внутри SQLite immediate-транзакции, валидирует evidence и одновременно пишет CLOSE_CASE decision, snapshot/history/audit/ledger и legacy closed-проекцию.
 - Новая materialRevision или materially изменившийся exposure после CLOSED открывают дело. Старые решения/results/history сохраняются; утратившие применимость approvals становятся STALE. Evidence-only update с теми же фактами сохраняет CLOSED и completed work.
 - UI case detail показывает настоящий stage, exposure, blockers, tasks, pending reviews, recorded decisions и отдельную closure form. Реестр Cases показывает versioned stage и актуальные task counts.
+- Review confirm теперь строит InvestigationOutcome из сохранённых alert/catalogue/match и атомарно создаёт или обновляет versioned CaseSnapshot. Повтор не дублирует effect; уже подтверждённое legacy-дело из общей базы подключается один раз. Hard conflict и неизвестный scope не исчезают.
+- Публичный Review route требует явный локальный demo mode и использует фиксированного server-side `demo_operator`. Отключённый режим отклоняет операцию без legacy fallback.
 
 ## Архитектура и БД
 
@@ -25,43 +27,35 @@
 - `0003_traceability_exposure.sql`: append-only traceability records и несколько case revisions на materialRevision.
 - Этапы 5–6 используют существующий versioned aggregate; новых миграций им не требуется. Persisted stage-5 JSON дополняется новыми decision fields только на storage read boundary, публичный контракт остаётся strict.
 
-Значимые решения: `docs/adr/0001-dynamic-task-engine-in-case-snapshot.md` и `docs/adr/0002-human-decisions-and-closure.md`.
+Значимые решения: `docs/adr/0001-dynamic-task-engine-in-case-snapshot.md`, `docs/adr/0002-human-decisions-and-closure.md` и `docs/adr/0003-review-to-versioned-case-bridge.md`.
 
-## Проверки этапа 6
+## Проверки этапа 7
 
-- `npm test`: 106/106, 20 файлов, PASS.
-- `npm run check`: 0 ошибок и предупреждений.
-- `npm run build`: PASS; adapter-auto сообщает, что production target не выбран.
-- `git diff --check`: PASS.
-- Focused decisions/closure/task/contract: 24/24, PASS.
-- Новые service integration tests: direct-call denial, trusted server actor/time, UNKNOWN после human confirmation, REQUESTED ≠ COMPLETED, blockers при зелёных tasks, stale/current closure, scope expansion/reopen без дублей, evidence-only update и stage-5 JSON compatibility.
-- Реальный HTTP/UI прогон на `/tmp/verirecall-stage6-GPxLsd/demo.db`: case дошёл до CLOSURE_REVIEW v8, через UI записан CLOSE_CASE и CLOSED v9; Cases показал 0 open и 1/1 completed. После restart на той же БД CLOSED сохранился.
+- Focused Review → lifecycle suite: 11/11, PASS.
+- Общая база создана и seeded кодом `origin/main@b5f9c89`, затем текущие `0002`/`0003` применены без изменения старых миграций; legacy case сохранён.
+- Реальный SvelteKit form POST создал versioned snapshot v2/materialRevision 1 на этой базе; snapshot GET и server-rendered case page прочитали то же состояние.
+- Сквозной test проходит Review → CaseSnapshot → exposure → action approval/request/result → запрет раннего close → scope expansion и новый task coverage.
+- `npm test`: 111/111 в 21 test file, PASS; `npm run check`: 0 ошибок/предупреждений; `npm run build`: PASS с обычным сообщением adapter-auto об отсутствии production target. Точные результаты находятся в `docs/INTEGRATION_CHECK.md`.
 
-Тесты не доказывают отсутствие дефектов. Полная стратегия, review findings и пробелы: `docs/STAGE_6_QUALITY.md`.
+Тесты не доказывают отсутствие дефектов. Стратегия, review findings и пробелы: `docs/STAGE_7_QUALITY.md`; Git refs и сквозная проверка: `docs/INTEGRATION_CHECK.md`.
 
 ## Как проверить руками
 
 ```bash
-stage6_dir="$(mktemp -d /tmp/verirecall-stage6-XXXXXX)"
-export DATABASE_URL="$stage6_dir/demo.db"
+stage7_dir="$(mktemp -d /tmp/verirecall-stage7-XXXXXX)"
+export DATABASE_URL="$stage7_dir/demo.db"
 export VERIRECALL_DEMO_MODE=true
 npm run db:migrate
 npm run db:seed
-npm run dev -- --host 127.0.0.1 --port 5186
+npm run dev -- --host 127.0.0.1 --port 5187
 ```
 
-Во втором терминале:
-
-```bash
-VERIRECALL_BASE_URL=http://127.0.0.1:5186 \
-  node --import tsx scripts/demo-closure-ready.ts
-```
-
-Открой напечатанный `caseUrl`, проверь CLOSURE_REVIEW, reviews, HOLD_STOCK COMPLETED и required result evidence. Заполни rationale и нажми **Confirm closure for this version**. Проверь CLOSED на detail и Cases, затем перезапусти сервер с тем же DATABASE_URL.
+Открой `/review`, подтверди candidate и перейди по **Open case**. Проверь настоящий `INVESTIGATING` snapshot, scope и неизвестный exposure. Полный автоматический сценарий запускается командой `npm test -- src/lib/server/integration/review-lifecycle.test.ts`.
 
 ## Изменения общего формата для сверки с другом
 
 - Импортировать только `$lib/contracts/recall`; не копировать интерфейсы.
+- Review UI уже подключён: его confirm action создаёт versioned snapshot. При замене demo investigation producer нужно сохранить форму `InvestigationOutcome` и не возвращать legacy tasks как текущее состояние.
 - CaseSnapshot теперь обязательно содержит `decisions`, а HumanDecision — `uncertaintyRefs`, `conflictRefs`, `consequence` и `actorRole` вместе с прежним basis/evidence/rationale.
 - DECIDE_INVESTIGATION добавлена; DECIDE_ACTION и REQUEST_CLOSURE требуют полный evidence basis и `demo:true`.
 - UI должен различать PENDING и recorded decisions, RESPONDING/CLOSURE_REVIEW/CLOSED, stale approvals, null quantities и машинные closure blockers.
@@ -72,8 +66,9 @@ VERIRECALL_BASE_URL=http://127.0.0.1:5186 \
 - Есть только fixed demo operator/role. Production identity, authorization policy и внешний evidence resolver отсутствуют; demo-path нельзя публиковать как защищённый многопользовательский API.
 - Acceptance некритической residual uncertainty не реализован, поэтому обхода blockers нет.
 - `CONTAINED` присутствует в контракте; текущий минимальный путь переходит сразу в CLOSURE_REVIEW, когда containment и остальные readiness conditions выполнены одновременно.
-- Legacy cases/tasks/drafts/export продолжают работать отдельно. Versioned case относится к одному product; автоматической multi-product/legacy конвертации нет.
+- Legacy cases/tasks/drafts/export продолжают работать отдельно. Уже подтверждённое однопродуктовое legacy case может быть дополнено versioned snapshot через Review bridge; несовпадающий product и multi-product conversion не допускаются молча.
 - Реальные письма, POS/ERP/inventory/shipment actions не выполняются. Live AI, Docker, production deployment, clean dependency install, multi-process load и mobile walkthrough новых stage-6 controls не проверялись.
-- Readiness/simulation остаётся после основного demo. Этап 7 можно начинать только по отдельному указанию Германа.
+- Визуальный browser automation этапа 7 не выполнен из-за заблокированного macOS; реальные form POST, API GET и SSR HTML проверены на dev-server.
+- Readiness/simulation остаётся после основного demo. Этап 8 можно начинать только по отдельному указанию Германа.
 
 Ветка: `herman_dev`. Пользовательский untracked `VERIRECALL_6_DAY_CODEX_PLAN.md` не изменяется и не включается в коммиты.

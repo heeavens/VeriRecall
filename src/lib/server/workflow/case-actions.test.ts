@@ -17,7 +17,7 @@ import {
   completeCaseTask,
   updateActionDraft
 } from './case-actions';
-import { confirmReviewMatch } from './review';
+import { confirmReviewMatch, legacyReviewCaseMode } from './review';
 
 type TestConnection = ReturnType<typeof createDatabaseConnection>;
 
@@ -45,7 +45,8 @@ beforeEach(() => {
   const confirmed = confirmReviewMatch(
     connection.db,
     { matchId: highConfidenceMatchId, actorName: 'Herman' },
-    new Date('2026-08-29T09:00:00Z')
+    new Date('2026-08-29T09:00:00Z'),
+    legacyReviewCaseMode
   );
   seededCaseId = confirmed.caseId;
   blockSaleDraftId = getCaseDetail(connection.db, seededCaseId)!.drafts.find(
@@ -75,7 +76,8 @@ describe('Stage 5 incident response workflow', () => {
     const result = confirmReviewMatch(
       connection.db,
       { matchId: uncertainMatchId, actorName: 'Herman' },
-      new Date('2026-08-29T13:00:00Z')
+      new Date('2026-08-29T13:00:00Z'),
+      legacyReviewCaseMode
     );
     const detail = getCaseDetail(connection.db, result.caseId);
 

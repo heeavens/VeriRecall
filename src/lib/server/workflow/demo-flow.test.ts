@@ -15,6 +15,7 @@ import { approveActionDraft, closeRecallCase } from './case-actions';
 import {
   confirmReviewMatch,
   getReviewQueueView,
+  legacyReviewCaseMode,
   requestMatchEvidence
 } from './review';
 
@@ -69,7 +70,8 @@ describe('Stage 7 final demo flow', () => {
     const confirmed = confirmReviewMatch(
       connection.db,
       { matchId: review.selected!.match.id, actorName: 'Herman' },
-      new Date('2026-08-31T09:01:00Z')
+      new Date('2026-08-31T09:01:00Z'),
+      legacyReviewCaseMode
     );
     expect(confirmed.caseId).toBe(evidence.caseId);
 

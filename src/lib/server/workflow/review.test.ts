@@ -21,6 +21,7 @@ import {
 import {
   confirmReviewMatch,
   getReviewQueueView,
+  legacyReviewCaseMode,
   rejectReviewMatch,
   requestMatchEvidence
 } from './review';
@@ -83,7 +84,7 @@ describe('Stage 4 human review workflow', () => {
       confirmReviewMatch(connection.db, {
         matchId: notRelevantMatchId,
         actorName: 'Herman'
-      })
+      }, new Date(), legacyReviewCaseMode)
     ).toThrow('This match is not awaiting a human review decision.');
     expect(tableCount('cases')).toBe(0);
     expect(tableCount('case_items')).toBe(0);
@@ -93,7 +94,7 @@ describe('Stage 4 human review workflow', () => {
   });
 
   it('confirms once, creates a case item and reuses both on a repeated decision', () => {
-    const first = confirmReviewMatch(connection.db, actor, new Date('2026-08-29T10:00:00Z'));
+    const first = confirmReviewMatch(connection.db, actor, new Date('2026-08-29T10:00:00Z'), legacyReviewCaseMode);
     const afterFirst = {
       cases: tableCount('cases'),
       caseItems: tableCount('case_items'),
@@ -102,7 +103,8 @@ describe('Stage 4 human review workflow', () => {
     const repeated = confirmReviewMatch(
       connection.db,
       actor,
-      new Date('2026-08-29T10:01:00Z')
+      new Date('2026-08-29T10:01:00Z'),
+      legacyReviewCaseMode
     );
 
     expect(first).toMatchObject({ changed: true, caseNumber: 'CASE-0001' });
@@ -199,7 +201,8 @@ describe('Stage 4 human review workflow', () => {
     const confirmed = confirmReviewMatch(
       connection.db,
       actor,
-      new Date('2026-08-29T12:02:00Z')
+      new Date('2026-08-29T12:02:00Z'),
+      legacyReviewCaseMode
     );
     expect(confirmed).toMatchObject({ changed: true, caseId: first.caseId });
     expect(tableCount('cases')).toBe(1);
