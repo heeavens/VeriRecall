@@ -234,6 +234,7 @@ describe('persisted case lifecycle', () => {
       migrate(legacy.db, { migrationsFolder: resolve('drizzle') });
       expect(legacy.db.select().from(schema.products).all()).toEqual(before);
       expect(legacy.db.select().from(schema.caseLifecycle).all()).toEqual([]);
+      expect(legacy.db.select().from(schema.investigationEvidence).all()).toEqual([]);
       expect(legacy.sqlite.pragma('foreign_key_check')).toEqual([]);
     } finally { legacy.sqlite.close(); }
   });

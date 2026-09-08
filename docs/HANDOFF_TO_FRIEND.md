@@ -129,3 +129,11 @@ Mykyta Investigation Engine должен расширять единственн
 Остаточные ограничения: нет production identity/role provider и resolver внешней подлинности evidence; разрешён только фиксированный demo operator. Acceptance некритической residual uncertainty не реализован, поэтому такие проблемы не обходятся. `CONTAINED` есть в контракте, но текущий минимальный путь сразу показывает `CLOSURE_REVIEW`, когда containment и все остальные readiness conditions одновременно выполнены. Внешние действия остаются только явно demo-записями.
 
 Полный формат и invariants: `docs/INTEGRATION_CONTRACT.md`. Git refs и сквозные проверки: `docs/INTEGRATION_CHECK.md`; quality gates: `docs/STAGE_7_QUALITY.md`. Следующая стадия не реализована.
+
+## Investigation evidence registry boundary
+
+Migration `0004_last_thunderbolt.sql` introduces the server-owned `investigation_evidence` table. Use `recordInvestigationEvidence` and `getInvestigationEvidence` from `src/lib/server/investigation/evidence-registry.ts`; do not write this table through Review, lifecycle commands, traceability, or browser code.
+
+The record proves receipt and preserves provenance only. It does not prove an extracted claim, resolve an investigation question, or authorize an operational decision. Structured content is canonicalized and SHA-256 hashed by the server; locator evidence requires the caller to supply the SHA-256 hash for bytes the registry does not fetch. Evidence-request linkage is optional, but when supplied it must resolve through `evidence_requests.match_id → matches.alert_id → cases.alert_id` to the same case.
+
+`InvestigationOutcome.evidenceRefs` remains an opaque-ref contract and is unchanged. Wiring those refs to this registry, receiving supplier responses, extracting/assessing claims, resolving KnowledgeGaps, and integrating AI are deliberately deferred. `AI_EXTRACTED` is not a raw evidence source kind; future AI output must be modeled as a derived/proposed claim from registered source evidence.

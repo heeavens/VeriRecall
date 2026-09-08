@@ -11,6 +11,15 @@ import {
   matchStatuses
 } from '../../types/domain';
 
+export const investigationEvidenceSourceKinds = [
+  'REGULATOR',
+  'INTERNAL',
+  'EXTERNAL_PARTY',
+  'HUMAN_OBSERVED'
+] as const;
+
+export const investigationEvidenceContentKinds = ['STRUCTURED', 'LOCATOR'] as const;
+
 export const settings = sqliteTable(
   'settings',
   {
@@ -231,6 +240,48 @@ export const evidenceRequests = sqliteTable('evidence_requests', {
   createdAt: text('created_at').notNull(),
   resolvedAt: text('resolved_at')
 });
+
+export const investigationEvidence = sqliteTable(
+  'investigation_evidence',
+  {
+    evidenceRef: text('evidence_ref').primaryKey(),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => cases.id),
+    questionRef: text('question_ref').notNull(),
+    evidenceRequestId: text('evidence_request_id').references(() => evidenceRequests.id),
+    sourceKind: text('source_kind', { enum: investigationEvidenceSourceKinds }).notNull(),
+    sourceIdentifier: text('source_identifier').notNull(),
+    receivedAt: text('received_at').notNull(),
+    validAsOf: text('valid_as_of'),
+    contentKind: text('content_kind', { enum: investigationEvidenceContentKinds }).notNull(),
+    contentJson: text('content_json'),
+    contentLocator: text('content_locator'),
+    integrityHash: text('integrity_hash').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    index('investigation_evidence_case_idx').on(table.caseId),
+    check(
+      'investigation_evidence_source_kind_check',
+      sql`${table.sourceKind} in ('REGULATOR', 'INTERNAL', 'EXTERNAL_PARTY', 'HUMAN_OBSERVED')`
+    ),
+    check(
+      'investigation_evidence_content_kind_check',
+      sql`${table.contentKind} in ('STRUCTURED', 'LOCATOR')`
+    ),
+    check(
+      'investigation_evidence_content_check',
+      sql`(${table.contentKind} = 'STRUCTURED' and ${table.contentJson} is not null and ${table.contentLocator} is null)
+          or (${table.contentKind} = 'LOCATOR' and ${table.contentJson} is null and ${table.contentLocator} is not null)`
+    ),
+    check(
+      'investigation_evidence_integrity_hash_check',
+      sql`length(${table.integrityHash}) = 64 and ${table.integrityHash} not glob '*[^0-9a-f]*'`
+    ),
+    check('investigation_evidence_demo_check', sql`${table.demo} in (0, 1)`)
+  ]
+);
 
 export const actionDrafts = sqliteTable(
   'action_drafts',

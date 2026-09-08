@@ -29,6 +29,13 @@
       "when": 1788815895736,
       "tag": "0003_traceability_exposure",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788901109630,
+      "tag": "0004_last_thunderbolt",
+      "breakpoints": true
     }
   ]
 }

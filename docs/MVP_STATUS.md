@@ -78,3 +78,12 @@ npm run dev -- --host 127.0.0.1 --port 5187
 - Readiness/simulation остаётся после основного demo. Этап 8 можно начинать только по отдельному указанию Германа.
 
 Ветка: `herman_dev`. Пользовательский untracked `VERIRECALL_6_DAY_CODEX_PLAN.md` не изменяется и не включается в коммиты.
+
+## Mykyta Investigation Engine — Commit 4 provenance foundation
+
+- Migration `0004_last_thunderbolt.sql` adds `investigation_evidence`, the durable investigation-evidence provenance registry. It owns stable evidence refs, case/question linkage, optional legacy evidence-request linkage, source identity, receipt/as-of timing, immutable structured content or an external locator, a SHA-256 integrity hash, and the explicit demo marker.
+- `recordInvestigationEvidence` is append-only at the service boundary. An exact immutable replay returns the existing record; reuse of an evidence ref with changed content or provenance is rejected. `getInvestigationEvidence` resolves only through the owning case.
+- Evidence receipt does **not** establish a fact. Recording evidence does not change `InvestigationOutcome`, material revision, `CaseSnapshot`, gaps, decisions, tasks, exposure, or closure state.
+- `InvestigationOutcome` and `HumanDecision` still reference evidence through opaque strings. The registry is not wired into Review, supplier requests/responses, ingestion, monitoring, or the UI yet.
+- Claim extraction/assessment, KnowledgeGap resolution, supplier receipt handling, and AI integration remain unimplemented. AI output is intentionally not a raw-evidence `sourceKind`; later AI extraction must remain a derived/proposed claim.
+- Verified with the focused registry/database/lifecycle suites (28 tests), the full suite (142 tests in 23 files), `npm.cmd run check` (0 errors/warnings), `npm.cmd run build`, clean and repeat `db:migrate` runs, the populated-`0001` migration compatibility test, and `git diff --check`. Green checks reduce known risk but do not prove the absence of defects.
