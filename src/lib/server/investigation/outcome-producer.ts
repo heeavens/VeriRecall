@@ -2,6 +2,7 @@ import {
   investigationOutcomeSchema,
   type InvestigationOutcome
 } from '../../contracts/recall';
+import { normalizeEan } from '../alerts/normalization';
 
 export interface ProduceInvestigationOutcomeInput {
   caseId: string;
@@ -9,6 +10,8 @@ export interface ProduceInvestigationOutcomeInput {
   matchId: string;
   materialRevision: number;
   updatedAt: string;
+  alertEan: string | null;
+  catalogueEan: string | null;
   alertBatch: string | null;
   catalogueBatch: string | null;
   hasHardIdentityConflict: boolean;
@@ -33,7 +36,16 @@ export function produceInvestigationOutcome(
     input.evidenceRefs.catalogueProduct,
     input.evidenceRefs.match
   ];
-  const identityConflict = input.hasHardIdentityConflict
+  const alertEan = normalizeEan(input.alertEan);
+  const catalogueEan = normalizeEan(input.catalogueEan);
+  const hasComparableEans = Boolean(alertEan && catalogueEan);
+  const hasHardIdentityConflict = input.hasHardIdentityConflict || Boolean(
+    hasComparableEans && alertEan !== catalogueEan
+  );
+  const hasDeterministicIdentityMatch = Boolean(
+    hasComparableEans && alertEan === catalogueEan && !hasHardIdentityConflict
+  );
+  const identityConflict = hasHardIdentityConflict
     ? [{
         id: `demo:identity-conflict:${input.matchId}`,
         code: 'EAN_CONFLICT',
@@ -83,20 +95,31 @@ export function produceInvestigationOutcome(
     productId: input.productId,
     materialRevision: input.materialRevision,
     updatedAt: input.updatedAt,
-    knowledgeStatus: conflicts.length ? 'CONFLICTED' : gaps.length ? 'UNRESOLVED' : 'KNOWN',
-    identity: input.hasHardIdentityConflict
+    knowledgeStatus: conflicts.length
+      ? 'CONFLICTED'
+      : !hasDeterministicIdentityMatch || gaps.length
+        ? 'UNRESOLVED'
+        : 'KNOWN',
+    identity: hasHardIdentityConflict
       ? {
           knowledgeStatus: 'CONFLICTED',
           conclusion: 'UNRESOLVED',
           evidenceRefs: identityEvidence,
           decisionRefs: [input.decisionRefs.review]
         }
-      : {
-          knowledgeStatus: 'KNOWN',
-          conclusion: 'MATCH',
-          evidenceRefs: identityEvidence,
-          decisionRefs: [input.decisionRefs.review]
-        },
+      : hasDeterministicIdentityMatch
+        ? {
+            knowledgeStatus: 'KNOWN',
+            conclusion: 'MATCH',
+            evidenceRefs: identityEvidence,
+            decisionRefs: [input.decisionRefs.review]
+          }
+        : {
+            knowledgeStatus: 'UNKNOWN',
+            conclusion: 'UNRESOLVED',
+            evidenceRefs: identityEvidence,
+            decisionRefs: [input.decisionRefs.review]
+          },
     scope: batchesMatch
       ? {
           kind: 'BATCH_LOT',

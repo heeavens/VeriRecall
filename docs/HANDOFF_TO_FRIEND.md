@@ -39,7 +39,7 @@ import {
 
 POST требует JSON и same-origin `Origin`. Локальный путь включается только с `VERIRECALL_DEMO_MODE=true`; actor и роль берутся из доверенного server context: `demo_operator` / `CASE_MANAGER`. Клиент не передаёт actor/time. Все human/action/evidence команды содержат `demo:true`, а evidence refs имеют явный префикс `demo:`. Это фиксированный хакатонный режим, не production auth.
 
-Review form использует обычный form content type, но его versioned confirm также требует `VERIRECALL_DEMO_MODE=true`; actor для этой операции задаётся сервером. При disabled mode сервер возвращает 409 и не выполняет legacy fallback. Confirm делегирует чистому `produceInvestigationOutcome` в `src/lib/server/investigation/outcome-producer.ts`, который строит и валидирует начальный InvestigationOutcome только из явно переданных persisted alert/catalogue/match полей и ссылок. Hard EAN conflict остаётся CONFLICTED, missing batch — UNKNOWN/UNRESOLVED, exposure — NOT_CALCULATED/null.
+Review form использует обычный form content type, но его versioned confirm также требует `VERIRECALL_DEMO_MODE=true`; actor для этой операции задаётся сервером. При disabled mode сервер возвращает 409 и не выполняет legacy fallback. Confirm делегирует чистому `produceInvestigationOutcome` в `src/lib/server/investigation/outcome-producer.ts`, который строит и валидирует начальный InvestigationOutcome только из явно переданных persisted alert/catalogue/match полей и ссылок. Два непустых EAN должны совпасть после общей нормализации, чтобы identity стала KNOWN/MATCH; missing EAN остаётся UNKNOWN/UNRESOLVED независимо от Review decision, а hard EAN conflict остаётся CONFLICTED. Scope оценивается отдельно: missing batch — UNKNOWN/UNRESOLVED, exposure — NOT_CALCULATED/null.
 
 Поддерживаемые команды:
 
@@ -122,7 +122,7 @@ VERIRECALL_BASE_URL=http://127.0.0.1:5186 \
 
 Legacy `case_tasks`, `action_drafts`, старый close и exporter не используются как источник versioned state. Один lifecycle case относится к одному productId. Review bridge умеет один раз дополнить уже подтверждённое однопродуктовое legacy case snapshot/history/ledger, не удаляя старые строки; несовпадающий product и multi-product conversion блокируются.
 
-Mykyta Investigation Engine должен расширять единственный producer boundary, а не создавать параллельный InvestigationOutcome или Case state. Текущий producer намеренно сохраняет v1 demo-семантику и не реализует evidence resolution, AI investigation, новый provenance model или расширение RecallScope.
+Mykyta Investigation Engine должен расширять единственный producer boundary, а не создавать параллельный InvestigationOutcome или Case state. Текущий producer отделяет Review decision от epistemic identity: KNOWN требует детерминированного совпадения persisted EAN, тогда как решение человека остаётся decision ref и не меняет UNKNOWN/CONFLICTED. Producer намеренно не реализует evidence resolution, AI investigation, новый provenance model или расширение RecallScope.
 
 Остаточные ограничения: нет production identity/role provider и resolver внешней подлинности evidence; разрешён только фиксированный demo operator. Acceptance некритической residual uncertainty не реализован, поэтому такие проблемы не обходятся. `CONTAINED` есть в контракте, но текущий минимальный путь сразу показывает `CLOSURE_REVIEW`, когда containment и все остальные readiness conditions одновременно выполнены. Внешние действия остаются только явно demo-записями.
 

@@ -525,6 +525,8 @@ export function confirmReviewMatch(
         matchId: record.match.id,
         materialRevision: 1,
         updatedAt: record.match.decidedAt ?? createdAt,
+        alertEan: record.alert.ean,
+        catalogueEan: record.product.ean,
         alertBatch: record.alert.batch,
         catalogueBatch: record.product.batch,
         hasHardIdentityConflict: record.match.hasHardConflict,

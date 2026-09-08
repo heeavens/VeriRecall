@@ -12,6 +12,8 @@ const baseInput = {
   matchId: '30000000-0000-4000-8000-000000000001',
   materialRevision: 1,
   updatedAt: '2026-09-08T12:00:00.000Z',
+  alertEan: '3073646035990',
+  catalogueEan: '3073646035990',
   alertBatch: 'MFT24',
   catalogueBatch: 'MFT24',
   hasHardIdentityConflict: false,
@@ -35,7 +37,7 @@ function produce(
 }
 
 describe('InvestigationOutcome producer', () => {
-  it('produces a known identity with known batch scope', () => {
+  it('uses an exact non-empty EAN match as deterministic known identity evidence', () => {
     const outcome = produce();
 
     expect(outcome).toMatchObject({
@@ -53,6 +55,37 @@ describe('InvestigationOutcome producer', () => {
       conflicts: []
     });
     expect(investigationOutcomeSchema.parse(outcome)).toEqual(outcome);
+  });
+
+  it('uses the existing EAN normalization for equivalent persisted values', () => {
+    const outcome = produce({ alertEan: ' 3073 6460 3599 0 ' });
+
+    expect(outcome.identity).toMatchObject({
+      knowledgeStatus: 'KNOWN',
+      conclusion: 'MATCH'
+    });
+  });
+
+  it.each([
+    ['alert EAN', { alertEan: null }],
+    ['catalogue EAN', { catalogueEan: null }],
+    ['both EANs', { alertEan: null, catalogueEan: null }]
+  ] as const)('keeps identity unknown when %s is missing despite Review confirmation', (_label, eans) => {
+    const outcome = produce(eans);
+
+    expect(outcome).toMatchObject({
+      knowledgeStatus: 'UNRESOLVED',
+      identity: {
+        knowledgeStatus: 'UNKNOWN',
+        conclusion: 'UNRESOLVED',
+        decisionRefs: [baseInput.decisionRefs.review]
+      },
+      scope: {
+        kind: 'BATCH_LOT',
+        knowledgeStatus: 'KNOWN',
+        lots: ['MFT24']
+      }
+    });
   });
 
   it.each([
@@ -96,8 +129,11 @@ describe('InvestigationOutcome producer', () => {
     });
   });
 
-  it('preserves a hard identity conflict without erasing known scope', () => {
-    const outcome = produce({ hasHardIdentityConflict: true });
+  it.each([
+    ['differing persisted EANs', { catalogueEan: '3073646035991' }],
+    ['the persisted hard-conflict flag', { hasHardIdentityConflict: true }]
+  ] as const)('preserves %s as a hard identity conflict without erasing known scope', (_label, conflict) => {
+    const outcome = produce(conflict);
 
     expect(outcome).toMatchObject({
       knowledgeStatus: 'CONFLICTED',
@@ -112,6 +148,17 @@ describe('InvestigationOutcome producer', () => {
       },
       conflicts: [expect.objectContaining({ code: 'EAN_CONFLICT' })]
     });
+  });
+
+  it.each([
+    ['known', {}],
+    ['unknown', { alertEan: null }],
+    ['conflicted', { catalogueEan: '3073646035991' }]
+  ] as const)('keeps the Review decision reference attached to %s identity', (_label, identity) => {
+    const outcome = produce(identity);
+
+    expect(outcome.identity.decisionRefs).toEqual([baseInput.decisionRefs.review]);
+    expect(outcome.decisionRefs).toContain(baseInput.decisionRefs.review);
   });
 
   it('keeps nested evidence and decision references in the outcome-level sets', () => {

@@ -14,7 +14,7 @@
 - `REQUEST_CLOSURE` повторно проверяет readiness и caseVersion внутри SQLite immediate-транзакции, валидирует evidence и одновременно пишет CLOSE_CASE decision, snapshot/history/audit/ledger и legacy closed-проекцию.
 - Новая materialRevision или materially изменившийся exposure после CLOSED открывают дело. Старые решения/results/history сохраняются; утратившие применимость approvals становятся STALE. Evidence-only update с теми же фактами сохраняет CLOSED и completed work.
 - UI case detail показывает настоящий stage, exposure, blockers, tasks, pending reviews, recorded decisions и отдельную closure form. Реестр Cases показывает versioned stage и актуальные task counts.
-- Review confirm теперь строит InvestigationOutcome из сохранённых alert/catalogue/match и атомарно создаёт или обновляет versioned CaseSnapshot. Чистый producer вынесен в `src/lib/server/investigation/outcome-producer.ts`, валидирует результат общей `investigationOutcomeSchema` и не обращается к БД, LLM, exposure или task engine. Повтор не дублирует effect; уже подтверждённое legacy-дело из общей базы подключается один раз. Hard conflict и неизвестный scope не исчезают.
+- Review confirm теперь строит InvestigationOutcome из сохранённых alert/catalogue/match и атомарно создаёт или обновляет versioned CaseSnapshot. Чистый producer вынесен в `src/lib/server/investigation/outcome-producer.ts`, валидирует результат общей `investigationOutcomeSchema` и не обращается к БД, LLM, exposure или task engine. Identity становится KNOWN/MATCH только при совпадении двух непустых persisted EAN после общей нормализации; missing EAN остаётся UNKNOWN/UNRESOLVED даже после human Review decision, а hard conflict остаётся CONFLICTED. Повтор не дублирует effect; уже подтверждённое legacy-дело из общей базы подключается один раз. Неизвестный scope также не исчезает.
 - Публичный Review route требует явный локальный demo mode и использует фиксированного server-side `demo_operator`. Отключённый режим отклоняет операцию без legacy fallback.
 - Локальный demo catalogue содержит 15 синтетических товаров Costa Coffee и три явно демонстрационных кофейных предупреждения. Названия, категории, поставщики и изображения согласованы; это не реальные отзывы бренда.
 - Versioned case UI ведёт пользователя по четырём шагам: product match, human review, affected stock, actions/closure. Главная карточка показывает следующее действие; review содержит чек-лист и пример комментария, а версии, machine fields и audit history убраны в раскрываемый технический блок.
@@ -39,6 +39,7 @@
 - Реальный SvelteKit form POST создал versioned snapshot v2/materialRevision 1 на этой базе; snapshot GET и server-rendered case page прочитали то же состояние.
 - Сквозной test проходит Review → CaseSnapshot → exposure → action approval/request/result → запрет раннего close → scope expansion и новый task coverage.
 - `npm test`: 111/111 в 21 test file, PASS; `npm run check`: 0 ошибок/предупреждений; `npm run build`: PASS с обычным сообщением adapter-auto об отсутствии production target. Точные результаты находятся в `docs/INTEGRATION_CHECK.md`.
+- После Mykyta identity-semantics correction: focused producer/matching/Review/lifecycle suite — 34/34 PASS; `npm.cmd test` — 127/127 в 22 test files; `npm.cmd run check` — 0 ошибок/предупреждений; `npm.cmd run build` и `git diff --check` — PASS. Adapter-auto по-прежнему сообщает об отсутствии выбранного production target.
 
 Тесты не доказывают отсутствие дефектов. Стратегия, review findings и пробелы: `docs/STAGE_7_QUALITY.md`; Git refs и сквозная проверка: `docs/INTEGRATION_CHECK.md`.
 
@@ -58,7 +59,7 @@ npm run dev -- --host 127.0.0.1 --port 5187
 ## Изменения общего формата для сверки с другом
 
 - Импортировать только `$lib/contracts/recall`; не копировать интерфейсы.
-- Review UI уже подключён: его confirm action создаёт versioned snapshot через `produceInvestigationOutcome`. Следующие investigation rules нужно добавлять в этот producer boundary, сохраняя форму `InvestigationOutcome` и не возвращая legacy tasks как текущее состояние.
+- Review UI уже подключён: его confirm action создаёт versioned snapshot через `produceInvestigationOutcome`. Human decision ref сохраняется независимо от identity KnowledgeStatus; следующие investigation rules нужно добавлять в этот producer boundary, сохраняя форму `InvestigationOutcome` и не возвращая legacy tasks как текущее состояние.
 - CaseSnapshot теперь обязательно содержит `decisions`, а HumanDecision — `uncertaintyRefs`, `conflictRefs`, `consequence` и `actorRole` вместе с прежним basis/evidence/rationale.
 - DECIDE_INVESTIGATION добавлена; DECIDE_ACTION и REQUEST_CLOSURE требуют полный evidence basis и `demo:true`.
 - UI должен различать PENDING и recorded decisions, RESPONDING/CLOSURE_REVIEW/CLOSED, stale approvals, null quantities и машинные closure blockers.

@@ -107,6 +107,55 @@ describe('review to versioned case integration', () => {
       .where(eq(schema.caseTasks.caseId, first.caseId)).all()).toHaveLength(0);
   });
 
+  it('records a strong heuristic Review confirmation without claiming known identity', () => {
+    const matchId = '50000000-0000-4000-8000-000000000001';
+    const match = connection.db.select().from(schema.matches)
+      .where(eq(schema.matches.id, matchId)).get()!;
+    connection.db.update(schema.alerts).set({ ean: null })
+      .where(eq(schema.alerts.id, match.alertId)).run();
+    connection.db.update(schema.products).set({ ean: null })
+      .where(eq(schema.products.id, match.productId)).run();
+    connection.db.update(schema.matches).set({
+      totalScore: 55,
+      nameScore: 25,
+      brandScore: 20,
+      eanScore: 0,
+      batchScore: 10,
+      hasHardConflict: false
+    }).where(eq(schema.matches.id, matchId)).run();
+
+    const result = confirmReviewMatch(
+      connection.db,
+      { matchId, actorName: 'Herman' },
+      new Date('2026-09-08T12:00:00Z'),
+      { mode: 'demo' }
+    );
+    const snapshot = readCaseSnapshot(connection.db, result.caseId);
+
+    expect(result).toMatchObject({ changed: true, versioned: true, lifecycleChanged: true });
+    expect(snapshot).toMatchObject({
+      stage: 'INVESTIGATING',
+      investigation: {
+        knowledgeStatus: 'UNRESOLVED',
+        identity: {
+          knowledgeStatus: 'UNKNOWN',
+          conclusion: 'UNRESOLVED',
+          decisionRefs: [`demo:review-decision:${matchId}`]
+        },
+        scope: { kind: 'BATCH_LOT', knowledgeStatus: 'KNOWN', lots: ['MFT24'] }
+      },
+      exposure: { status: 'NOT_CALCULATED' },
+      closure: {
+        status: 'NOT_READY',
+        blockers: expect.arrayContaining([
+          expect.objectContaining({ code: 'INVESTIGATION_UNRESOLVED' })
+        ])
+      }
+    });
+    expect(connection.db.select().from(schema.matches).where(eq(schema.matches.id, matchId)).get())
+      .toMatchObject({ status: 'confirmed' });
+  });
+
   it('keeps source conflicts and unknown scope visible after the review confirmation', () => {
     const result = confirmReviewMatch(
       connection.db,
