@@ -65,10 +65,10 @@ describe('Stage 3 monitoring workflow', () => {
     expect(dashboard.counters.openCases).toBe(0);
 
     const matchedAlert = dashboard.alerts.find((item) => item.identityOutcome === 'high_confidence');
-    expect(matchedAlert?.bestMatch?.product.sku).toBe('TOY-1042');
+    expect(matchedAlert?.bestMatch?.product.sku).toBe('COF-1042');
     const detail = matchedAlert ? getAlertDetail(connection.db, matchedAlert.id) : null;
     expect(detail?.candidates).toHaveLength(3);
-    expect(detail?.candidates[0].product.sku).toBe('TOY-1042');
+    expect(detail?.candidates[0].product.sku).toBe('COF-1042');
   });
 
   it('does not duplicate alerts, matches or cases on a repeated cycle', async () => {

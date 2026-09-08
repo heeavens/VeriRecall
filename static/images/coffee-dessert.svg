@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-labelledby="title description">
+  <title id="title">Canned coffee dessert demo illustration</title>
+  <desc id="description">A coffee dessert can with a cream topping and coffee bean symbol.</desc>
+  <rect width="640" height="420" rx="32" fill="#faf5ef"/>
+  <ellipse cx="320" cy="340" rx="145" ry="25" fill="#d8cec7" opacity=".7"/>
+  <path d="M206 133h228l-18 198H224Z" fill="#b97745"/>
+  <ellipse cx="320" cy="134" rx="114" ry="34" fill="#f4dfc6" stroke="#6f4e37" stroke-width="8"/>
+  <path d="M245 128c21-43 55-39 73-12 20-37 64-33 79 12-31 14-118 17-152 0Z" fill="#fff7ed"/>
+  <rect x="236" y="192" width="168" height="86" rx="18" fill="#fff7ed"/>
+  <path d="M320 205c26 18 28 55 0 76-28-21-26-58 0-76Z" fill="#6f4e37"/>
+  <path d="M320 211c-12 22-10 45 0 64" fill="none" stroke="#fff7ed" stroke-width="5" stroke-linecap="round"/>
+</svg>

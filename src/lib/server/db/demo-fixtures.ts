@@ -332,7 +332,7 @@ export function loadDemoFixtures(): DemoFixtures {
         batchScore: 0,
         hasHardConflict: false,
         explanation:
-          'The alert describes smoked salmon, while the closest catalogue item is a prepared vegetable product from another category and its brand is not present in the alert.',
+          'The alert describes a canned coffee dessert, while the closest catalogue item is a coffee drink from another category and its brand is not present in the alert.',
         status: 'candidate',
         createdAt: fixtureTimestamp,
         decidedAt: null
@@ -350,7 +350,7 @@ export function loadDemoFixtures(): DemoFixtures {
         eventType: 'sent_to_review',
         actorType: 'agent',
         actorName: 'monitoring_agent',
-        summary: 'Recommended TOY-1042 for mandatory human identity confirmation.',
+        summary: 'Recommended COF-1042 for mandatory human identity confirmation.',
         metadataJson: JSON.stringify({
           matchId: '50000000-0000-4000-8000-000000000001',
           productId: products[0].id,
@@ -367,7 +367,7 @@ export function loadDemoFixtures(): DemoFixtures {
         eventType: 'sent_to_review',
         actorType: 'agent',
         actorName: 'matching_agent',
-        summary: 'Sent the uncertain BABY-1290 candidate to human review.',
+        summary: 'Sent the uncertain COF-1290 candidate to human review.',
         metadataJson: JSON.stringify({
           matchId: '50000000-0000-4000-8000-000000000002',
           productId: products[1].id,
