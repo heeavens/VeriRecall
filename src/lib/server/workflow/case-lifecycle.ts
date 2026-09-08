@@ -8,6 +8,7 @@ import {
   type RecallCommand, type RecallService, type SnapshotResult, traceabilityRecordSchema
 } from '../../contracts/recall';
 import { calculateExposure } from '../exposure/calculate';
+import { reconcileDynamicTasks } from '../tasks/engine';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { nextCaseNumber, severityForRisk } from './case-record';
@@ -47,6 +48,17 @@ function lifecycleBlockers(snapshot: CaseSnapshot): Extract<CaseSnapshot['closur
   }
   if (snapshot.exposure.conflicts.length) {
     blockers.push({ id: `${snapshot.caseId}:quantity-conflict`, code: 'QUANTITY_CONFLICT', message: 'Exposure contains conflicting quantities.', critical: true, subjectRefs: [snapshot.caseId], evidenceRefs: snapshot.exposure.conflicts.flatMap((item) => item.evidenceRefs) });
+  }
+  const pendingBlockingTasks = snapshot.tasks.filter((task) =>
+    task.blocking && !['COMPLETED', 'SUPERSEDED'].includes(task.status)
+  );
+  if (pendingBlockingTasks.length) {
+    blockers.push({
+      id: `${snapshot.caseId}:critical-tasks`, code: 'CRITICAL_TASK_PENDING',
+      message: `${pendingBlockingTasks.length} blocking task(s) still require a verified result.`,
+      critical: true, subjectRefs: pendingBlockingTasks.map((task) => task.id),
+      evidenceRefs: pendingBlockingTasks.flatMap((task) => task.resultEvidenceRefs)
+    });
   }
   return blockers.map((blocker) => ({
     ...blocker,
@@ -95,10 +107,43 @@ function projectSnapshot(caseId: string, productId: string, caseVersion: number,
     closure: { status: 'NOT_READY' as const, blockers: [], decisionRef: null }, demo: true
   } satisfies CaseSnapshot;
   const blockers = lifecycleBlockers(projected);
+  return finalizeSnapshot(projected, blockers);
+}
+
+function finalizeSnapshot(snapshot: CaseSnapshot, blockers = lifecycleBlockers(snapshot)): CaseSnapshot {
   return caseSnapshotSchema.parse({
-    ...projected,
+    ...snapshot,
     attentionItems: blockers,
     closure: { status: 'NOT_READY', blockers, decisionRef: null }
+  });
+}
+
+function sameTaskCoverage(left: InvestigationOutcome['scope'] | undefined, right: InvestigationOutcome['scope'] | undefined): boolean {
+  if (!left || !right || left.kind !== right.kind) return false;
+  if (left.kind !== 'BATCH_LOT' || right.kind !== 'BATCH_LOT') return false;
+  return canonical([...left.lots].sort()) === canonical([...right.lots].sort());
+}
+
+function carryOrInvalidateTasks(snapshot: CaseSnapshot, previous: CaseSnapshot): CaseSnapshot {
+  if (!previous.tasks.length) return snapshot;
+  if (sameTaskCoverage(snapshot.investigation?.scope, previous.investigation?.scope)) {
+    return finalizeSnapshot({
+      ...snapshot,
+      tasks: previous.tasks,
+      pendingDecisions: previous.pendingDecisions
+    });
+  }
+  return finalizeSnapshot({
+    ...snapshot,
+    tasks: previous.tasks.map((task) => ({
+      ...task,
+      status: 'SUPERSEDED',
+      statusReason: 'Investigation scope changed; prior coverage must be reviewed.',
+      approvalStatus: task.approvalStatus === null ? null : 'STALE',
+      decisionRefs: [...new Set([...task.decisionRefs, ...task.blockedBy])],
+      blockedBy: []
+    })),
+    pendingDecisions: []
   });
 }
 
@@ -131,19 +176,31 @@ function recordCommand(
   }).run();
 }
 
-function recordRevision(database: RecallDatabase, snapshot: CaseSnapshot, alertId: string, eventType: string) {
+function recordRevision(
+  database: RecallDatabase,
+  snapshot: CaseSnapshot,
+  alertId: string,
+  eventType: string,
+  eventSummary?: string,
+  eventMetadata: Record<string, unknown> = {}
+) {
   const snapshotJson = JSON.stringify(snapshot);
   database.insert(schema.caseRevisions).values({ id: randomUUID(), caseId: snapshot.caseId,
     caseVersion: snapshot.caseVersion, materialRevision: snapshot.materialRevision, snapshotJson,
     actorId, createdAt: snapshot.updatedAt }).run();
   database.insert(schema.auditEvents).values({ id: randomUUID(), caseId: snapshot.caseId, alertId,
     eventType, actorType: 'human', actorName: actorId,
-    summary: eventType === 'lifecycle_initialized'
+    summary: eventSummary ?? (eventType === 'lifecycle_initialized'
       ? 'Initialized a demo investigation case.'
       : eventType === 'exposure_calculated'
         ? 'Calculated demo exposure from persisted traceability records.'
-        : 'Saved a demo investigation revision; human decisions remain unverified.',
-    metadataJson: JSON.stringify({ caseVersion: snapshot.caseVersion, materialRevision: snapshot.materialRevision, demo: true }),
+        : 'Saved a demo investigation revision; human decisions remain unverified.'),
+    metadataJson: JSON.stringify({
+      caseVersion: snapshot.caseVersion,
+      materialRevision: snapshot.materialRevision,
+      demo: true,
+      ...eventMetadata
+    }),
     createdAt: snapshot.updatedAt }).run();
 }
 
@@ -198,14 +255,17 @@ export function createRecallService(database: RecallDatabase, context: Lifecycle
       const parsed = recallCommandSchema.safeParse(input);
       if (!parsed.success) return failure('INVALID_INPUT', 'Invalid command or mismatched caseId.');
       const command = parsed.data;
-      if (!['ACCEPT_INVESTIGATION', 'CALCULATE_EXPOSURE'].includes(command.type)) {
-        return failure('NOT_IMPLEMENTED', 'This stage supports investigation ingestion and exposure calculation only.');
+      if (!['ACCEPT_INVESTIGATION', 'CALCULATE_EXPOSURE', 'DECIDE_ACTION', 'REQUEST_ACTION', 'ATTACH_RESULT'].includes(command.type)) {
+        return failure('NOT_IMPLEMENTED', 'This command is not implemented in the current lifecycle stage.');
       }
       if (command.type === 'ACCEPT_INVESTIGATION' && !command.outcome.demo) {
         return failure('FORBIDDEN', 'The local demo service does not accept live investigation results.');
       }
       if (command.type === 'CALCULATE_EXPOSURE' && command.records.some((record) => !record.demo)) {
         return failure('FORBIDDEN', 'The local demo service does not accept live traceability records.');
+      }
+      if ((command.type === 'REQUEST_ACTION' || command.type === 'ATTACH_RESULT') && !command.demo) {
+        return failure('FORBIDDEN', 'Task requests and results must be explicitly marked as demo in the local service.');
       }
       return database.transaction((tx) => {
         const current = readCaseSnapshot(tx, command.caseId);
@@ -228,7 +288,10 @@ export function createRecallService(database: RecallDatabase, context: Lifecycle
           if (current.materialRevision !== null && command.outcome.materialRevision < current.materialRevision) return failure('STALE_INVESTIGATION', 'An older investigation cannot replace the current revision.', current.caseVersion);
           const sameRevision = command.outcome.materialRevision === current.materialRevision;
           if (sameRevision && canonical(command.outcome) !== canonical(current.investigation)) return failure('IDEMPOTENCY_CONFLICT', 'This investigation revision already has a different payload.', current.caseVersion);
-          const snapshot = sameRevision ? current : projectSnapshot(command.caseId, current.productId, current.caseVersion + 1, updatedAt, command.outcome);
+          const projected = sameRevision
+            ? current
+            : projectSnapshot(command.caseId, current.productId, current.caseVersion + 1, updatedAt, command.outcome);
+          const snapshot = sameRevision ? current : carryOrInvalidateTasks(projected, current);
           if (!sameRevision) {
             tx.update(schema.caseLifecycle).set({ caseVersion: snapshot.caseVersion, materialRevision: snapshot.materialRevision,
               snapshotJson: JSON.stringify(snapshot), updatedAt }).where(eq(schema.caseLifecycle.caseId, command.caseId)).run();
@@ -236,6 +299,113 @@ export function createRecallService(database: RecallDatabase, context: Lifecycle
           }
           recordCommand(tx, command, payloadJson, snapshot.caseVersion, updatedAt);
           return { ok: true as const, commandId: command.commandId, replayed: sameRevision, appliedCaseVersion: snapshot.caseVersion, snapshot };
+        }
+
+        if (command.type === 'DECIDE_ACTION' || command.type === 'REQUEST_ACTION' || command.type === 'ATTACH_RESULT') {
+          const taskIndex = current.tasks.findIndex((task) => task.id === command.taskId);
+          if (taskIndex < 0) return failure('NOT_FOUND', 'The task does not belong to this case.', current.caseVersion);
+          const task = current.tasks[taskIndex];
+          const inactive = ['COMPLETED', 'CANCELLED', 'SUPERSEDED'].includes(task.status);
+          if (!inactive && (current.exposure.status !== 'CALCULATED' ||
+              current.exposure.basisMaterialRevision !== current.materialRevision ||
+              task.basisMaterialRevision !== current.materialRevision)) {
+            return failure('INVALID_STATE', 'Recalculate exposure before acting on this task revision.', current.caseVersion);
+          }
+          let nextTask = task;
+          let pendingDecisions = current.pendingDecisions;
+          let eventType: string;
+          let eventSummary: string;
+          let eventMetadata: Record<string, unknown>;
+
+          if (command.type === 'DECIDE_ACTION') {
+            if (!task.approvalRequired || task.approvalStatus !== 'PENDING' || inactive) {
+              return failure('INVALID_STATE', 'This task is not awaiting an applicable action decision.', current.caseVersion);
+            }
+            const decision = current.pendingDecisions.find((item) =>
+              item.type === 'APPROVE_ACTION' && item.subjectRef === task.id
+            );
+            if (!decision) return failure('INVALID_STATE', 'The pending decision is missing or stale.', current.caseVersion);
+            if (decision.basisMaterialRevision !== task.basisMaterialRevision ||
+                !sameTaskCoverage(decision.coverage, task.coverage)) {
+              return failure('INVALID_STATE', 'The pending decision no longer covers this task.', current.caseVersion);
+            }
+            const approved = command.decision === 'APPROVED';
+            nextTask = {
+              ...task,
+              status: approved ? 'OPEN' : 'CANCELLED',
+              statusReason: approved ? null : command.rationale,
+              approvalStatus: command.decision,
+              decisionRefs: [...new Set([...task.decisionRefs, decision.id])],
+              blockedBy: []
+            };
+            pendingDecisions = current.pendingDecisions.filter((item) => item.id !== decision.id);
+            eventType = 'dynamic_task_decided';
+            eventSummary = `${command.decision === 'APPROVED' ? 'Approved' : 'Rejected'} ${task.type} for ${task.targetRef}; no request or external action was performed.`;
+            eventMetadata = {
+              taskId: task.id, decisionId: decision.id, decision: command.decision,
+              rationale: command.rationale, evidenceRefs: command.evidenceRefs,
+              externalSideEffect: false
+            };
+          } else if (command.type === 'REQUEST_ACTION') {
+            if (inactive) return failure('INVALID_STATE', 'An inactive task cannot receive a request.', current.caseVersion);
+            if (task.approvalRequired && task.approvalStatus !== 'APPROVED') {
+              return failure('INVALID_STATE', 'Record an applicable approval before requesting this action.', current.caseVersion);
+            }
+            if (task.requestStatus === 'REQUESTED') {
+              recordCommand(tx, command, payloadJson, current.caseVersion, updatedAt);
+              return { ok: true as const, commandId: command.commandId, replayed: true, appliedCaseVersion: current.caseVersion, snapshot: current };
+            }
+            nextTask = { ...task, status: 'IN_PROGRESS', statusReason: null, requestStatus: 'REQUESTED' };
+            eventType = 'dynamic_task_request_recorded';
+            eventSummary = `Recorded a demo request for ${task.type} at ${task.targetRef}; no external system was contacted.`;
+            eventMetadata = { taskId: task.id, externalSideEffect: false };
+          } else {
+            if (inactive) return failure('INVALID_STATE', 'An inactive task cannot accept another result.', current.caseVersion);
+            if (task.requestStatus !== 'REQUESTED') {
+              return failure('INVALID_STATE', 'Record the request separately before attaching its result.', current.caseVersion);
+            }
+            if (task.approvalRequired && task.approvalStatus !== 'APPROVED') {
+              return failure('INVALID_STATE', 'The task result is not covered by an applicable approval.', current.caseVersion);
+            }
+            nextTask = {
+              ...task,
+              status: 'COMPLETED',
+              statusReason: null,
+              resultEvidenceRefs: [...new Set([...task.resultEvidenceRefs, ...command.evidenceRefs])]
+            };
+            eventType = 'dynamic_task_result_attached';
+            eventSummary = `Attached demo result evidence for ${task.type} at ${task.targetRef}.`;
+            eventMetadata = {
+              taskId: task.id, evidenceRefs: command.evidenceRefs,
+              resultSummary: command.summary, externalSideEffect: false
+            };
+          }
+
+          const tasks = [...current.tasks];
+          tasks[taskIndex] = nextTask;
+          const snapshot = finalizeSnapshot({
+            ...current,
+            caseVersion: current.caseVersion + 1,
+            updatedAt,
+            tasks,
+            pendingDecisions,
+            attentionItems: [],
+            closure: { status: 'NOT_READY', blockers: [], decisionRef: null }
+          });
+          tx.update(schema.caseLifecycle).set({
+            caseVersion: snapshot.caseVersion,
+            snapshotJson: JSON.stringify(snapshot),
+            updatedAt
+          }).where(eq(schema.caseLifecycle.caseId, command.caseId)).run();
+          recordRevision(tx, snapshot, caseRecord.alertId, eventType, eventSummary, eventMetadata);
+          recordCommand(tx, command, payloadJson, snapshot.caseVersion, updatedAt);
+          return {
+            ok: true as const,
+            commandId: command.commandId,
+            replayed: false,
+            appliedCaseVersion: snapshot.caseVersion,
+            snapshot
+          };
         }
 
         if (command.type !== 'CALCULATE_EXPOSURE') {
@@ -276,23 +446,20 @@ export function createRecallService(database: RecallDatabase, context: Lifecycle
 
         const exposureIsCurrent = current.exposure.status === 'CALCULATED' &&
           current.exposure.basisMaterialRevision === current.materialRevision;
-        if (prepared.length === 0 && exposureIsCurrent) {
-          recordCommand(tx, command, payloadJson, current.caseVersion, updatedAt);
-          return { ok: true as const, commandId: command.commandId, replayed: true, appliedCaseVersion: current.caseVersion, snapshot: current };
-        }
-
         const records = tx.select().from(schema.traceabilityRecords)
           .where(eq(schema.traceabilityRecords.caseId, command.caseId)).all()
           .map((row) => traceabilityRecordSchema.parse(JSON.parse(row.payloadJson)));
-        const exposure = calculateExposure({
-          caseId: current.caseId,
-          productId: current.productId,
-          materialRevision: current.materialRevision!,
-          lots: current.investigation.scope.lots,
-          records,
-          calculatedAt: updatedAt
-        });
-        const draft: CaseSnapshot = {
+        const exposure = prepared.length === 0 && exposureIsCurrent
+          ? current.exposure
+          : calculateExposure({
+              caseId: current.caseId,
+              productId: current.productId,
+              materialRevision: current.materialRevision!,
+              lots: current.investigation.scope.lots,
+              records,
+              calculatedAt: updatedAt
+            });
+        const taskBase: CaseSnapshot = {
           ...current,
           caseVersion: current.caseVersion + 1,
           updatedAt,
@@ -302,11 +469,15 @@ export function createRecallService(database: RecallDatabase, context: Lifecycle
           attentionItems: [],
           closure: { status: 'NOT_READY', blockers: [], decisionRef: null }
         };
-        const blockers = lifecycleBlockers(draft);
-        const snapshot = caseSnapshotSchema.parse({
-          ...draft,
-          attentionItems: blockers,
-          closure: { status: 'NOT_READY', blockers, decisionRef: null }
+        const reconciliation = reconcileDynamicTasks(taskBase, records, updatedAt);
+        if (prepared.length === 0 && exposureIsCurrent && !reconciliation.changed) {
+          recordCommand(tx, command, payloadJson, current.caseVersion, updatedAt);
+          return { ok: true as const, commandId: command.commandId, replayed: true, appliedCaseVersion: current.caseVersion, snapshot: current };
+        }
+        const snapshot = finalizeSnapshot({
+          ...taskBase,
+          tasks: reconciliation.tasks,
+          pendingDecisions: reconciliation.pendingDecisions
         });
         tx.update(schema.caseLifecycle).set({
           caseVersion: snapshot.caseVersion,

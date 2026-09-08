@@ -39,6 +39,10 @@ const exposureInput = {
 };
 const calculated = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, exposureInput));
 if (!calculated.ok) throw new Error(calculated.error.message);
+if (calculated.snapshot.tasks.filter((task) => task.status !== 'SUPERSEDED').length !== 4 ||
+    calculated.snapshot.pendingDecisions.length !== 3) {
+  throw new Error('Expected four active tasks and three pending action decisions.');
+}
 const exposureReplay = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, exposureInput));
 if (!exposureReplay.ok || !exposureReplay.replayed) throw new Error('Expected an idempotent exposure replay.');
 const read = snapshotResultSchema.parse(await (await fetch(`${origin}/api/cases/${input.caseId}/snapshot`)).json());

@@ -6,8 +6,6 @@
 
   let { data }: PageProps = $props();
 
-  const investigatingCount = $derived(data.cases.filter((item) => item.versioned).length);
-
   const openCount = $derived(
     data.cases.filter((item) => item.caseRecord.status === 'open').length
   );
@@ -40,6 +38,7 @@
   }
 
   function nextAction(item: (typeof data.cases)[number]): string {
+    if (item.versioned && item.nextTaskLabel) return item.nextTaskLabel;
     if (item.versioned) return 'Review investigation and unresolved evidence';
     if (item.caseRecord.status === 'closed') return 'No further action required';
     if (item.nextTaskLabel) return item.nextTaskLabel;
@@ -88,13 +87,13 @@
     </div>
     <div class:case-summary__urgent={pendingTaskCount > 0}>
       <span>Containment tasks</span>
-      <strong>{pendingTaskCount}{investigatingCount ? ' recorded' : ''}</strong>
-      <small>{investigatingCount ? `Assessment pending for ${investigatingCount} investigation case(s)` : pendingTaskCount === 1 ? 'Task still requires action' : 'Tasks still require action'}</small>
+      <strong>{pendingTaskCount}</strong>
+      <small>{pendingTaskCount === 1 ? 'Task still requires action' : 'Tasks still require action'}</small>
     </div>
     <div>
       <span>Awaiting approval</span>
-      <strong>{pendingApprovalCount}{investigatingCount ? ' recorded' : ''}</strong>
-      <small>{investigatingCount ? 'Investigation decisions still require verification' : 'Human decisions required'}</small>
+      <strong>{pendingApprovalCount}</strong>
+      <small>Human decisions required</small>
     </div>
   </div>
 
@@ -135,7 +134,7 @@
               </div>
               <div>
                 <dt>Progress</dt>
-                <dd>{item.versioned ? 'Task assessment pending' : `${item.completedTasks}/${item.actionableTasks} tasks complete`}</dd>
+                <dd>{item.completedTasks}/{item.actionableTasks} tasks complete</dd>
               </div>
             </dl>
 

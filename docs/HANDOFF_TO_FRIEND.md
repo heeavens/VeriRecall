@@ -1,22 +1,24 @@
 # Передача блока B следующему разработчику
 
-Актуально после этапа 4, 2026-09-07. По решению Германа он последовательно реализует свой блок сам; друг подключается после него. Этот файл обновляется по завершённым этапам, а не сообщает о планах как о готовом коде. Никому автоматически не отправлялся.
+Актуально после этапа 5, 2026-09-08. По решению Германа он последовательно реализует свой блок сам; друг подключается после него. Этот файл обновляется по завершённым этапам, а не сообщает о планах как о готовом коде. Никому автоматически не отправлялся.
+
+Отчёт о testing strategy/code review находится в `docs/STAGE_5_QUALITY.md`, решение о хранении задач — в `docs/adr/0001-dynamic-task-engine-in-case-snapshot.md`.
 
 ## Что сейчас работает
 
-В `herman_dev` завершены аудит, общий контракт v1, persisted lifecycle и детерминированный exposure/traceability для BATCH_LOT. Общие типы: `$lib/contracts/recall`; сервер: `$lib/server/workflow/case-lifecycle`. После `db:migrate` можно через реальные HTTP routes создать investigation case для существующего catalogue candidate, принять результат, сохранить исходные traceability records, рассчитать exposure, прочитать snapshot и открыть карточку `/cases/{caseId}`. Данные сохраняются в SQLite после перезапуска.
+В `herman_dev` завершены аудит, общий контракт v1, persisted lifecycle, детерминированный exposure/traceability и минимальный Dynamic Task Engine для BATCH_LOT. Общие типы: `$lib/contracts/recall`; сервер: `$lib/server/workflow/case-lifecycle`; правила задач: `$lib/server/tasks/engine`. После `db:migrate` можно через реальные HTTP routes создать investigation case, принять результат, рассчитать exposure, получить задачи, отдельно записать human decision, учебный request и result evidence, прочитать snapshot и открыть карточку `/cases/{caseId}`. Данные сохраняются в SQLite после перезапуска.
 
 Повтор commandId не меняет дело и историю. Другая команда с тем же outcome/revision тоже не создаёт новую версию. Устаревшая caseVersion, старая materialRevision и противоречащий повтор отвергаются. Изменение snapshot, история, audit и ledger записываются в одной immediate-транзакции. Наличие decisionRefs не считается серверным подтверждением.
 
-Stage пока всегда INVESTIGATING, closure NOT_READY; даже у fixture с KNOWN identity/scope есть SCOPE_UNCONFIRMED, поскольку resolver человеческих решений ещё не реализован. После CALCULATE_EXPOSURE настоящий exposure содержит числа или явные null/knowledgeStatus, provenance, gaps и conflicts. Пустые tasks/pendingDecisions — отсутствие материализованных задач/запросов, не готовность закрыть дело. Не показывай их как «всё выполнено».
+Stage пока всегда INVESTIGATING, closure NOT_READY; даже у fixture с KNOWN identity/scope есть SCOPE_UNCONFIRMED, поскольку resolver решений investigation ещё не реализован. После CALCULATE_EXPOSURE настоящий exposure содержит числа или явные null/knowledgeStatus, provenance, gaps/conflicts, dynamic tasks и pending action decisions. REQUESTED означает только записанный учебный запрос, COMPLETED требует resultEvidenceRefs, а завершение задачи само по себе не удаляет exposure gap.
 
 ## Воспроизвести с нуля
 
 Терминал 1, из корня репозитория:
 
 ```bash
-stage4_dir=$(mktemp -d /tmp/verirecall-demo-XXXXXX)
-export DATABASE_URL="$stage4_dir/demo.db"
+stage5_dir=$(mktemp -d /tmp/verirecall-demo-XXXXXX)
+export DATABASE_URL="$stage5_dir/demo.db"
 export VERIRECALL_DEMO_MODE=true
 export OPENAI_API_KEY=''
 export OPENAI_MODEL=''
@@ -31,9 +33,9 @@ npm run dev -- --host 127.0.0.1 --port 5183 --strictPort
 VERIRECALL_BASE_URL=http://127.0.0.1:5183 node --import tsx scripts/demo-lifecycle.ts
 ```
 
-Клиент выводит полный реальный ответ и caseUrl. Он создаёт case, передаёт demo L-2403, сохраняет traceability records, рассчитывает exposure, проверяет повторы обеих команд и GET snapshot. Только этот явно запускаемый demo-клиент импортирует синтетические fixtures; сервер их не подставляет. На свежей БД ожидаются caseVersion=3, три history record, `100 received / 40 warehouse / 20 in transit / 25 retailer / 5 sold / 10 unaccounted`, contained=40 отдельно и NOT_READY. Повторный запуск клиента на том же начальном сценарии безопасен; после ручного расширения revision используйте новую временную БД, не откатывайте её старым fixture.
+Клиент выводит полный реальный ответ и caseUrl. Он создаёт case, передаёт demo L-2403, сохраняет traceability records, рассчитывает exposure, проверяет повторы обеих команд и GET snapshot. Только этот явно запускаемый demo-клиент импортирует синтетические fixtures; сервер их не подставляет. На свежей БД ожидаются caseVersion=3, три history record, `100 received / 40 warehouse / 20 in transit / 25 retailer / 5 sold / 10 unaccounted`, четыре active task, три pending action decision, contained=40 отдельно и NOT_READY.
 
-Открой caseUrl, затем Cases. Должны отображаться L-2403, рассчитанные количества, provenance/as-of, TRACEABILITY_GAP, ACTIVE_TRANSIT, три пункта истории и отсутствие кнопок старого закрытия. Останови сервер, запусти снова с тем же DATABASE_URL: карточка и JSON сохраняются. Use demo data / db:reset заменяют demo-данные и не являются способом перезапуска; для проверки persistence их повторно не нажимать.
+Открой caseUrl, затем Cases. Карточка показывает L-2403, exposure, задачи, draft с sourceRefs и отдельные controls Approve/Reject → Record demo request → Attach result evidence. Эти действия обновляют versioned snapshot через тот же command route; реальные письма, POS, ERP, inventory и shipment systems не вызываются. Останови сервер и запусти снова с тем же DATABASE_URL: карточка, задачи и история сохраняются.
 
 ## Реальное подключение investigation и UI
 
@@ -68,6 +70,23 @@ const exposure = await service.execute({
   records: rawTraceabilityRecords.map((record) => traceabilityRecordSchema.parse(record))
 });
 // Keep rawTraceabilityRecords at the integration boundary; do not copy the shared shape.
+
+if (!exposure.ok) throw new Error(exposure.error.message);
+const hold = exposure.snapshot.tasks.find((task) => task.type === 'HOLD_STOCK');
+if (!hold) throw new Error('No affected stock hold is required by this snapshot.');
+const approved = await service.execute({
+  type: 'DECIDE_ACTION', schemaVersion: 1, caseId: exposure.snapshot.caseId,
+  commandId: crypto.randomUUID(), expectedCaseVersion: exposure.snapshot.caseVersion,
+  taskId: hold.id, decision: 'APPROVED', rationale: 'Reviewed against current lot coverage.',
+  evidenceRefs: []
+});
+if (!approved.ok) throw new Error(approved.error.message);
+const requested = await service.execute({
+  type: 'REQUEST_ACTION', schemaVersion: 1, caseId: approved.snapshot.caseId,
+  commandId: crypto.randomUUID(), expectedCaseVersion: approved.snapshot.caseVersion,
+  taskId: hold.id, demo: true
+});
+// requested.snapshot keeps HOLD_STOCK IN_PROGRESS; only ATTACH_RESULT with evidence can complete it.
 ```
 
 Для UI уже есть:
@@ -75,13 +94,13 @@ const exposure = await service.execute({
 | Route | Вход / выход |
 | --- | --- |
 | POST `/api/cases/investigation` | `{ alertId, productId }` → SnapshotResult; идемпотентная reservation по alert/product |
-| POST `/api/cases/{id}/commands` | RecallCommand → CommandResult; ACCEPT_INVESTIGATION и CALCULATE_EXPOSURE |
+| POST `/api/cases/{id}/commands` | RecallCommand → CommandResult; ACCEPT_INVESTIGATION, CALCULATE_EXPOSURE, DECIDE_ACTION, REQUEST_ACTION и ATTACH_RESULT |
 | GET `/api/cases/{id}/snapshot` | SnapshotResult, Cache-Control no-store |
 | `/cases/{id}` server load | Существующий detail плюс `snapshot: CaseSnapshot \| null` и `history` |
 
 POST требует JSON и Origin, совпадающий с origin URL; браузерный fetch same-origin делает это штатно. curl/скрипт должен передать `Origin: http://127.0.0.1:5183`. Без `VERIRECALL_DEMO_MODE=true` новые API отвечают FORBIDDEN (403). Это явный локальный demo-режим с фиксированным серверным `demo_operator`, не production-аутентификация. mode не принимается из HTTP payload. Live outcome (`demo:false`) отклоняется.
 
-`getCaseHistory(db, caseId)` возвращает полные сохранённые snapshots по caseVersion. UI сейчас показывает список версий через `InvestigationSnapshot.svelte`; можно развить этот компонент, не заменяя реальное чтение fixtures. Собственные компоненты импортируют `CaseSnapshot` и `snapshotResultSchema` из общего модуля. Не копировать интерфейсы и не считать null количеством 0.
+`getCaseHistory(db, caseId)` возвращает полные сохранённые snapshots по caseVersion. UI показывает exposure, dynamic tasks, pending approvals, drafts и список версий через `InvestigationSnapshot.svelte`. Собственные компоненты импортируют `CaseSnapshot`, `RecallCommand` и result schemas из общего модуля. Не копировать интерфейсы и не считать null количеством 0.
 
 Ошибки: 400 INVALID_INPUT/UNSUPPORTED_SCHEMA_VERSION/UNSUPPORTED_SCOPE, 403 FORBIDDEN, 404 NOT_FOUND, 409 VERSION_CONFLICT/STALE_INVESTIGATION/IDEMPOTENCY_CONFLICT/INVALID_STATE, 501 NOT_IMPLEMENTED для будущих команд. После VERSION_CONFLICT обновить snapshot и подготовить новую команду с новым commandId; точный сетевой retry сохраняет исходные commandId и payload.
 
@@ -98,16 +117,16 @@ POST требует JSON и Origin, совпадающий с origin URL; бра
 
 ## Что проверено
 
-- `npm test`: 87 тестов в 17 файлах, PASS; 13 новых exposure tests поверх lifecycle/contract набора.
+- `npm test`: 99 тестов в 19 файлах, PASS; task engine покрыт шестью unit и шестью service scenarios, дополненными contract и list projection assertions.
 - Сохранение/чтение, новое соединение, replay после расширения, история старого scope, canonical key order, одинаковая revision с новым commandId, старые/противоречащие версии и принадлежность case/product.
 - Два независимых DB connection с одинаковой expectedCaseVersion: один writer принят, второй получает конфликт. Это воспроизводимая проверка optimistic concurrency внутри одного процесса, не нагрузочный тест параллельных процессов.
 - Искусственная ошибка последней записи ledger: snapshot/history/audit откатываются. Миграция заполненной 0001 БД и повтор миграции проходят без изменения продуктов.
 - `npm run check`: 0 ошибок/предупреждений; `npm run build`: PASS, прежнее сообщение adapter-auto об отсутствии production target.
 - Реальный HTTP demo-клиент на новой временной БД, повтор команды, GET, перезапуск сервера с точным сравнением snapshot, ошибки stale version/path mismatch/cross-origin.
-- Карточка в браузере на desktop и 390px, список Cases. Docker, live AI и production deployment в этом этапе не проверялись.
+- Карточка и полный переход HOLD_STOCK проверены в браузере на desktop; список Cases после completion показывает 1/4 и следующий blocking action. После перезапуска с той же временной БД сохранились caseVersion 6, task states и шесть revisions. Адаптивная основа этапа 4 проверялась на 390px, но новые controls этапа 5 отдельным мобильным walkthrough не проверялись. Docker, live AI и production deployment в этом этапе не проверялись.
 
 ## Что ещё не сделано
 
-Generation задач, решения и evidence resolver, операционные согласования, closure policy, reopen и simulation. Расширенный scope сбрасывает старый exposure в NOT_CALCULATED; следующая CALCULATE_EXPOSURE использует сохранённые записи обеих партий и считает новый охват. Задачи пока не создаются. Стадии RESPONDING/CONTAINED/CLOSURE_REVIEW/CLOSED определены контрактом, но недостижимы, пока нельзя проверить их условия. Команды DECIDE_ACTION/ATTACH_RESULT/REQUEST_CLOSURE возвращают NOT_IMPLEMENTED без побочных эффектов.
+Resolver для investigation evidence/decisions, достаточность result evidence, реальные операционные интеграции, closure policy, reopen и simulation. Расширенный scope немедленно переводит прежние задачи в SUPERSEDED со STALE approval; следующая CALCULATE_EXPOSURE создаёт задачи для нового покрытия. Стадии RESPONDING/CONTAINED/CLOSURE_REVIEW/CLOSED пока недостижимы. REQUEST_CLOSURE возвращает NOT_IMPLEMENTED без побочных эффектов.
 
 Герман продолжает эти этапы отдельно; при последующем подключении друга этот файл нужно читать вместе с актуальными `docs/MVP_STATUS.md` и `docs/INTEGRATION_CONTRACT.md`.

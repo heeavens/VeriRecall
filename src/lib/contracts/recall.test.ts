@@ -70,22 +70,25 @@ describe('shared recall contract v1', () => {
       { ...base, type: 'CALCULATE_EXPOSURE', records: [{ type: 'RECEIPT', sourceRef: 'demo:receipt', productId: demoCaseId, lot: 'L-2403', occurredAt: confirmedLotOutcome.updatedAt, demo: true, receiptRef: 'R-1', quantity: 100 }] },
       { ...base, type: 'DECIDE_ACTION', taskId: demoCaseId, decision: 'APPROVED', rationale: 'Approve demo hold request', evidenceRefs: [] },
       { ...base, type: 'DECIDE_ACTION', taskId: demoCaseId, decision: 'REJECTED', rationale: 'Wrong coverage', evidenceRefs: [] },
+      { ...base, type: 'REQUEST_ACTION', taskId: demoCaseId, demo: true },
       { ...base, type: 'ATTACH_RESULT', taskId: demoCaseId, evidenceRefs: ['demo:hold-result'], summary: 'Demo warehouse receipt', demo: true },
       { ...base, type: 'REQUEST_CLOSURE', evidenceRefs: ['demo:closure-evidence'], rationale: 'Request final human closure' }
     ];
     for (const command of commands) expect(recallCommandSchema.safeParse(command).success).toBe(true);
-    for (const command of commands.slice(3)) expect(recallCommandSchema.safeParse({ ...command, evidenceRefs: [] }).success).toBe(false);
+    for (const command of commands.slice(4)) expect(recallCommandSchema.safeParse({ ...command, evidenceRefs: [] }).success).toBe(false);
   });
 
   it('does not confuse requested tasks, completed results and human decisions', () => {
-    const task = { id: demoCaseId, rule: 'HOLD_STOCK', status: 'OPEN', title: 'Hold demo lot',
+    const task = { id: demoCaseId, type: 'HOLD_STOCK', rule: 'AFFECTED_AVAILABLE_STOCK', status: 'OPEN', statusReason: null, title: 'Hold demo lot',
       targetRef: 'demo:warehouse', coverage: confirmedLotOutcome.scope, quantity: unknownQuantity,
-      basisMaterialRevision: 1, reasonRefs: ['demo:scope'], blockedBy: [], priority: 'HIGH',
-      priorityReason: 'Affected inventory', approvalRequired: true, decisionRefs: [],
-      resultEvidenceRefs: [], requestStatus: 'REQUESTED', demo: true };
+      basisMaterialRevision: 1, reasonRefs: ['demo:scope'], sourceRefs: ['demo:stock'], blocking: true,
+      blockedBy: [], priority: 'HIGH', priorityReason: 'Affected inventory', approvalRequired: true,
+      approvalStatus: 'APPROVED', decisionRefs: ['demo:decision'], resultEvidenceRefs: [], requestStatus: 'REQUESTED',
+      draft: { recipientRef: 'demo:warehouse', subject: 'Hold affected stock', body: 'Verify this stock record.', reviewRequired: true, sourceRefs: ['demo:stock'], demo: true }, demo: true };
     expect(taskSchema.parse(task).status).toBe('OPEN');
     expect(taskSchema.safeParse({ ...task, status: 'COMPLETED' }).success).toBe(false);
     expect(taskSchema.safeParse({ ...task, status: 'APPROVED' }).success).toBe(false);
+    expect(taskSchema.safeParse({ ...task, type: 'PREPARE_COMMUNICATION' }).success).toBe(false);
     const decision = { id: demoCaseId, type: 'APPROVE_ACTION', status: 'PENDING', subjectRef: demoCaseId,
       basisCaseVersion: 1, basisMaterialRevision: 1, coverage: confirmedLotOutcome.scope,
       evidenceRefs: [], rationale: 'Review hold', actorId: null, decidedAt: null, demo: true };

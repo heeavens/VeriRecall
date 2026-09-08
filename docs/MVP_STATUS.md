@@ -1,6 +1,20 @@
 # VeriRecall — состояние блока B
 
-Дата: 2026-09-07. **Этап 4 завершён: exposure/traceability рассчитывается из сохранённых исходных записей и входит в настоящий CaseSnapshot.** Этап 5 не начат. Герман продолжает свой блок самостоятельно; друг подключается позже по `docs/HANDOFF_TO_FRIEND.md`.
+Дата: 2026-09-08. **Этап 5 завершён: Dynamic Task Engine формирует и пересматривает versioned задачи поверх настоящего exposure.** Этап 6 не начат. Герман продолжает свой блок самостоятельно; друг подключается позже по `docs/HANDOFF_TO_FRIEND.md`.
+
+## Обновление после этапа 5
+
+- `src/lib/server/tasks/engine.ts` детерминированно применяет пять правил: AFFECTED_AVAILABLE_STOCK → HOLD_STOCK, ACTIVE_SHIPMENT → INTERCEPT_SHIPMENT, RECIPIENT_POSITION_UNKNOWN → REQUEST_RETAILER_CONFIRMATION, DISTRIBUTION_GAP → INVESTIGATE_TRACEABILITY_GAP, SOLD_UNITS → PREPARE_COMMUNICATION. Это небольшой rule module внутри монолита, не workflow-конструктор.
+- Versioned task содержит отдельные type/rule, target, coverage, quantity, basis/source/reason refs, blocking/blockedBy, priority/reason, approvalRequired/approvalStatus, decision/result refs, requestStatus, statusReason и reviewable demo draft. Legacy case_tasks/action_drafts не менялись; mapping с существующим action catalogue описан в INTEGRATION_CONTRACT.md.
+- Эквивалентность учитывает case, rule, target, lot coverage и quantity. Повторный расчёт сохраняет id, status, approval, request и result evidence. Изменившийся объём или scope создаёт новую задачу; прежняя остаётся SUPERSEDED с причиной, approval становится STALE. Новая investigation revision сбрасывает exposure; при том же coverage существующие задачи и применимое approval сохраняются, но действия блокируются до нового расчёта. Изменившийся coverage немедленно инвалидирует прежние задачи.
+- Реализованы DECIDE_ACTION, REQUEST_ACTION и ATTACH_RESULT в существующем versioned command route. Approval снимает только approval blocker; REQUESTED переводит задачу в IN_PROGRESS; только ATTACH_RESULT с evidence переводит её в COMPLETED. Все мутации проверяют caseVersion, принадлежность task и состояние, используют command ledger и сохраняют snapshot/history/audit атомарно.
+- Завершённая задача не удаляет exposure gap. Текущие причины и closure blockers рассчитываются отдельно из evidence/exposure; незавершённые blocking tasks добавляют CRITICAL_TASK_PENDING. Stage остаётся INVESTIGATING из-за непроверенных investigation decisions.
+- Draft содержит case, coverage, sourceRefs, требование human review и явную отметку отсутствия внешнего действия. UI показывает задачи и выполняет три раздельных шага. Никакие письма, POS/ERP, inventory или shipment API не вызываются.
+- Testing strategy: новые проверки сначала падали при отсутствующем engine/обработчиках. Добавлены шесть unit-сценариев rules/reconciliation и шесть service-сценариев transitions/history/scope/idempotency, плюс contract/list projection assertions. Полный набор: 99 тестов в 19 файлах, PASS; `npm run check` — 0 ошибок/предупреждений; production build — PASS.
+- Architecture: задачи хранятся в CaseSnapshot и case_revisions, поэтому новой таблицы и миграции не потребовалось. Значимое уточнение общего контракта — новые обязательные поля task и REQUEST_ACTION; другу нужно импортировать единый `$lib/contracts/recall` и сверить UI mapping.
+- Code review: исправлены группировка нескольких доставок одному retailer, сохранение approval при неизменном coverage, связь pending decision ↔ task, детерминированный порядок источников/правил, обновление quantity provenance и versioned task counts в Cases. Контракт теперь отклоняет несовпадающие type/rule и readiness с незавершённой blocking task.
+- Ручной HTTP/UI прогон на отдельной временной SQLite БД подтвердил четыре задачи и три pending decision. Через UI HOLD_STOCK прошёл `BLOCKED → OPEN → IN_PROGRESS → COMPLETED`; approval и REQUESTED не завершили задачу, completion появился только после evidence. Exposure gap остался, blocker count изменился с 3 до 2. После остановки и запуска сервера с той же БД caseVersion 6, задача и шесть записей истории сохранились. Список Cases показывает 1/4 и следующий активный action.
+- Полные результаты трёх обязательных quality gates: `docs/STAGE_5_QUALITY.md`; архитектурный выбор: `docs/adr/0001-dynamic-task-engine-in-case-snapshot.md`.
 
 ## Обновление после этапа 4
 

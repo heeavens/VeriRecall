@@ -107,7 +107,8 @@ describe('persisted exposure service', () => {
     expect(result.snapshot.attentionItems.map((item) => item.code)).toEqual([
       'SCOPE_UNCONFIRMED',
       'ACTIVE_TRANSIT',
-      'TRACEABILITY_GAP'
+      'TRACEABILITY_GAP',
+      'CRITICAL_TASK_PENDING'
     ]);
     expect(result.snapshot.exposure.received.sources).toEqual([
       expect.objectContaining({ sourceRef: 'demo:receipt:L-2403', sourceType: 'RECEIPT' })

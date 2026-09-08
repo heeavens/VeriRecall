@@ -153,6 +153,10 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
         .all();
       const actionableTasks = tasks.filter((task) => task.status !== 'not_available').length;
       const pendingTasks = tasks.filter((task) => task.status === 'pending');
+      const lifecycleTasks = lifecycleSnapshot?.tasks.filter((task) =>
+        !['CANCELLED', 'SUPERSEDED'].includes(task.status)
+      ) ?? [];
+      const pendingLifecycleTasks = lifecycleTasks.filter((task) => task.status !== 'COMPLETED');
       return {
         ...row,
         versioned,
@@ -162,12 +166,18 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
         } : null,
         itemCount: items.length,
         totalStock: items.reduce((total, item) => total + item.stockQuantity, 0),
-        completedTasks: tasks.filter((task) => task.status === 'completed').length,
-        actionableTasks,
-        pendingTasks: pendingTasks.length,
-        nextTaskLabel: pendingTasks[0]?.label ?? null,
+        completedTasks: lifecycleSnapshot
+          ? lifecycleTasks.filter((task) => task.status === 'COMPLETED').length
+          : tasks.filter((task) => task.status === 'completed').length,
+        actionableTasks: lifecycleSnapshot ? lifecycleTasks.length : actionableTasks,
+        pendingTasks: lifecycleSnapshot ? pendingLifecycleTasks.length : pendingTasks.length,
+        nextTaskLabel: lifecycleSnapshot
+          ? pendingLifecycleTasks.find((task) => task.blocking)?.title ?? pendingLifecycleTasks[0]?.title ?? null
+          : pendingTasks[0]?.label ?? null,
         draftCount: drafts.length,
-        pendingApprovals: drafts.filter((draft) => draft.status === 'draft').length,
+        pendingApprovals: lifecycleSnapshot
+          ? lifecycleSnapshot.pendingDecisions.filter((decision) => decision.type === 'APPROVE_ACTION').length
+          : drafts.filter((draft) => draft.status === 'draft').length,
         simulatedCount: drafts.filter((draft) => draft.status === 'simulated_sent').length
       };
     })

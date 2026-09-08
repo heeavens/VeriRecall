@@ -13,6 +13,21 @@ export type KnowledgeStatus = z.infer<typeof knowledgeStatusSchema>;
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export type HumanDecisionStatus = z.infer<typeof humanDecisionStatusSchema>;
 
+export const taskTypeSchema = z.enum([
+  'HOLD_STOCK',
+  'INTERCEPT_SHIPMENT',
+  'REQUEST_RETAILER_CONFIRMATION',
+  'INVESTIGATE_TRACEABILITY_GAP',
+  'PREPARE_COMMUNICATION'
+]);
+export const taskRuleSchema = z.enum([
+  'AFFECTED_AVAILABLE_STOCK',
+  'ACTIVE_SHIPMENT',
+  'RECIPIENT_POSITION_UNKNOWN',
+  'DISTRIBUTION_GAP',
+  'SOLD_UNITS'
+]);
+
 const traceabilityFields = {
   sourceRef: text,
   productId: id,
@@ -153,27 +168,66 @@ export const exposureSchema = z.strictObject({
   }
 });
 
+export const taskDraftSchema = z.strictObject({
+  recipientRef: text,
+  subject: text,
+  body: text,
+  reviewRequired: z.literal(true),
+  sourceRefs: refs.min(1),
+  demo: z.boolean()
+});
 export const taskSchema = z.strictObject({
   id: id,
-  rule: z.enum(['HOLD_STOCK', 'INTERCEPT_SHIPMENT', 'REQUEST_RETAILER_CONFIRMATION', 'INVESTIGATE_TRACEABILITY_GAP', 'PREPARE_COMMUNICATION']),
+  type: taskTypeSchema,
+  rule: taskRuleSchema,
   status: taskStatusSchema,
+  statusReason: text.nullable(),
   title: text,
   targetRef: text,
   coverage: scopeSchema,
   quantity: quantitySchema,
   basisMaterialRevision: revision,
   reasonRefs: refs.min(1),
+  sourceRefs: refs.min(1),
+  blocking: z.boolean(),
   blockedBy: refs,
   priority: z.enum(['CRITICAL', 'HIGH', 'NORMAL']),
   priorityReason: text,
   approvalRequired: z.boolean(),
+  approvalStatus: humanDecisionStatusSchema.nullable(),
   decisionRefs: refs,
   resultEvidenceRefs: refs,
   requestStatus: z.enum(['NOT_REQUESTED', 'REQUESTED']),
+  draft: taskDraftSchema,
   demo: z.boolean()
 }).superRefine((value, context) => {
+  const expectedTypeByRule = {
+    AFFECTED_AVAILABLE_STOCK: 'HOLD_STOCK',
+    ACTIVE_SHIPMENT: 'INTERCEPT_SHIPMENT',
+    RECIPIENT_POSITION_UNKNOWN: 'REQUEST_RETAILER_CONFIRMATION',
+    DISTRIBUTION_GAP: 'INVESTIGATE_TRACEABILITY_GAP',
+    SOLD_UNITS: 'PREPARE_COMMUNICATION'
+  } as const;
+  if (value.type !== expectedTypeByRule[value.rule]) {
+    context.addIssue({ code: 'custom', message: 'Task type must match its generating rule' });
+  }
   if (value.status === 'COMPLETED' && !value.resultEvidenceRefs.length) {
     context.addIssue({ code: 'custom', message: 'Completion requires result evidence; a request is insufficient' });
+  }
+  if (['CANCELLED', 'SUPERSEDED'].includes(value.status) && value.statusReason === null) {
+    context.addIssue({ code: 'custom', message: 'Cancelled and superseded tasks require a reason' });
+  }
+  if (value.status === 'BLOCKED' && !value.blockedBy.length) {
+    context.addIssue({ code: 'custom', message: 'Blocked tasks require a dependency reference' });
+  }
+  if (value.approvalRequired !== (value.approvalStatus !== null)) {
+    context.addIssue({ code: 'custom', message: 'Approval status is required only for approval-gated tasks' });
+  }
+  if (value.approvalStatus !== null && value.approvalStatus !== 'PENDING' && !value.decisionRefs.length) {
+    context.addIssue({ code: 'custom', message: 'Recorded or stale approval status requires a decision reference' });
+  }
+  if (value.draft.sourceRefs.some((ref) => !value.sourceRefs.includes(ref))) {
+    context.addIssue({ code: 'custom', message: 'Draft sources must belong to the task basis' });
   }
 });
 export const humanDecisionSchema = z.strictObject({
@@ -229,6 +283,19 @@ export const caseSnapshotSchema = z.strictObject({
   if (value.pendingDecisions.some((decision) => decision.status !== 'PENDING')) {
     context.addIssue({ code: 'custom', message: 'pendingDecisions may contain only pending records' });
   }
+  for (const task of value.tasks.filter((item) => item.approvalStatus === 'PENDING')) {
+    const decision = value.pendingDecisions.find((item) =>
+      item.type === 'APPROVE_ACTION' && item.subjectRef === task.id
+    );
+    if (!decision || !task.blockedBy.includes(decision.id)) {
+      context.addIssue({ code: 'custom', message: 'Pending task approval requires a linked pending decision' });
+    }
+  }
+  if (value.pendingDecisions.filter((decision) => decision.type === 'APPROVE_ACTION').some((decision) =>
+    !value.tasks.some((task) => task.id === decision.subjectRef && task.approvalStatus === 'PENDING')
+  )) {
+    context.addIssue({ code: 'custom', message: 'Pending action decisions must belong to a pending task approval' });
+  }
   if ((value.stage === 'CLOSED') !== (value.closure.status === 'CLOSED')) {
     context.addIssue({ code: 'custom', message: 'Closed stage and closure result must agree' });
   }
@@ -239,7 +306,7 @@ export const caseSnapshotSchema = z.strictObject({
     value.uncertainties.some((issue) => issue.critical) || value.conflicts.length ||
     value.exposure.gaps.some((issue) => issue.critical) || value.exposure.conflicts.length ||
     value.exposure.inTransit.value !== 0 || value.exposure.unaccounted.value !== 0 ||
-    value.tasks.some((task) => task.priority === 'CRITICAL' && !['COMPLETED', 'CANCELLED', 'SUPERSEDED'].includes(task.status))
+    value.tasks.some((task) => task.blocking && !['COMPLETED', 'SUPERSEDED'].includes(task.status))
   )) {
     context.addIssue({ code: 'custom', message: 'Closure cannot claim readiness with unresolved or stale prerequisites' });
   }
@@ -257,6 +324,7 @@ export const recallCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ ...mutationFields, type: z.literal('CALCULATE_EXPOSURE'), records: z.array(traceabilityRecordSchema).min(1)
     .refine((records) => new Set(records.map((record) => record.sourceRef)).size === records.length, 'Duplicate source references') }),
   z.strictObject({ ...mutationFields, type: z.literal('DECIDE_ACTION'), taskId: id, decision: z.enum(['APPROVED', 'REJECTED']), rationale: text, evidenceRefs: refs }),
+  z.strictObject({ ...mutationFields, type: z.literal('REQUEST_ACTION'), taskId: id, demo: z.boolean() }),
   z.strictObject({ ...mutationFields, type: z.literal('ATTACH_RESULT'), taskId: id, evidenceRefs: refs.min(1), summary: text, demo: z.boolean() }),
   z.strictObject({ ...mutationFields, type: z.literal('REQUEST_CLOSURE'), rationale: text, evidenceRefs: refs.min(1) })
 ]).superRefine((value, context) => {
