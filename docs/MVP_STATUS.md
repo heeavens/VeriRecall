@@ -18,6 +18,7 @@
 - Публичный Review route требует явный локальный demo mode и использует фиксированного server-side `demo_operator`. Отключённый режим отклоняет операцию без legacy fallback.
 - Локальный demo catalogue содержит 15 синтетических товаров Costa Coffee и три явно демонстрационных кофейных предупреждения. Названия, категории, поставщики и изображения согласованы; это не реальные отзывы бренда.
 - Versioned case UI ведёт пользователя по четырём шагам: product match, human review, affected stock, actions/closure. Главная карточка показывает следующее действие; review содержит чек-лист и пример комментария, а версии, machine fields и audit history убраны в раскрываемый технический блок.
+- После подтверждения identity/scope case UI может явно загрузить однопартийный synthetic demo-набор на 100 единиц через настоящий `CALCULATE_EXPOSURE`. После завершения `HOLD_STOCK` отдельная кнопка записывает demo containment evidence и повторно считает snapshot; завершение задачи само по себе containment не доказывает. Это локальный demo-путь, а не production-импорт ERP/POS.
 
 ## Архитектура и БД
 
@@ -52,7 +53,7 @@ npm run db:seed
 npm run dev -- --host 127.0.0.1 --port 5187
 ```
 
-Открой `/review`, подтверди candidate и перейди по **Open case**. Проверь настоящий `INVESTIGATING` snapshot, scope и неизвестный exposure. Полный автоматический сценарий запускается командой `npm test -- src/lib/server/integration/review-lifecycle.test.ts`.
+Открой `/review`, подтверди candidate и перейди по **Open case**. Подтверди product и batch, нажми **Load demo stock records**, проведи появившийся `HOLD_STOCK` через approval → demo request → result evidence, затем нажми **Record 100 contained items** и выполни отдельное закрытие. Полный автоматический сценарий запускается командой `npm test -- src/lib/server/integration/review-lifecycle.test.ts`.
 
 ## Изменения общего формата для сверки с другом
 

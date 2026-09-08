@@ -6,6 +6,8 @@
 
 `InvestigationSnapshot.svelte` теперь является пошаговым пользовательским экраном. Новые UI-состояния должны продолжать браться только из `CaseSnapshot`: не добавляй отдельный client workflow state. Технические version/revision, полный decision log и raw JSON доступны в раскрываемом audit-блоке, но не являются основным пользовательским сценарием.
 
+Для ручного локального показа после current identity/scope approvals экран явно предлагает однопартийный synthetic demo-набор на 100 единиц. Он отправляется существующей командой `CALCULATE_EXPOSURE`; отдельный containment record доступен только после `COMPLETED` demo `HOLD_STOCK`. Не переносить эти browser-generated demo records в production import и не считать task result заменой traceability evidence.
+
 ## Что импортировать
 
 Browser-safe источник типов и runtime-валидации один:

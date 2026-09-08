@@ -3,7 +3,12 @@
 
   import Icon from '$lib/components/Icon.svelte';
   import WorkflowBreadcrumbs from '$lib/components/WorkflowBreadcrumbs.svelte';
-  import { commandResultSchema, type CaseSnapshot, type RecallCommand } from '$lib/contracts/recall';
+  import {
+    commandResultSchema,
+    type CaseSnapshot,
+    type RecallCommand,
+    type TraceabilityRecord
+  } from '$lib/contracts/recall';
 
   let { snapshot, history, caseNumber, productName }: {
     snapshot: CaseSnapshot;
@@ -14,13 +19,18 @@
 
   let currentSnapshot = $state(untrack(() => snapshot));
   let currentHistory = $state(untrack(() => [...history]));
+  let busy = $state(false);
   let busyTaskId = $state<string | null>(null);
   let notice = $state<{ ok: boolean; message: string } | null>(null);
   let rationales = $state<Record<string, string>>({});
   let evidenceRefs = $state<Record<string, string>>({});
   let resultSummaries = $state<Record<string, string>>({});
   let closureRationale = $state('');
-  let closureEvidence = $state('');
+  let closureEvidence = $state(untrack(() => snapshot.tasks
+    .filter((task) => task.blocking && task.status === 'COMPLETED')
+    .flatMap((task) => task.resultEvidenceRefs)
+    .join(', ')));
+  const demoRecordedAt = new Date().toISOString();
 
   const positions = $derived([
     { label: 'Received from supplier', quantity: currentSnapshot.exposure.received },
@@ -45,6 +55,17 @@
   );
   const exposureCalculated = $derived(currentSnapshot.exposure.status === 'CALCULATED');
   const activeTasks = $derived(currentSnapshot.tasks.filter((task) => active(task.status)));
+  const completedDemoHold = $derived(currentSnapshot.tasks.some((task) =>
+    task.type === 'HOLD_STOCK' && task.status === 'COMPLETED' &&
+    task.sourceRefs.some((reference) => reference.startsWith(`demo:case-ui:${currentSnapshot.caseId}:`))
+  ));
+  const demoContainmentOutstanding = $derived(
+    currentSnapshot.demo && exposureCalculated && completedDemoHold &&
+    currentSnapshot.exposure.received.knowledgeStatus === 'KNOWN' &&
+    (currentSnapshot.exposure.received.value ?? 0) > 0 &&
+    (currentSnapshot.exposure.contained.knowledgeStatus !== 'KNOWN' ||
+      (currentSnapshot.exposure.contained.value ?? 0) < (currentSnapshot.exposure.received.value ?? 0))
+  );
   const currentAction = $derived(nextAction());
 
   function stageLabel(stage: CaseSnapshot['stage']): string {
@@ -147,8 +168,15 @@
       href: '#closure-step'
     };
     if (!exposureCalculated) return {
-      title: 'Load stock and distribution evidence',
-      detail: 'The system still needs receipts, current stock, shipments and sales. You are not expected to enter a guessed quantity here.',
+      title: reviewsApproved ? 'Load the demo stock records' : 'Load stock and distribution evidence',
+      detail: reviewsApproved
+        ? 'Use the demonstration records below to continue this local case through a real exposure calculation.'
+        : 'The system still needs receipts, current stock, shipments and sales. You are not expected to enter a guessed quantity here.',
+      href: '#exposure-step'
+    };
+    if (demoContainmentOutstanding) return {
+      title: 'Record the verified containment result',
+      detail: 'The hold action is complete, but the stock record still needs evidence that all affected items were isolated.',
       href: '#exposure-step'
     };
     if (activeTasks.length) return {
@@ -186,6 +214,8 @@
   }
 
   async function executeTask(command: RecallCommand): Promise<void> {
+    if (busy) return;
+    busy = true;
     busyTaskId = 'taskId' in command ? command.taskId
       : 'decisionId' in command ? command.decisionId
         : command.type === 'REQUEST_CLOSURE' ? command.caseId : null;
@@ -207,6 +237,9 @@
         return;
       }
       currentSnapshot = result.data.snapshot;
+      if (command.type === 'ATTACH_RESULT' && !closureEvidence.trim()) {
+        closureEvidence = command.evidenceRefs.join(', ');
+      }
       if (!currentHistory.some((item) => item.caseVersion === currentSnapshot.caseVersion)) {
         currentHistory = [...currentHistory, {
           caseVersion: currentSnapshot.caseVersion,
@@ -215,8 +248,12 @@
           actorId: 'demo_operator'
         }];
       }
-      notice = { ok: true, message: command.type === 'DECIDE_INVESTIGATION'
-        ? 'Your review was saved. The case has been updated with your decision.'
+      notice = { ok: true, message: command.type === 'CALCULATE_EXPOSURE'
+        ? command.records.some((record) => record.type === 'CONTAINMENT')
+          ? 'The demonstration containment evidence was saved and exposure was recalculated.'
+          : 'The demonstration stock records were saved and exposure was calculated.'
+        : command.type === 'DECIDE_INVESTIGATION'
+          ? 'Your review was saved. The case has been updated with your decision.'
         : command.type === 'DECIDE_ACTION'
           ? 'Your decision was saved. No request has been sent yet.'
           : command.type === 'REQUEST_ACTION'
@@ -227,8 +264,59 @@
     } catch {
       notice = { ok: false, message: 'The case update could not be completed. Please try again.' };
     } finally {
+      busy = false;
       busyTaskId = null;
     }
+  }
+
+  function demoScopeLot(): string | null {
+    const scope = currentSnapshot.investigation?.scope;
+    return scope?.kind === 'BATCH_LOT' && scope.lots.length === 1 ? scope.lots[0] : null;
+  }
+
+  function loadDemoTraceability(): void {
+    const lot = demoScopeLot();
+    if (!currentSnapshot.demo || !reviewsApproved || !lot) {
+      notice = { ok: false, message: 'Confirm one affected batch before loading the demonstration records.' };
+      return;
+    }
+    const prefix = `demo:case-ui:${currentSnapshot.caseId}:r${currentSnapshot.materialRevision}:${encodeURIComponent(lot)}`;
+    const productId = currentSnapshot.productId;
+    const common = { productId, lot, occurredAt: demoRecordedAt, demo: true } as const;
+    const records: TraceabilityRecord[] = [
+      { ...common, type: 'RECEIPT', sourceRef: `${prefix}:receipt`, receiptRef: `DEMO-RECEIPT-${lot}`, quantity: 100 },
+      { ...common, type: 'INVENTORY', sourceRef: `${prefix}:inventory`, locationRef: 'warehouse:DUB', quantity: 100 },
+      { ...common, type: 'SHIPMENT', sourceRef: `${prefix}:shipment`, shipmentRef: `DEMO-SHIPMENT-${lot}`, destinationRef: 'retailer:DUB', quantity: 0, status: 'RETURNED' },
+      { ...common, type: 'RETAILER_RESPONSE', sourceRef: `${prefix}:retailer`, retailerRef: 'retailer:DUB', quantity: 0 },
+      { ...common, type: 'SALE', sourceRef: `${prefix}:sale`, saleRef: `DEMO-SALES-${lot}`, quantity: 0 }
+    ];
+    void executeTask({
+      type: 'CALCULATE_EXPOSURE', schemaVersion: 1, caseId: currentSnapshot.caseId,
+      commandId: crypto.randomUUID(), expectedCaseVersion: currentSnapshot.caseVersion, records
+    });
+  }
+
+  function recordDemoContainment(): void {
+    const lot = demoScopeLot();
+    const quantity = currentSnapshot.exposure.received.value;
+    if (!currentSnapshot.demo || !lot || currentSnapshot.exposure.received.knowledgeStatus !== 'KNOWN' || quantity === null) {
+      notice = { ok: false, message: 'The affected total must be known before containment can be recorded.' };
+      return;
+    }
+    const record: TraceabilityRecord = {
+      type: 'CONTAINMENT',
+      sourceRef: `demo:case-ui:${currentSnapshot.caseId}:r${currentSnapshot.materialRevision}:${encodeURIComponent(lot)}:containment`,
+      productId: currentSnapshot.productId,
+      lot,
+      occurredAt: demoRecordedAt,
+      demo: true,
+      locationRef: 'warehouse:DUB',
+      quantity
+    };
+    void executeTask({
+      type: 'CALCULATE_EXPOSURE', schemaVersion: 1, caseId: currentSnapshot.caseId,
+      commandId: crypto.randomUUID(), expectedCaseVersion: currentSnapshot.caseVersion, records: [record]
+    });
   }
 
   function decide(taskId: string, decision: 'APPROVED' | 'REJECTED'): void {
@@ -410,10 +498,10 @@
               <small>A short plain-language note becomes part of the audit history.</small>
             </label>
             <div class="task-actions">
-              <button class="btn btn-primary" type="button" disabled={busyTaskId !== null} onclick={() => decideInvestigation(decision.id, 'APPROVED')}>
+              <button class="btn btn-primary" type="button" disabled={busy} onclick={() => decideInvestigation(decision.id, 'APPROVED')}>
                 {busyTaskId === decision.id ? 'Saving…' : decision.type === 'CONFIRM_IDENTITY' ? 'Confirm product match' : 'Confirm affected batch'}
               </button>
-              <button class="btn btn-secondary" type="button" disabled={busyTaskId !== null} onclick={() => decideInvestigation(decision.id, 'REJECTED')}>Cannot confirm</button>
+              <button class="btn btn-secondary" type="button" disabled={busy} onclick={() => decideInvestigation(decision.id, 'REJECTED')}>Cannot confirm</button>
             </div>
           </section>
         {/each}
@@ -446,6 +534,18 @@
         {/each}
       </dl>
       <p class="contained"><Icon name="shield-check" size={17} /> <strong>Confirmed contained:</strong> {quantityLabel(currentSnapshot.exposure.contained)}</p>
+      {#if demoContainmentOutstanding}
+        <div class="demo-step">
+          <div>
+            <span class="badge badge-purple">Local demo</span>
+            <h3>Record the containment evidence</h3>
+            <p>The hold task has a verified result. Save the matching warehouse containment record so the exposure calculation can prove that all {currentSnapshot.exposure.received.value} affected items are isolated.</p>
+          </div>
+          <button class="btn btn-primary" type="button" disabled={busy} onclick={recordDemoContainment}>
+            {busy ? 'Saving…' : `Record ${currentSnapshot.exposure.received.value} contained items`}
+          </button>
+        </div>
+      {/if}
       {#if currentSnapshot.exposure.gaps.length || currentSnapshot.exposure.conflicts.length}
         <div class="warning-box"><Icon name="triangle-alert" size={19} /><div><strong>Some stock is still not explained</strong><ul>{#each [...currentSnapshot.exposure.gaps, ...currentSnapshot.exposure.conflicts] as item}<li>{item.message}</li>{/each}</ul></div></div>
       {/if}
@@ -461,6 +561,16 @@
             <li>Retailer confirmations and recorded sales</li>
           </ul>
           <small>In the current demo, these records are loaded through the traceability demo/API before response tasks appear.</small>
+          {#if currentSnapshot.demo && reviewsApproved && demoScopeLot()}
+            <div class="demo-loader">
+              <p><strong>Continue the local demo:</strong> load a synthetic receipt and current stock position for 100 items in {coverageLabel()}. This uses the real exposure service and creates a real hold-stock task. It does not contact an external system.</p>
+              <button class="btn btn-primary" type="button" disabled={busy} onclick={loadDemoTraceability}>
+                {busy ? 'Loading…' : 'Load demo stock records'}
+              </button>
+            </div>
+          {:else}
+            <p class="waiting-note"><strong>Finish the product and batch review above before stock records can be loaded.</strong></p>
+          {/if}
         </div>
       </div>
     {/if}
@@ -496,17 +606,17 @@
             {#if task.approvalStatus === 'PENDING' && active(task.status)}
               <label for={`task-rationale-${task.id}`}><span>Why is this action appropriate?</span><textarea id={`task-rationale-${task.id}`} value={rationales[task.id] ?? ''} oninput={(event) => setField(rationales, task.id, event)} placeholder="Example: Current warehouse records show affected stock that must be held." rows="3"></textarea></label>
               <div class="task-actions">
-                <button class="btn btn-primary" type="button" disabled={busyTaskId !== null} onclick={() => decide(task.id, 'APPROVED')}>Approve action</button>
-                <button class="btn btn-secondary" type="button" disabled={busyTaskId !== null} onclick={() => decide(task.id, 'REJECTED')}>Reject action</button>
+                <button class="btn btn-primary" type="button" disabled={busy} onclick={() => decide(task.id, 'APPROVED')}>Approve action</button>
+                <button class="btn btn-secondary" type="button" disabled={busy} onclick={() => decide(task.id, 'REJECTED')}>Reject action</button>
               </div>
             {:else if active(task.status) && task.requestStatus === 'NOT_REQUESTED'}
               <p class="action-help">Approval is recorded. The next click records a demo request; it does not contact an external system.</p>
-              <button class="btn btn-primary" type="button" disabled={busyTaskId !== null} onclick={() => requestAction(task.id)}>Record demo request</button>
+              <button class="btn btn-primary" type="button" disabled={busy} onclick={() => requestAction(task.id)}>Record demo request</button>
             {:else if active(task.status) && task.requestStatus === 'REQUESTED'}
               <p class="action-help">The request is recorded, but the action is not complete until its result is verified.</p>
               <label for={`result-${task.id}`}><span>What result was confirmed?</span><input id={`result-${task.id}`} value={resultSummaries[task.id] ?? ''} oninput={(event) => setField(resultSummaries, task.id, event)} placeholder="Example: Warehouse confirmed that 17 items are isolated." /></label>
               <label for={`evidence-${task.id}`}><span>Evidence reference</span><input id={`evidence-${task.id}`} value={evidenceRefs[task.id] ?? ''} oninput={(event) => setField(evidenceRefs, task.id, event)} placeholder="demo:evidence:warehouse-confirmation" /><small>Use the reference for the document or record that proves the result.</small></label>
-              <button class="btn btn-primary" type="button" disabled={busyTaskId !== null} onclick={() => attachResult(task.id)}>Attach result and complete</button>
+              <button class="btn btn-primary" type="button" disabled={busy} onclick={() => attachResult(task.id)}>Attach result and complete</button>
             {/if}
           </section>
         {/each}
@@ -533,7 +643,7 @@
       {#if requiredClosureEvidence.length}<p class="required-evidence"><strong>Result evidence available:</strong> {requiredClosureEvidence.join(', ')}</p>{/if}
       <label for="closure-rationale"><span>Why can this case be closed?</span><textarea id="closure-rationale" bind:value={closureRationale} placeholder="Explain how the affected stock and required actions were verified." rows="3"></textarea></label>
       <label for="closure-evidence"><span>Evidence references used for closure</span><input id="closure-evidence" bind:value={closureEvidence} placeholder="demo:result:warehouse-confirmation" /><small>Use existing result references, separated by commas.</small></label>
-      <button class="btn btn-primary" type="button" disabled={busyTaskId !== null} onclick={closeCase}>Confirm closure for this version</button>
+      <button class="btn btn-primary" type="button" disabled={busy} onclick={closeCase}>Confirm closure for this version</button>
     {:else}
       <div class="blockers">
         <h3>Why this case cannot close yet</h3>
@@ -639,6 +749,13 @@
   .empty-step small { color: #716b7b; font-size: 10px; }
   .empty-step.compact { align-items: center; }
   .empty-step.compact p { margin: 5px 0 0; }
+  .demo-loader { display: grid; justify-items: start; gap: 10px; margin-top: 16px; border-top: 1px solid #e6dfec; padding-top: 16px; }
+  .demo-loader p { margin: 0; }
+  .waiting-note { margin: 14px 0 0 !important; color: #795d24 !important; }
+  .demo-step { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 16px; border: 1px solid #d8c7f6; border-radius: 12px; padding: 16px; background: #faf7ff; }
+  .demo-step h3 { margin: 8px 0 5px; font-size: 14px; }
+  .demo-step p { margin: 0; color: #5f5868; font-size: 11px; line-height: 1.5; }
+  .demo-step button { flex: 0 0 auto; }
   .task-item > header p { margin: 5px 0 0; color: #716b7b; font-size: 11px; }
   .task-inactive { opacity: .7; }
   .task-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 15px 0; }
@@ -672,5 +789,6 @@
     .journey, .finding-grid, .positions { grid-template-columns: 1fr; }
     .section-card { padding: 18px; }
     .task-summary { grid-template-columns: 1fr; }
+    .demo-step { align-items: stretch; flex-direction: column; }
   }
 </style>
