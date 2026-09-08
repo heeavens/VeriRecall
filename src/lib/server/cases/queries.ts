@@ -1,5 +1,6 @@
 import { asc, desc, eq, inArray } from 'drizzle-orm';
 
+import type { CaseSnapshot } from '../../contracts/recall';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { readCaseSnapshot } from '../workflow/case-lifecycle';
@@ -7,6 +8,7 @@ import { hasCaseLifecycle } from '../workflow/lifecycle-boundary';
 
 export interface CaseListItem {
   versioned: boolean;
+  versionedStage: CaseSnapshot['stage'] | null;
   versionedExposure: { status: 'NOT_CALCULATED' | 'CALCULATED'; received: number | null } | null;
   caseRecord: typeof schema.cases.$inferSelect;
   alert: typeof schema.alerts.$inferSelect;
@@ -160,6 +162,7 @@ export function getCasesView(database: RecallDatabase): CaseListItem[] {
       return {
         ...row,
         versioned,
+        versionedStage: lifecycleSnapshot?.stage ?? null,
         versionedExposure: lifecycleSnapshot ? {
           status: lifecycleSnapshot.exposure.status,
           received: lifecycleSnapshot.exposure.received.value

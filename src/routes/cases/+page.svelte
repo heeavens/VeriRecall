@@ -38,6 +38,8 @@
   }
 
   function nextAction(item: (typeof data.cases)[number]): string {
+    if (item.versionedStage === 'CLOSED') return 'No further action required';
+    if (item.versionedStage === 'CLOSURE_REVIEW') return 'Record the final closure decision';
     if (item.versioned && item.nextTaskLabel) return item.nextTaskLabel;
     if (item.versioned) return 'Review investigation and unresolved evidence';
     if (item.caseRecord.status === 'closed') return 'No further action required';
@@ -116,7 +118,7 @@
               <div class="case-row__title">
                 <a href={`/cases/${item.caseRecord.id}`}>{item.caseRecord.caseNumber}</a>
                 <span class={`badge ${statusClass(item.caseRecord.status)}`}>
-                  {item.versioned ? 'Investigating' : statusLabel(item.caseRecord.status)}
+                  {item.versionedStage ?? statusLabel(item.caseRecord.status)}
                 </span>
               </div>
               <strong>{item.alert.productName}</strong>

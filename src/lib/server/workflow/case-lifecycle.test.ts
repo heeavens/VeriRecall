@@ -191,7 +191,7 @@ describe('persisted case lifecycle', () => {
     expect(await service.execute({ ...input, actorName: 'admin' })).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
     expect(await service.execute({ ...input, outcome: { ...input.outcome, demo: false } })).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
     expect(await createRecallService(connection.db, { mode: 'disabled' }).execute(input)).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
-    expect(await service.execute({ type: 'REQUEST_CLOSURE', schemaVersion: 1, caseId: initial.caseId, commandId: randomUUID(), expectedCaseVersion: 1, rationale: 'Close anyway', evidenceRefs: ['demo:note'] })).toMatchObject({ ok: false, error: { code: 'NOT_IMPLEMENTED' } });
+    expect(await service.execute({ type: 'REQUEST_CLOSURE', schemaVersion: 1, caseId: initial.caseId, commandId: randomUUID(), expectedCaseVersion: 1, rationale: 'Close anyway', evidenceRefs: ['demo:note'], demo: true })).toMatchObject({ ok: false, error: { code: 'CLOSURE_BLOCKED' } });
     expect(counts()).toEqual(before);
   });
 

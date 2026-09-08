@@ -108,6 +108,7 @@ describe('persisted exposure service', () => {
       'SCOPE_UNCONFIRMED',
       'ACTIVE_TRANSIT',
       'TRACEABILITY_GAP',
+      'EVIDENCE_MISSING',
       'CRITICAL_TASK_PENDING'
     ]);
     expect(result.snapshot.exposure.received.sources).toEqual([

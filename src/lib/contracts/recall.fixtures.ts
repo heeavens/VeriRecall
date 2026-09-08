@@ -50,7 +50,7 @@ export function makeUncalculatedSnapshot(outcome: InvestigationOutcome, caseVers
       sold: unknown(), unaccounted: unknown(), contained: unknown(), gaps: [], conflicts: []
     },
     tasks: [], uncertainties: structuredClone(outcome.gaps), conflicts: structuredClone(outcome.conflicts),
-    attentionItems: [blocker], pendingDecisions: [],
+    attentionItems: [blocker], pendingDecisions: [], decisions: [],
     closure: { status: 'NOT_READY', blockers: [blocker], decisionRef: null }, demo: true
   };
 }

@@ -14,6 +14,8 @@
   let rationales = $state<Record<string, string>>({});
   let evidenceRefs = $state<Record<string, string>>({});
   let resultSummaries = $state<Record<string, string>>({});
+  let closureRationale = $state('');
+  let closureEvidence = $state('');
 
   const positions = $derived([
     { label: 'Affected received total', quantity: currentSnapshot.exposure.received },
@@ -23,6 +25,12 @@
     { label: 'Sold', quantity: currentSnapshot.exposure.sold },
     { label: 'Unaccounted', quantity: currentSnapshot.exposure.unaccounted }
   ]);
+  const investigationReviews = $derived(currentSnapshot.pendingDecisions.filter((decision) =>
+    decision.type === 'CONFIRM_IDENTITY' || decision.type === 'CONFIRM_SCOPE'
+  ));
+  const requiredClosureEvidence = $derived(currentSnapshot.tasks
+    .filter((task) => task.blocking && task.status === 'COMPLETED')
+    .flatMap((task) => task.resultEvidenceRefs));
 
   function quantityLabel(quantity: typeof currentSnapshot.exposure.received): string {
     return quantity.knowledgeStatus === 'KNOWN'
@@ -39,7 +47,9 @@
   }
 
   async function executeTask(command: RecallCommand): Promise<void> {
-    busyTaskId = 'taskId' in command ? command.taskId : null;
+    busyTaskId = 'taskId' in command ? command.taskId
+      : 'decisionId' in command ? command.decisionId
+        : command.type === 'REQUEST_CLOSURE' ? command.caseId : null;
     notice = null;
     try {
       const response = await fetch(`/api/cases/${currentSnapshot.caseId}/commands`, {
@@ -50,7 +60,7 @@
       const payload: unknown = await response.json();
       const result = commandResultSchema.safeParse(payload);
       if (!result.success) {
-        notice = { ok: false, message: 'The server returned an invalid task response.' };
+        notice = { ok: false, message: 'The server returned an invalid case response.' };
         return;
       }
       if (!result.data.ok) {
@@ -66,13 +76,17 @@
           actorId: 'demo_operator'
         }];
       }
-      notice = { ok: true, message: command.type === 'DECIDE_ACTION'
+      notice = { ok: true, message: command.type === 'DECIDE_INVESTIGATION'
+        ? 'Investigation decision recorded from the trusted demo context. Factual knowledge was not changed.'
+        : command.type === 'DECIDE_ACTION'
         ? 'Decision recorded. No request or external action was performed.'
         : command.type === 'REQUEST_ACTION'
           ? 'Demo request recorded. The task remains open until result evidence is attached.'
-          : 'Result evidence attached to the task.' };
+          : command.type === 'REQUEST_CLOSURE'
+            ? 'The current case version was closed after a fresh readiness check.'
+            : 'Result evidence attached to the task.' };
     } catch {
-      notice = { ok: false, message: 'The task command could not be completed.' };
+      notice = { ok: false, message: 'The case command could not be completed.' };
     } finally {
       busyTaskId = null;
     }
@@ -87,7 +101,23 @@
     void executeTask({
       type: 'DECIDE_ACTION', schemaVersion: 1, caseId: currentSnapshot.caseId,
       commandId: crypto.randomUUID(), expectedCaseVersion: currentSnapshot.caseVersion,
-      taskId, decision, rationale, evidenceRefs: []
+      taskId, decision, rationale,
+      evidenceRefs: currentSnapshot.tasks.find((task) => task.id === taskId)?.sourceRefs ?? [],
+      demo: true
+    });
+  }
+
+  function decideInvestigation(decisionId: string, result: 'APPROVED' | 'REJECTED'): void {
+    const rationale = rationales[decisionId]?.trim();
+    const pending = currentSnapshot.pendingDecisions.find((decision) => decision.id === decisionId);
+    if (!rationale || !pending) {
+      notice = { ok: false, message: 'Enter a rationale for the current investigation decision.' };
+      return;
+    }
+    void executeTask({
+      type: 'DECIDE_INVESTIGATION', schemaVersion: 1, caseId: currentSnapshot.caseId,
+      commandId: crypto.randomUUID(), expectedCaseVersion: currentSnapshot.caseVersion,
+      decisionId, decision: result, rationale, evidenceRefs: pending.evidenceRefs, demo: true
     });
   }
 
@@ -112,6 +142,20 @@
       taskId, evidenceRefs: [evidenceRef], summary, demo: true
     });
   }
+
+  function closeCase(): void {
+    const rationale = closureRationale.trim();
+    const refs = closureEvidence.split(',').map((ref) => ref.trim()).filter(Boolean);
+    if (!rationale || !refs.length) {
+      notice = { ok: false, message: 'Enter a closure rationale and existing demo evidence references.' };
+      return;
+    }
+    void executeTask({
+      type: 'REQUEST_CLOSURE', schemaVersion: 1, caseId: currentSnapshot.caseId,
+      commandId: crypto.randomUUID(), expectedCaseVersion: currentSnapshot.caseVersion,
+      rationale, evidenceRefs: refs, demo: true
+    });
+  }
 </script>
 
 <section class="investigation">
@@ -126,7 +170,27 @@
     {#if currentSnapshot.investigation?.scope.kind === 'BATCH_LOT'}
       <p>Reported lots: {currentSnapshot.investigation.scope.lots.join(', ')}</p>
     {/if}
-    <p>Identity and scope decisions have not been verified. This record does not authorize containment actions.</p>
+    {#if investigationReviews.length}
+      <p>Identity and scope require trusted human review. Approval records the reviewed boundary but does not change UNKNOWN or CONFLICTED facts.</p>
+      <div class="decision-list">
+        {#each investigationReviews as decision}
+          <section class="task-item">
+            <strong>{decision.type === 'CONFIRM_IDENTITY' ? 'Review identity' : 'Review scope'}</strong>
+            <p>{decision.consequence}</p>
+            <p><strong>Evidence:</strong> {decision.evidenceRefs.join(', ')}</p>
+            {#if decision.uncertaintyRefs.length}<p><strong>Known uncertainties:</strong> {decision.uncertaintyRefs.join(', ')}</p>{/if}
+            {#if decision.conflictRefs.length}<p><strong>Known conflicts:</strong> {decision.conflictRefs.join(', ')}</p>{/if}
+            <label>Decision rationale<input value={rationales[decision.id] ?? ''} oninput={(event) => setField(rationales, decision.id, event)} placeholder="What did the reviewer verify?" /></label>
+            <div class="task-actions">
+              <button type="button" disabled={busyTaskId !== null} onclick={() => decideInvestigation(decision.id, 'APPROVED')}>Confirm</button>
+              <button type="button" disabled={busyTaskId !== null} onclick={() => decideInvestigation(decision.id, 'REJECTED')}>Reject</button>
+            </div>
+          </section>
+        {/each}
+      </div>
+    {:else}
+      <p>Current investigation reviews are recorded or unavailable because their evidence is incomplete.</p>
+    {/if}
   </article>
   <article class="card">
     <h2>Exposure</h2>
@@ -193,7 +257,25 @@
   <article class="card">
     <h2>Requires review</h2>
     <p>Closure: {currentSnapshot.closure.status}</p>
-    <ul>{#each currentSnapshot.attentionItems as item}<li><strong>{item.code}</strong>: {item.message}</li>{/each}</ul>
+    {#if currentSnapshot.attentionItems.length}
+      <ul>{#each currentSnapshot.attentionItems as item}<li><strong>{item.code}</strong>: {item.message}</li>{/each}</ul>
+    {:else if currentSnapshot.closure.status === 'READY_FOR_HUMAN_CLOSURE'}
+      <p>All conservative readiness checks pass for this exact case version. Closing still requires a separate human decision.</p>
+      {#if requiredClosureEvidence.length}<p><strong>Required result evidence:</strong> {requiredClosureEvidence.join(', ')}</p>{/if}
+      <label>Closure rationale<input bind:value={closureRationale} placeholder="Why is this case ready to close?" /></label>
+      <label>Existing evidence references<input bind:value={closureEvidence} placeholder="demo:result:reference, ..." /></label>
+      <button type="button" disabled={busyTaskId !== null} onclick={closeCase}>Confirm closure for this version</button>
+    {:else if currentSnapshot.closure.status === 'CLOSED'}
+      <p>Closed by decision {currentSnapshot.closure.decisionRef}. New material facts can reopen the case.</p>
+    {/if}
+  </article>
+  <article class="card">
+    <h2>Recorded human decisions</h2>
+    {#if currentSnapshot.decisions.length}
+      <ol>{#each currentSnapshot.decisions as decision}<li><strong>{decision.type} · {decision.status}</strong> — {decision.actorId} ({decision.actorRole}) at {decision.decidedAt}. {decision.rationale}</li>{/each}</ol>
+    {:else}
+      <p>No trusted human decision has been recorded yet.</p>
+    {/if}
   </article>
   <article class="card">
     <h2>Saved history</h2>
@@ -216,16 +298,16 @@
   dd { margin: 6px 0; font-size: 20px; font-weight: 700; }
   .notice { border-radius: 8px; padding: 10px 12px; background: #ecfdf3; color: #166534; }
   .notice-error { background: #fff1f2; color: #9f1239; }
-  .task-list { display: grid; gap: 14px; margin-top: 18px; }
+  .task-list, .decision-list { display: grid; gap: 14px; margin-top: 18px; }
   .task-item { border: 1px solid #e8e3ef; border-radius: 10px; padding: 16px; }
   .task-item header { display: flex; justify-content: space-between; gap: 12px; }
   .task-item header div { display: grid; gap: 4px; }
   .task-inactive { opacity: .72; }
   .task-actions { display: flex; gap: 8px; }
-  .task-item label { display: grid; gap: 5px; margin: 12px 0; font-weight: 600; }
-  .task-item input { width: 100%; border: 1px solid #cfc7d8; border-radius: 8px; padding: 9px 10px; font: inherit; }
-  .task-item button { border: 1px solid #6750a4; border-radius: 8px; padding: 8px 12px; color: #4d3485; font-weight: 700; }
-  .task-item button:disabled { opacity: .55; }
+  label { display: grid; gap: 5px; margin: 12px 0; font-weight: 600; }
+  input { width: 100%; border: 1px solid #cfc7d8; border-radius: 8px; padding: 9px 10px; font: inherit; }
+  button { border: 1px solid #6750a4; border-radius: 8px; padding: 8px 12px; color: #4d3485; font-weight: 700; }
+  button:disabled { opacity: .55; }
   details { margin: 12px 0; }
   summary { cursor: pointer; font-weight: 700; }
   pre { white-space: pre-wrap; font: inherit; color: #4d4655; }

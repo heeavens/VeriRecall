@@ -239,14 +239,19 @@ export const humanDecisionSchema = z.strictObject({
   basisMaterialRevision: revision,
   coverage: scopeSchema,
   evidenceRefs: refs,
+  uncertaintyRefs: refs,
+  conflictRefs: refs,
+  consequence: text,
   rationale: text,
   actorId: text.nullable(),
+  actorRole: text.nullable(),
   decidedAt: timestamp.nullable(),
   demo: z.boolean()
 }).superRefine((value, context) => {
-  if (value.status === 'PENDING' ? value.actorId !== null || value.decidedAt !== null :
-      value.actorId === null || value.decidedAt === null) {
-    context.addIssue({ code: 'custom', message: 'Pending decisions have no actor/time; recorded decisions require both' });
+  if (value.status === 'PENDING'
+    ? value.actorId !== null || value.actorRole !== null || value.decidedAt !== null
+    : value.actorId === null || value.actorRole === null || value.decidedAt === null) {
+    context.addIssue({ code: 'custom', message: 'Pending decisions have no actor/role/time; recorded decisions require all three' });
   }
 });
 const blockerSchema = issueSchema.extend({
@@ -272,6 +277,7 @@ export const caseSnapshotSchema = z.strictObject({
   conflicts: z.array(issueSchema),
   attentionItems: z.array(issueSchema),
   pendingDecisions: z.array(humanDecisionSchema),
+  decisions: z.array(humanDecisionSchema),
   closure: closureSchema,
   demo: z.boolean()
 }).superRefine((value, context) => {
@@ -282,6 +288,13 @@ export const caseSnapshotSchema = z.strictObject({
   }
   if (value.pendingDecisions.some((decision) => decision.status !== 'PENDING')) {
     context.addIssue({ code: 'custom', message: 'pendingDecisions may contain only pending records' });
+  }
+  if (value.decisions.some((decision) => decision.status === 'PENDING')) {
+    context.addIssue({ code: 'custom', message: 'decisions may contain only recorded or stale records' });
+  }
+  const decisionIds = [...value.pendingDecisions, ...value.decisions].map((decision) => decision.id);
+  if (new Set(decisionIds).size !== decisionIds.length) {
+    context.addIssue({ code: 'custom', message: 'Decision identifiers must be unique across pending and recorded decisions' });
   }
   for (const task of value.tasks.filter((item) => item.approvalStatus === 'PENDING')) {
     const decision = value.pendingDecisions.find((item) =>
@@ -299,16 +312,29 @@ export const caseSnapshotSchema = z.strictObject({
   if ((value.stage === 'CLOSED') !== (value.closure.status === 'CLOSED')) {
     context.addIssue({ code: 'custom', message: 'Closed stage and closure result must agree' });
   }
+  const currentDecision = (type: 'CONFIRM_IDENTITY' | 'CONFIRM_SCOPE') => value.decisions.some((decision) =>
+    decision.type === type && decision.status === 'APPROVED' &&
+    decision.basisMaterialRevision === value.materialRevision &&
+    JSON.stringify(decision.coverage) === JSON.stringify(outcome?.scope)
+  );
   if (value.closure.status !== 'NOT_READY' && (
     !outcome || outcome.knowledgeStatus !== 'KNOWN' || outcome.identity.conclusion !== 'MATCH' ||
-    !outcome.identity.decisionRefs.length || !outcome.scope.decisionRefs.length ||
+    !currentDecision('CONFIRM_IDENTITY') || !currentDecision('CONFIRM_SCOPE') ||
     value.exposure.status !== 'CALCULATED' || value.exposure.basisMaterialRevision !== value.materialRevision ||
     value.uncertainties.some((issue) => issue.critical) || value.conflicts.length ||
     value.exposure.gaps.some((issue) => issue.critical) || value.exposure.conflicts.length ||
     value.exposure.inTransit.value !== 0 || value.exposure.unaccounted.value !== 0 ||
+    value.exposure.received.knowledgeStatus !== 'KNOWN' ||
+    value.exposure.contained.knowledgeStatus !== 'KNOWN' ||
+    (value.exposure.contained.value ?? 0) < (value.exposure.received.value ?? 0) ||
     value.tasks.some((task) => task.blocking && !['COMPLETED', 'SUPERSEDED'].includes(task.status))
   )) {
     context.addIssue({ code: 'custom', message: 'Closure cannot claim readiness with unresolved or stale prerequisites' });
+  }
+  if (value.closure.status === 'CLOSED' && !value.decisions.some((decision) =>
+    decision.id === value.closure.decisionRef && decision.type === 'CLOSE_CASE' && decision.status === 'APPROVED'
+  )) {
+    context.addIssue({ code: 'custom', message: 'Closed cases require their recorded closure decision' });
   }
 });
 export type CaseSnapshot = z.infer<typeof caseSnapshotSchema>;
@@ -323,16 +349,20 @@ export const recallCommandSchema = z.discriminatedUnion('type', [
   z.strictObject({ ...mutationFields, type: z.literal('ACCEPT_INVESTIGATION'), outcome: investigationOutcomeSchema }),
   z.strictObject({ ...mutationFields, type: z.literal('CALCULATE_EXPOSURE'), records: z.array(traceabilityRecordSchema).min(1)
     .refine((records) => new Set(records.map((record) => record.sourceRef)).size === records.length, 'Duplicate source references') }),
-  z.strictObject({ ...mutationFields, type: z.literal('DECIDE_ACTION'), taskId: id, decision: z.enum(['APPROVED', 'REJECTED']), rationale: text, evidenceRefs: refs }),
+  z.strictObject({ ...mutationFields, type: z.literal('DECIDE_INVESTIGATION'), decisionId: id, decision: z.enum(['APPROVED', 'REJECTED']), rationale: text, evidenceRefs: refs.min(1), demo: z.literal(true) }),
+  z.strictObject({ ...mutationFields, type: z.literal('DECIDE_ACTION'), taskId: id, decision: z.enum(['APPROVED', 'REJECTED']), rationale: text, evidenceRefs: refs.min(1), demo: z.literal(true) }),
   z.strictObject({ ...mutationFields, type: z.literal('REQUEST_ACTION'), taskId: id, demo: z.boolean() }),
   z.strictObject({ ...mutationFields, type: z.literal('ATTACH_RESULT'), taskId: id, evidenceRefs: refs.min(1), summary: text, demo: z.boolean() }),
-  z.strictObject({ ...mutationFields, type: z.literal('REQUEST_CLOSURE'), rationale: text, evidenceRefs: refs.min(1) })
+  z.strictObject({ ...mutationFields, type: z.literal('REQUEST_CLOSURE'), rationale: text, evidenceRefs: refs.min(1), demo: z.literal(true) })
 ]).superRefine((value, context) => {
   if (value.type === 'ACCEPT_INVESTIGATION' && value.caseId !== value.outcome.caseId) {
     context.addIssue({ code: 'custom', message: 'Command and outcome caseId must agree' });
   }
   if (value.type !== 'ACCEPT_INVESTIGATION' && value.expectedCaseVersion === 0) {
     context.addIssue({ code: 'custom', message: 'Only initial ingestion may expect version zero' });
+  }
+  if ('evidenceRefs' in value && value.evidenceRefs.some((ref) => !ref.startsWith('demo:'))) {
+    context.addIssue({ code: 'custom', message: 'Local demo commands require explicitly demo evidence references' });
   }
 });
 export const getSnapshotQuerySchema = z.strictObject({

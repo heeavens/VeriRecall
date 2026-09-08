@@ -69,7 +69,7 @@ describe('versioned dynamic task service', () => {
       'INVESTIGATE_TRACEABILITY_GAP',
       'PREPARE_COMMUNICATION'
     ]);
-    expect(snapshot.pendingDecisions).toHaveLength(3);
+    expect(snapshot.pendingDecisions).toHaveLength(5);
     expect(getCasesView(connection.db)).toEqual(expect.arrayContaining([expect.objectContaining({
       versioned: true,
       completedTasks: 0,
@@ -101,10 +101,19 @@ describe('versioned dynamic task service', () => {
     });
     expect(premature).toMatchObject({ ok: false, error: { code: 'INVALID_STATE', currentCaseVersion: 3 } });
 
+    const unsupportedEvidence = await service.execute({
+      type: 'DECIDE_ACTION', schemaVersion: 1, caseId: snapshot.caseId,
+      commandId: randomUUID(), expectedCaseVersion: 3, taskId: hold.id,
+      decision: 'APPROVED', rationale: 'Evidence belongs elsewhere.',
+      evidenceRefs: ['demo:not-task-basis'], demo: true
+    });
+    expect(unsupportedEvidence).toMatchObject({ ok: false, error: { code: 'EVIDENCE_REQUIRED', currentCaseVersion: 3 } });
+
     const approved = await service.execute({
       type: 'DECIDE_ACTION', schemaVersion: 1, caseId: snapshot.caseId,
       commandId: randomUUID(), expectedCaseVersion: 3, taskId: hold.id,
-      decision: 'APPROVED', rationale: 'Warehouse team may receive the reviewed hold instruction.', evidenceRefs: []
+      decision: 'APPROVED', rationale: 'Warehouse team may receive the reviewed hold instruction.',
+      evidenceRefs: hold.sourceRefs, demo: true
     });
     expect(approved).toMatchObject({ ok: true, snapshot: { caseVersion: 4 } });
     if (!approved.ok) return;
@@ -144,7 +153,8 @@ describe('versioned dynamic task service', () => {
     const rejected = await service.execute({
       type: 'DECIDE_ACTION', schemaVersion: 1, caseId: snapshot.caseId,
       commandId: randomUUID(), expectedCaseVersion: 6, taskId: communication.id,
-      decision: 'REJECTED', rationale: 'Recipient coverage must be corrected before preparing this draft.', evidenceRefs: []
+      decision: 'REJECTED', rationale: 'Recipient coverage must be corrected before preparing this draft.',
+      evidenceRefs: communication.sourceRefs, demo: true
     });
     expect(rejected).toMatchObject({ ok: true, snapshot: { caseVersion: 7 } });
     if (!rejected.ok) return;
@@ -179,7 +189,8 @@ describe('versioned dynamic task service', () => {
     const { service, snapshot } = await initialized();
     const oldHold = snapshot.tasks.find((task) => task.type === 'HOLD_STOCK')!;
     const approved = await service.execute({ type: 'DECIDE_ACTION', schemaVersion: 1, caseId: snapshot.caseId,
-      commandId: randomUUID(), expectedCaseVersion: 3, taskId: oldHold.id, decision: 'APPROVED', rationale: 'Approved for L-2403.', evidenceRefs: [] });
+      commandId: randomUUID(), expectedCaseVersion: 3, taskId: oldHold.id, decision: 'APPROVED', rationale: 'Approved for L-2403.',
+      evidenceRefs: oldHold.sourceRefs, demo: true });
     if (!approved.ok) throw new Error('Approval failed');
     const requested = await service.execute({ type: 'REQUEST_ACTION', schemaVersion: 1, caseId: snapshot.caseId,
       commandId: randomUUID(), expectedCaseVersion: 4, taskId: oldHold.id, demo: true });
@@ -222,7 +233,7 @@ describe('versioned dynamic task service', () => {
     const hold = snapshot.tasks.find((task) => task.type === 'HOLD_STOCK')!;
     const approved = await service.execute({ type: 'DECIDE_ACTION', schemaVersion: 1, caseId: snapshot.caseId,
       commandId: randomUUID(), expectedCaseVersion: 3, taskId: hold.id, decision: 'APPROVED',
-      rationale: 'Approved for the unchanged L-2403 coverage.', evidenceRefs: [] });
+      rationale: 'Approved for the unchanged L-2403 coverage.', evidenceRefs: hold.sourceRefs, demo: true });
     if (!approved.ok) throw new Error('Approval failed');
     const revised: InvestigationOutcome = {
       ...structuredClone(confirmedLotOutcome), caseId: snapshot.caseId, productId: candidate.productId,
@@ -254,7 +265,8 @@ describe('versioned dynamic task service', () => {
     const hold = snapshot.tasks.find((task) => task.type === 'HOLD_STOCK')!;
     const before = connection.db.select().from(schema.caseLifecycle).get()!;
     expect(await service.execute({ type: 'DECIDE_ACTION', schemaVersion: 1, caseId: snapshot.caseId,
-      commandId: randomUUID(), expectedCaseVersion: 2, taskId: hold.id, decision: 'APPROVED', rationale: 'Stale.', evidenceRefs: [] }))
+      commandId: randomUUID(), expectedCaseVersion: 2, taskId: hold.id, decision: 'APPROVED', rationale: 'Stale.',
+      evidenceRefs: hold.sourceRefs, demo: true }))
       .toMatchObject({ ok: false, error: { code: 'VERSION_CONFLICT' } });
     expect(await service.execute({ type: 'ATTACH_RESULT', schemaVersion: 1, caseId: snapshot.caseId,
       commandId: randomUUID(), expectedCaseVersion: 3, taskId: randomUUID(), evidenceRefs: ['demo:x'], summary: 'Wrong task.', demo: true }))

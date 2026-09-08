@@ -68,14 +68,17 @@ describe('shared recall contract v1', () => {
     const base = { schemaVersion: 1, caseId: demoCaseId, commandId: acceptInvestigationExample.commandId, expectedCaseVersion: 1 };
     const commands = [
       { ...base, type: 'CALCULATE_EXPOSURE', records: [{ type: 'RECEIPT', sourceRef: 'demo:receipt', productId: demoCaseId, lot: 'L-2403', occurredAt: confirmedLotOutcome.updatedAt, demo: true, receiptRef: 'R-1', quantity: 100 }] },
-      { ...base, type: 'DECIDE_ACTION', taskId: demoCaseId, decision: 'APPROVED', rationale: 'Approve demo hold request', evidenceRefs: [] },
-      { ...base, type: 'DECIDE_ACTION', taskId: demoCaseId, decision: 'REJECTED', rationale: 'Wrong coverage', evidenceRefs: [] },
+      { ...base, type: 'DECIDE_INVESTIGATION', decisionId: demoCaseId, decision: 'APPROVED', rationale: 'Confirm demo scope', evidenceRefs: ['demo:scope'], demo: true },
+      { ...base, type: 'DECIDE_ACTION', taskId: demoCaseId, decision: 'APPROVED', rationale: 'Approve demo hold request', evidenceRefs: ['demo:stock'], demo: true },
+      { ...base, type: 'DECIDE_ACTION', taskId: demoCaseId, decision: 'REJECTED', rationale: 'Wrong coverage', evidenceRefs: ['demo:stock'], demo: true },
       { ...base, type: 'REQUEST_ACTION', taskId: demoCaseId, demo: true },
       { ...base, type: 'ATTACH_RESULT', taskId: demoCaseId, evidenceRefs: ['demo:hold-result'], summary: 'Demo warehouse receipt', demo: true },
-      { ...base, type: 'REQUEST_CLOSURE', evidenceRefs: ['demo:closure-evidence'], rationale: 'Request final human closure' }
+      { ...base, type: 'REQUEST_CLOSURE', evidenceRefs: ['demo:closure-evidence'], rationale: 'Request final human closure', demo: true }
     ];
     for (const command of commands) expect(recallCommandSchema.safeParse(command).success).toBe(true);
-    for (const command of commands.slice(4)) expect(recallCommandSchema.safeParse({ ...command, evidenceRefs: [] }).success).toBe(false);
+    for (const command of commands.filter((item) => 'evidenceRefs' in item)) {
+      expect(recallCommandSchema.safeParse({ ...command, evidenceRefs: [] }).success).toBe(false);
+    }
   });
 
   it('does not confuse requested tasks, completed results and human decisions', () => {
@@ -91,9 +94,12 @@ describe('shared recall contract v1', () => {
     expect(taskSchema.safeParse({ ...task, type: 'PREPARE_COMMUNICATION' }).success).toBe(false);
     const decision = { id: demoCaseId, type: 'APPROVE_ACTION', status: 'PENDING', subjectRef: demoCaseId,
       basisCaseVersion: 1, basisMaterialRevision: 1, coverage: confirmedLotOutcome.scope,
-      evidenceRefs: [], rationale: 'Review hold', actorId: null, decidedAt: null, demo: true };
+      evidenceRefs: [], uncertaintyRefs: [], conflictRefs: [],
+      consequence: 'Approval permits a demo request but does not complete work.',
+      rationale: 'Review hold', actorId: null, actorRole: null, decidedAt: null, demo: true };
     expect(humanDecisionSchema.safeParse(decision).success).toBe(true);
     expect(humanDecisionSchema.safeParse({ ...decision, status: 'APPROVED' }).success).toBe(false);
+    expect(humanDecisionSchema.safeParse({ ...decision, consequence: undefined }).success).toBe(false);
   });
 
   it('validates success/replay and explicit conflict envelopes', () => {

@@ -96,6 +96,14 @@ function equivalentKey(caseId: string, task: Pick<Task, 'rule' | 'targetRef' | '
   return [caseId, task.rule, task.targetRef, coverageKey(task.coverage), quantityKey(task.quantity)].join('|');
 }
 
+function approvalIsApplicable(snapshot: CaseSnapshot, task: Task): boolean {
+  return task.decisionRefs.some((decisionRef) => snapshot.decisions.some((decision) =>
+    decision.id === decisionRef && decision.type === 'APPROVE_ACTION' && decision.status === 'APPROVED' &&
+    coverageKey(decision.coverage) === coverageKey(task.coverage) &&
+    JSON.stringify([...decision.evidenceRefs].sort()) === JSON.stringify([...task.sourceRefs].sort())
+  ));
+}
+
 function draftFor(task: DesiredTask, caseId: string, coverage: Task['coverage']): Task['draft'] {
   const lots = coverage.kind === 'BATCH_LOT' ? coverage.lots.join(', ') : 'unresolved scope';
   const sources = task.sourceRefs.join(', ');
@@ -229,8 +237,11 @@ function pendingDecision(task: Task, snapshot: CaseSnapshot, idFactory: () => st
     basisCaseVersion: snapshot.caseVersion,
     basisMaterialRevision: snapshot.materialRevision!, coverage: task.coverage,
     evidenceRefs: task.sourceRefs,
+    uncertaintyRefs: snapshot.uncertainties.map((issue) => issue.id),
+    conflictRefs: snapshot.conflicts.map((issue) => issue.id),
+    consequence: `Approval permits recording a demo request for ${task.type}; it does not complete the task.`,
     rationale: `Review ${task.type} for ${task.targetRef} against the current coverage.`,
-    actorId: null, decidedAt: null, demo: true
+    actorId: null, actorRole: null, decidedAt: null, demo: true
   };
 }
 
@@ -257,10 +268,12 @@ export function reconcileDynamicTasks(
       .filter((task) => task.status !== 'SUPERSEDED')
       .map((task) => [equivalentKey(snapshot.caseId, task), task])
   );
-  const priorPending = new Map(snapshot.pendingDecisions.map((decision) => [decision.subjectRef, decision]));
+  const priorPending = new Map(snapshot.pendingDecisions
+    .filter((decision) => decision.type === 'APPROVE_ACTION')
+    .map((decision) => [decision.subjectRef, decision]));
   const matched = new Set<string>();
   const active: Task[] = [];
-  const decisions: Decision[] = [];
+  const decisions: Decision[] = snapshot.pendingDecisions.filter((decision) => decision.type !== 'APPROVE_ACTION');
 
   for (const item of desired) {
     const key = equivalentKey(snapshot.caseId, { ...item, coverage });
@@ -298,6 +311,12 @@ export function reconcileDynamicTasks(
         decisionRefs: [], resultEvidenceRefs: [], requestStatus: 'NOT_REQUESTED',
         draft: draftFor(item, snapshot.caseId, coverage), demo: true
       };
+    }
+
+    if (task.approvalRequired && task.approvalStatus === 'APPROVED' &&
+        !['COMPLETED', 'CANCELLED', 'SUPERSEDED'].includes(task.status) &&
+        !approvalIsApplicable(snapshot, task)) {
+      task = { ...task, status: 'BLOCKED', approvalStatus: 'PENDING', blockedBy: [] };
     }
 
     if (task.approvalStatus === 'PENDING') {

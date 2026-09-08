@@ -1,6 +1,6 @@
 # Интеграционный контракт VeriRecall, v1
 
-Обновлено после этапа 5, 2026-09-08. Герман реализует свой блок последовательно, друг подключится позже. Контракт v1 имеет реальный persisted demo-сервис для reservation, ACCEPT_INVESTIGATION, CALCULATE_EXPOSURE, DECIDE_ACTION, REQUEST_ACTION, ATTACH_RESULT и чтения snapshot; closure/reopen ещё не реализованы. Рабочий запуск, HTTP/server примеры и ограничения: `docs/HANDOFF_TO_FRIEND.md`.
+Обновлено после этапа 6, 2026-09-08. Герман реализует свой блок последовательно, друг подключится позже. Контракт v1 имеет реальный persisted demo-сервис для reservation, investigation/exposure/task commands, human decisions, closure/reopen и чтения snapshot. Рабочий запуск, HTTP/server примеры и ограничения: `docs/HANDOFF_TO_FRIEND.md`.
 
 ## Один источник типов
 
@@ -44,7 +44,7 @@ KnowledgeStatus: `KNOWN`, `UNKNOWN`, `PENDING`, `CONFLICTED`, `UNRESOLVED`. `KNO
 
 UNRESOLVED не имеет lots и не может быть KNOWN. WHOLE_PRODUCT, DATE_RANGE и любые другие виды в v1 **не поддерживаются**: вернуть UNSUPPORTED_SCOPE, не подменять ими неизвестный scope. WHOLE_PRODUCT можно добавить только новой согласованной версией с обоснованием или отдельным предосторожным human decision. Решение человека не удаляет gaps/conflicts и не меняет factual knowledgeStatus само по себе.
 
-Все объекты strict: неизвестные поля, пустые/дублированные ссылки и некорректные UUID/даты отклоняются. Ссылки — непрозрачные непустые строки; для fixtures используется `demo:`. На сервере необходимо проверить их существование, принадлежность case/product, тип, охват, актуальность, demo-mode и отсутствие отозванного решения. Zod не выполняет запросы к хранилищу.
+Все объекты strict: неизвестные поля, пустые/дублированные ссылки и некорректные UUID/даты отклоняются. Ссылки — непрозрачные непустые строки; для fixtures используется `demo:`. Runtime этапа 6 проверяет связь decisions с текущим case/version/coverage/sourceRefs и принадлежность closure evidence уже сохранённому case. Внешняя подлинность evidence не проверяется без отдельного registry; поэтому разрешён только явный demo mode. Zod не выполняет запросы к хранилищу.
 
 ## CaseSnapshot
 
@@ -59,7 +59,8 @@ UNRESOLVED не имеет lots и не может быть KNOWN. WHOLE_PRODUCT
 | tasks | Идентификатор, type, rule, status/statusReason, targetRef, coverage, quantity, basisMaterialRevision, reasonRefs/sourceRefs, blocking/blockedBy, priority и причина, approvalRequired/approvalStatus, decisionRefs, resultEvidenceRefs, requestStatus, проверяемый draft, demo |
 | uncertainties / conflicts | Текущие проблемы дела, включая investigation и exposure; не только задачи |
 | attentionItems | Ссылки на проблемы, которые UI должен показать оператору, с кодами и объяснениями |
-| pendingDecisions | Только PENDING решения с subjectRef, coverage, basisCaseVersion/basisMaterialRevision, evidenceRefs, rationale и demo |
+| pendingDecisions | Только PENDING решения с subjectRef, coverage, basisCaseVersion/basisMaterialRevision, evidenceRefs, uncertaintyRefs/conflictRefs, consequence, rationale и demo; actor/role/time равны null |
+| decisions | Записанные APPROVED/REJECTED/STALE решения с тем же основанием, evidence/issues/consequence, server actorRole/actorId/decidedAt и rationale |
 | closure | NOT_READY + непустые blockers; READY_FOR_HUMAN_CLOSURE + пустые blockers; CLOSED + ссылка на отдельное human decision |
 | demo | Маркировка учебного дела |
 
@@ -67,9 +68,11 @@ UNRESOLVED не имеет lots и не может быть KNOWN. WHOLE_PRODUCT
 
 Количество: `{ value: number | null, unit: 'ITEM', knowledgeStatus, sources, asOf }`. В v1 только целые неотрицательные штуки, без coercion строк и единиц массы. KNOWN требует число (включая настоящий 0), источник и время; при другом состоянии value строго null. Каждая source содержит sourceRef, sourceType, asOf, demo. Типы источников: RECEIPT, INVENTORY, SHIPMENT, RETAILER_RESPONSE, SALE, CONTAINMENT, DERIVED. DERIVED должен ссылаться на доступные исходные записи; формула и исходные факты сохраняются сервером. Конфликтующие наблюдения остаются в исходных evidence/conflicts, не превращаются в одно произвольное число.
 
-`unaccounted=10` может быть KNOWN как размер доказанного пробела, хотя положение этих единиц неизвестно. `contained` — отдельное свойство, его нельзя прибавлять к группам местонахождения. NOT_CALCULATED требует null значений, basisMaterialRevision и calculatedAt; пустой массив задач при этом не означает отсутствие необходимой работы. CALCULATED указывает основание и время, но может содержать неизвестные количества и конфликты. Арифметика, freshness источников и отсутствие двойного учёта проверяются будущим расчётным сервисом, а не заявляются по наличию чисел в JSON.
+`unaccounted=10` может быть KNOWN как размер доказанного пробела, хотя положение этих единиц неизвестно. `contained` — отдельное свойство, его нельзя прибавлять к группам местонахождения. NOT_CALCULATED требует null значений, basisMaterialRevision и calculatedAt; пустой массив задач при этом не означает отсутствие необходимой работы. CALCULATED указывает основание и время, но может содержать неизвестные количества и конфликты. Арифметика, freshness источников и отсутствие двойного учёта проверяются `src/lib/server/exposure/calculate.ts`, а не заявляются по наличию чисел в JSON.
 
 TaskStatus: OPEN / IN_PROGRESS / BLOCKED / COMPLETED / CANCELLED / SUPERSEDED. HumanDecisionStatus: PENDING / APPROVED / REJECTED / STALE. Это отдельные enum от KnowledgeStatus и старого ActionStatus. `requestStatus=REQUESTED` переводит активную задачу в IN_PROGRESS, но не завершает её. COMPLETED требует resultEvidenceRefs; достаточность результата для устранения exposure gap проверяется новым расчётом, а не статусом задачи.
+
+HumanDecision содержит `id`, `type` (CONFIRM_IDENTITY / CONFIRM_SCOPE / APPROVE_ACTION / ACCEPT_RESIDUAL_UNCERTAINTY / CLOSE_CASE), `status`, `subjectRef`, `coverage`, `basisCaseVersion`, `basisMaterialRevision`, `evidenceRefs`, `uncertaintyRefs`, `conflictRefs`, `consequence`, `rationale`, `actorId`, `actorRole`, `decidedAt`, `demo`. Pending запись не имеет actor/role/time; записанная имеет все три. ACCEPT_RESIDUAL_UNCERTAINTY зарезервирован форматом, но runtime этапа 6 не предоставляет команду или bypass для него.
 
 Task type и rule разделены. Согласованный каталог этапа 5:
 
@@ -83,7 +86,7 @@ Task type и rule разделены. Согласованный каталог 
 
 Legacy `notify_supplier` не переиспользуется: существующий supplier evidence request и операционное уведомление имеют разные цели. Dynamic tasks живут в versioned CaseSnapshot и его истории; legacy `case_tasks/action_drafts` продолжают обслуживать только старые дела. Draft всегда имеет `reviewRequired=true`, `demo=true`, ссылки на sourceRefs и явный текст, что внешнее действие не выполнено.
 
-Closure blocker codes: INVESTIGATION_UNRESOLVED, SCOPE_UNCONFIRMED, EXPOSURE_NOT_CALCULATED, EXPOSURE_STALE, CRITICAL_TASK_PENDING, ACTIVE_TRANSIT, TRACEABILITY_GAP, QUANTITY_CONFLICT, EVIDENCE_MISSING, APPROVAL_STALE. Каждый blocker имеет id/message/critical/subjectRefs/evidenceRefs. Схема отклоняет очевидно противоречивую readiness (например, без расчёта или с активной перевозкой), но не заменяет closure policy. READY_FOR_HUMAN_CLOSURE не закрывает case. Проверка реальной readiness и запись CLOSED должны быть атомарны на сервере.
+Closure blocker codes: INVESTIGATION_UNRESOLVED, SCOPE_UNCONFIRMED, EXPOSURE_NOT_CALCULATED, EXPOSURE_STALE, CRITICAL_TASK_PENDING, ACTIVE_TRANSIT, TRACEABILITY_GAP, QUANTITY_CONFLICT, EVIDENCE_MISSING, APPROVAL_STALE. Каждый blocker имеет id/message/critical/subjectRefs/evidenceRefs. Сервер и схема требуют текущие APPROVED identity/scope decisions, известные received/inTransit/unaccounted/contained, нулевые active transit и unaccounted, отсутствие критических gaps/conflicts и завершённые blocking tasks. `READY_FOR_HUMAN_CLOSURE` не закрывает case. `REQUEST_CLOSURE` повторяет проверку и пишет CLOSED вместе с отдельным CLOSE_CASE decision атомарно.
 
 ## Команды и concurrency
 
@@ -94,22 +97,24 @@ Closure blocker codes: INVESTIGATION_UNRESOLVED, SCOPE_UNCONFIRMED, EXPOSURE_NOT
 | ACCEPT_INVESTIGATION | outcome | Валидировать case/product и результат; сохранить, увеличить caseVersion, пересчитать зависимые проекции |
 | CALCULATE_EXPOSURE | records: непустой список TraceabilityRecord | Идемпотентно сохранить источники и пересчитать exposure для текущей BATCH_LOT; не использует LLM |
 | getSnapshot(query) | query: schemaVersion, caseId | Только чтение snapshot; не создаёт дело, задачи и audit |
-| DECIDE_ACTION | taskId, decision APPROVED/REJECTED, rationale, evidenceRefs | Записать human decision на актуальном основании/охвате; не заявлять выполненный результат |
+| DECIDE_INVESTIGATION | decisionId, decision APPROVED/REJECTED, rationale, полный evidenceRefs, demo=true | Записать identity/scope review на текущей materialRevision/coverage; не менять factual knowledge |
+| DECIDE_ACTION | taskId, decision APPROVED/REJECTED, rationale, полный evidenceRefs, demo=true | Записать human decision на актуальном основании/охвате; не заявлять выполненный результат |
 | REQUEST_ACTION | taskId, demo | После применимого approval записать учебный REQUESTED и IN_PROGRESS; внешнюю систему не вызывать |
 | ATTACH_RESULT | taskId, непустые evidenceRefs, summary, demo | Приложить результат; completion возможен лишь после проверки evidence, охвата и разрешений |
-| REQUEST_CLOSURE | rationale, непустые evidenceRefs | Отдельное человеческое подтверждение закрытия; заново проверить readiness в транзакции, при успехе записать decision + CLOSED |
+| REQUEST_CLOSURE | rationale, непустые уже принадлежащие делу evidenceRefs, demo=true | Отдельное человеческое подтверждение закрытия; заново проверить readiness в транзакции, при успехе записать decision + CLOSED |
 
 Схема допускает `expectedCaseVersion=0`, но текущий runtime сначала резервирует case доверенным серверным входом и создаёт version 1. Поэтому первый реальный ACCEPT_INVESTIGATION использует актуальную version 1; произвольный новый case от браузера и значение 0 для зарезервированного дела отвергаются. Владелец этого входа и связь alertId→caseId подлежат сверке.
 
 Три версии независимы: schemaVersion меняется при несовместимом формате, materialRevision — при изменении результата investigation, caseVersion — при любой сохранённой мутации дела. task approval может увеличить caseVersion без изменения materialRevision. В v1 любое изменение payload InvestigationOutcome (включая evidence/updatedAt) требует следующего materialRevision; это не означает, что нужно сбрасывать всё выполнение — сервис позже сравнивает охват и факты. ATTACH_RESULT отдельно увеличивает caseVersion.
 
-Правила серверной реализации (ingestion/ledger реализованы в этапе 3, exposure — в этапе 4, task operations — в этапе 5; closure ещё недоступен):
+Правила серверной реализации (ingestion/ledger реализованы в этапе 3, exposure — в этапе 4, task operations — в этапе 5, decisions/closure/reopen — в этапе 6):
 
 1. Проверить доступ к case и входную схему. В локальном demo использовать фиксированного серверного оператора, явно demo; LLM не получает право выполнять значимые команды.
 2. В транзакции проверить ledger по `(caseId, commandId)`. Точная повторная команда возвращает `replayed=true` без повторного эффекта даже после изменения caseVersion. Тот же ключ с отличающимся payload → IDEMPOTENCY_CONFLICT. Сравнение по валидированному каноническому payload; массивы v1 сравниваются с учётом порядка.
 3. Для нового commandId проверить expectedCaseVersion; несовпадение → VERSION_CONFLICT без записи. После обновления UI новая попытка с изменённым payload использует новый commandId.
 4. Для ACCEPT_INVESTIGATION более низкая materialRevision → STALE_INVESTIGATION; та же revision с отличающимся outcome → IDEMPOTENCY_CONFLICT. Тот же outcome/revision с новым commandId и актуальной expectedCaseVersion — no-op с replayed=true, без увеличения версии. Более высокая revision принимается после проверки принадлежности; пропуски номеров допустимы.
-5. Атомарно сохранить state, audit, ledger, решения и новую caseVersion; отказ не оставляет частичных бизнес-изменений. Ссылки на старые решения/результаты сохранять в истории, применимость пересматривать по coverage. ACCEPT_INVESTIGATION, CALCULATE_EXPOSURE, DECIDE_ACTION, REQUEST_ACTION и ATTACH_RESULT используют общий ledger и immediate-транзакцию.
+5. Атомарно сохранить state, audit, ledger, решения и новую caseVersion; отказ не оставляет частичных бизнес-изменений. Ссылки на старые решения/результаты сохранять в истории, применимость пересматривать по coverage. Все реализованные mutation commands используют общий ledger и immediate-транзакцию.
+6. CLOSED можно получить только текущим REQUEST_CLOSURE. После CLOSED новая materialRevision или materially изменившийся exposure открывает case и сохраняет прежнюю историю. Evidence-only exposure update с теми же facts/work сохраняет CLOSED.
 
 CommandResult: `{ ok:true, commandId, replayed, appliedCaseVersion, snapshot }` либо `{ ok:false, error }`. appliedCaseVersion — версия первоначального эффекта; snapshot — актуальное доступное состояние, его caseVersion при replay может быть выше. SnapshotResult: `{ ok:true, snapshot }` либо тот же error envelope.
 
@@ -136,7 +141,7 @@ CommandResult: `{ ok:true, commandId, replayed, appliedCaseVersion, snapshot }` 
 - confirmedLotOutcome: P-17 (UUID), L-2403, независимые ссылки на identity/scope evidence и human decisions, materialRevision=1.
 - unresolvedScopeOutcome: identity MATCH, scope UNRESOLVED/UNKNOWN и критический BATCH_MISSING gap. Это альтернативное начальное состояние, не последовательное событие с тем же revision.
 - expandedLotOutcome: L-2403 + L-2404, materialRevision=2, новая scope evidence/decision; старое scope approval не переиспользуется.
-- contractFixtures: три пары outcome/snapshot. Exposure намеренно NOT_CALCULATED, количества null, closure NOT_READY. Расчёт 100=40+20+25+5+10 ещё не реализован и не подставляется.
+- contractFixtures: три пары outcome/snapshot. Эти contract fixtures намеренно оставляют exposure NOT_CALCULATED и количества null; настоящий расчёт проверяется отдельными integration fixtures и HTTP demo.
 - acceptInvestigationExample: реальный валидируемый пример envelope первоначальной доставки.
 
 Полные объекты импортируются из этого файла, не копируются в другой пакет. Ссылки demo: обозначают договорённые синтетические evidence/decisions; они не являются уже существующими DB records.
@@ -161,21 +166,21 @@ node --import tsx --input-type=module -e 'import { investigationOutcomeSchema, c
 | Общие файлы / участок | Владелец изменений |
 | --- | --- |
 | src/lib/contracts/recall.ts, recall.fixtures.ts, recall.test.ts; этот документ | Герман ведёт контракт B; друг сверяет требования investigation/UI и импортирует этот же модуль |
-| src/lib/server/db/schema.ts, drizzle/*, будущий ingestion/snapshot/exposure/tasks/closure | Герман |
+| src/lib/server/db/schema.ts, drizzle/*, ingestion/snapshot/exposure/tasks/closure | Герман |
 | Investigation, AI, основной UI, общий evaluation harness | Друг; свои тесты и подключение общего контракта |
 | src/lib/types/domain.ts | Менять только после сверки обеих сторон, поскольку уже используется существующим workflow |
 | package.json / package-lock.json | В этом этапе не менялись; при необходимости заранее выбрать одного редактора |
 
-Отдельно сверить: один product на case против текущих multi-item cases; выделение caseId до ingestion и владелец monitoring; revision при evidence-only update; значения новых stage/task/rule и перевод старых action drafts; серверный demo actor и resolution evidence/decision refs. Этот документ не заявляет, что друг уже согласовал формат или подключил свой код. Этапы 3–5 выполнены в границах runtime-уточнений ниже.
+Отдельно сверить: один product на case против текущих multi-item cases; выделение caseId до ingestion и владелец monitoring; новые обязательные `decisions` и поля HumanDecision; значения stage/task/rule и перевод старых action drafts; серверный demo actor и дальнейший production resolver evidence/roles. Этот документ не заявляет, что друг уже согласовал формат или подключил свой код. Этапы 3–6 выполнены в границах runtime-уточнений ниже.
 
 Поля task были уточнены в v1 до подключения второй стороны: ранее schema принимала неполный объект, но runtime его не создавал. Строгому потребителю всё равно требуется атомарно обновить импорт общего модуля и UI mapping; вручную сохранять старую копию task shape нельзя. До совместной сверки это считается изменением общего контракта, даже без увеличения schemaVersion.
 
 
-## Уточнения runtime этапа 3 (приоритет над проектными примерами этапа 2)
+## Исторические уточнения runtime этапа 3
 
 - Reservation для существующего alert/product создаёт case и snapshot **version 1**, investigation/materialRevision=null, без case_items и фиктивных количеств. Поэтому первый реальный ACCEPT_INVESTIGATION использует expectedCaseVersion=1, не 0. Схема v1 сохраняет допустимость 0 для совместимости формата, но текущий сервер не создаёт case через ingestion: без reservation → NOT_FOUND, после reservation при 0 → VERSION_CONFLICT. Старый acceptInvestigationExample остаётся schema-only примером; рабочий пример — scripts/demo-lifecycle.ts.
-- Новый контекст пока только explicit demo: VERIRECALL_DEMO_MODE=true, actor demo_operator, demo:true; иначе FORBIDDEN. Решения/evidence остаются непроверенными ссылками, поэтому stage всегда INVESTIGATING и closure NOT_READY. Любое согласование из входного payload не устраняет конфликты и не повышает стадию.
-- Стадии: INVESTIGATING — резервирование/непроверенное расследование; RESPONDING требует серверно подтверждённых identity/scope; CONTAINED — доказанного результата containment; CLOSURE_REVIEW — пройденной readiness; CLOSED — отдельного актуального human decision в транзакции. Последние четыре перехода на этапе 3 запрещены, пока условия не реализованы.
+- Контекст остаётся explicit demo: VERIRECALL_DEMO_MODE=true, actor demo_operator, role CASE_MANAGER, demo:true; иначе FORBIDDEN. Этап 6 уже записывает решения, но не меняет factual knowledge и не удаляет gaps/conflicts.
+- Стадии: INVESTIGATING — резервирование/непроверенное расследование; RESPONDING — актуальные identity/scope reviews при оставшейся работе; CONTAINED зарезервирован для доказанного containment; CLOSURE_REVIEW — пройденная readiness; CLOSED — отдельный актуальный human decision в транзакции. Минимальный текущий путь переходит из RESPONDING сразу в CLOSURE_REVIEW, когда containment и остальные условия выполнены одновременно.
 - Для изменения live состояния используются только новые команды. Старые команды для lifecycle case заблокированы; автоматическая конвертация legacy-case и несколько продуктов на один lifecycle-case отвергаются явно.
 - Реальные routes и поля server load документированы в HANDOFF_TO_FRIEND.md. Существующие enums не переименованы, контрактный модуль не копировался.
 
@@ -189,4 +194,4 @@ node --import tsx --input-type=module -e 'import { investigationOutcomeSchema, c
 
 Распределение — warehouse + inTransit + retailer + sold + unaccounted. Contained хранится отдельно и не входит в сумму местонахождений. Если все компоненты известны, unaccounted выводится из receipts минус распределённые единицы; положительная разница создаёт TRACEABILITY_GAP. Если распределение 105 при receipts=100, receipts остаётся 100, unaccounted становится CONFLICTED/null и создаётся DISTRIBUTION_EXCEEDS_RECEIPTS с excess 5; отрицательная разница не обрезается до нуля.
 
-CALCULATE_EXPOSURE разрешён только для известного MATCH и известного BATCH_LOT. Команда проверяет expectedCaseVersion и productId всех records, сохраняет источники/snapshot/history/audit/ledger одной immediate-транзакцией. Exposure получает `basisMaterialRevision`, `calculatedAt`, sourceRef/sourceType/asOf/demo на каждом известном количестве. При новой materialRevision старый exposure сбрасывается в NOT_CALCULATED; сохранённые source records затем можно пересчитать новым commandId. Stage пока остаётся INVESTIGATING из-за непроверенных human decision refs. UI уже читает этот настоящий snapshot.
+CALCULATE_EXPOSURE разрешён только для известного MATCH и известного BATCH_LOT. Команда проверяет expectedCaseVersion и productId всех records, сохраняет источники/snapshot/history/audit/ledger одной immediate-транзакцией. Exposure получает `basisMaterialRevision`, `calculatedAt`, sourceRef/sourceType/asOf/demo на каждом известном количестве. При новой materialRevision старый exposure сбрасывается в NOT_CALCULATED; сохранённые source records затем можно пересчитать новым commandId. Актуальные human decisions и readiness определяют stage; UI читает настоящий snapshot.

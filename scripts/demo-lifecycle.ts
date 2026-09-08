@@ -40,8 +40,9 @@ const exposureInput = {
 const calculated = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, exposureInput));
 if (!calculated.ok) throw new Error(calculated.error.message);
 if (calculated.snapshot.tasks.filter((task) => task.status !== 'SUPERSEDED').length !== 4 ||
-    calculated.snapshot.pendingDecisions.length !== 3) {
-  throw new Error('Expected four active tasks and three pending action decisions.');
+    calculated.snapshot.pendingDecisions.filter((decision) => decision.type === 'APPROVE_ACTION').length !== 3 ||
+    calculated.snapshot.pendingDecisions.filter((decision) => decision.type !== 'APPROVE_ACTION').length !== 2) {
+  throw new Error('Expected four active tasks, three action decisions and two investigation reviews.');
 }
 const exposureReplay = commandResultSchema.parse(await post(`/api/cases/${input.caseId}/commands`, exposureInput));
 if (!exposureReplay.ok || !exposureReplay.replayed) throw new Error('Expected an idempotent exposure replay.');
