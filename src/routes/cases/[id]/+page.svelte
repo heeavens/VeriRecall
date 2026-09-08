@@ -126,7 +126,12 @@
 <svelte:window onkeydown={closeOnEscape} />
 
 {#if data.snapshot}
-  <InvestigationSnapshot snapshot={data.snapshot} history={data.history} caseNumber={data.caseRecord.caseNumber} />
+  <InvestigationSnapshot
+    snapshot={data.snapshot}
+    history={data.history}
+    caseNumber={data.caseRecord.caseNumber}
+    productName={data.alert.productName}
+  />
 {:else}
 {#if form?.message}
   <div

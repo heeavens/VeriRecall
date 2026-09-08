@@ -17,6 +17,7 @@
 - Review confirm теперь строит InvestigationOutcome из сохранённых alert/catalogue/match и атомарно создаёт или обновляет versioned CaseSnapshot. Повтор не дублирует effect; уже подтверждённое legacy-дело из общей базы подключается один раз. Hard conflict и неизвестный scope не исчезают.
 - Публичный Review route требует явный локальный demo mode и использует фиксированного server-side `demo_operator`. Отключённый режим отклоняет операцию без legacy fallback.
 - Локальный demo catalogue содержит 15 синтетических товаров Costa Coffee и три явно демонстрационных кофейных предупреждения. Названия, категории, поставщики и изображения согласованы; это не реальные отзывы бренда.
+- Versioned case UI ведёт пользователя по четырём шагам: product match, human review, affected stock, actions/closure. Главная карточка показывает следующее действие; review содержит чек-лист и пример комментария, а версии, machine fields и audit history убраны в раскрываемый технический блок.
 
 ## Архитектура и БД
 
