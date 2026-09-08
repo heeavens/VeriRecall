@@ -149,3 +149,21 @@ Do not call legacy `requestMatchEvidence` for a versioned investigation. That fl
 When `investigation_evidence.evidence_request_id` points to a versioned request, the evidence registry now requires the same case and question as that request in addition to the authoritative match/product ownership check. Legacy requests cannot prove question identity. Receipt leaves the request `pending`, keeps `resolved_at` null, and does not mutate the snapshot or any knowledge state.
 
 Identity UNKNOWN still has no requestable Issue, conflicts are not requestable, and no new question may be invented. Dispatch, supplier upload/receipt wiring, claim extraction or assessment, gap resolution, InvestigationOutcome revision, and AI remain deliberately unimplemented.
+
+## Current Mykyta continuation checkpoint
+
+Active branch: `mykyta_dev`. Herman's versioned lifecycle is already merged; keep the legacy Review flow separate and do not treat its match status, action drafts, `case_items`, or `Unknown` batch sentinel as authoritative versioned investigation state. Do not casually change the shared browser-safe contract in `src/lib/contracts/recall.ts`, and do not modify Herman-owned Exposure, Tasks, Closure, or Readiness in the next Mykyta commit.
+
+Completed Mykyta boundaries:
+
+1. `feat(investigation): extract outcome producer` — Review delegates pure `produceInvestigationOutcome(...)` construction to the investigation module.
+2. `fix(investigation): require deterministic evidence for known identity` — a Review click remains an operational decision; only matching non-empty normalized persisted EAN values establish KNOWN/MATCH, while missing or conflicting identity remains visible.
+3. `fix(cases): isolate versioned scope from legacy Unknown wildcard` — `InvestigationOutcome`/`CaseSnapshot` is versioned scope truth; versioned writes and reads do not project or interpret legacy `case_items.batch = 'Unknown'` as wildcard scope.
+4. `feat(investigation): add evidence provenance registry` — append-only `investigation_evidence` records immutable receipt provenance. Evidence receipt is source material, not an established fact.
+5. `feat(investigation): persist versioned gap evidence requests` — a request attempt binds `caseId + questionRef`; only an exact current `BATCH_MISSING` gap is requestable. A request is not evidence, `pending` does not mean sent, and receipt does not mean sufficient or resolved.
+
+Migrations present are `0000_initial.sql`, `0001_last_living_lightning.sql`, `0002_case_lifecycle.sql`, `0003_traceability_exposure.sql`, `0004_last_thunderbolt.sql`, and `0005_majestic_centennial.sql`. The Commit 5 verification baseline was 156 passing tests in 24 files, with check, build, clean/repeat migrations, populated legacy compatibility migrations, Drizzle metadata consistency, and `git diff --check` passing. Re-run current checks after any new work; this baseline is historical, not proof that a future diff is correct.
+
+The next planned commit is exactly `feat(investigation): persist evidence-derived batch claims`. It should add the smallest append-only claim foundation for `BATCH_MISSING`, with origins `DETERMINISTIC_EXTRACTED`, `AI_PROPOSED`, and `HUMAN_OBSERVED`. Every claim remains untrusted: no assessment model exists yet, and request creation, evidence receipt, or claim creation must not mutate `InvestigationOutcome`, `CaseSnapshot`, `caseVersion`, or `materialRevision`. Do not implement claim assessment, gap resolution, AI extraction, supplier upload, or downstream lifecycle changes in that commit.
+
+Important provenance risk to preserve visibly: the current monitoring/LLM alert-extraction path can persist AI-extracted alert EAN or batch values into the same alert fields later read by deterministic investigation rules. Persisted alert fields therefore do not yet prove raw-source or trusted-fact provenance. Commit 6 must not treat that conflation as resolved, classify AI output as raw evidence, or allow an `AI_PROPOSED` claim to become factual automatically.

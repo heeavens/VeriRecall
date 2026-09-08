@@ -1,6 +1,6 @@
 # VeriRecall — состояние блока B
 
-Дата: 2026-09-08. **Этап 7 завершён в `herman_dev`: Review/Investigation UI соединён с versioned Case, общая база мигрируется, сквозной domain flow проверен.** Этап 8 не начат. Герман продолжает блок самостоятельно; друг подключается позже по `docs/HANDOFF_TO_FRIEND.md`.
+Дата: 2026-09-09. **Этап 7 Германа объединён с текущей веткой `mykyta_dev`; Mykyta Investigation Engine Commit 1–5 завершены.** Следующий запланированный слой — только persistent untrusted batch claims; он ещё не реализован. Актуальная точка продолжения описана в `docs/HANDOFF_TO_FRIEND.md`.
 
 ## Что работает
 
@@ -77,7 +77,7 @@ npm run dev -- --host 127.0.0.1 --port 5187
 - Визуальный browser automation этапа 7 не выполнен из-за заблокированного macOS; реальные form POST, API GET и SSR HTML проверены на dev-server.
 - Readiness/simulation остаётся после основного demo. Этап 8 можно начинать только по отдельному указанию Германа.
 
-Ветка: `herman_dev`. Пользовательский untracked `VERIRECALL_6_DAY_CODEX_PLAN.md` не изменяется и не включается в коммиты.
+Ветка: `mykyta_dev`. Не сливать и не отправлять изменения в `main` без явного указания.
 
 ## Mykyta Investigation Engine — Commit 4 provenance foundation
 
@@ -96,4 +96,3 @@ npm run dev -- --host 127.0.0.1 --port 5187
 - An `investigation_evidence` receipt linked to a versioned request must use the same `caseId` and `questionRef`; receipt still does not change request status or establish/resolve a fact. Legacy `requestMatchEvidence` remains a separate compatibility flow and writes null/null ownership fields.
 - Verification: focused request/registry/database/Review/lifecycle suites pass 47/47; the full suite passes 156/156 in 24 files; `npm.cmd run check`, `npm.cmd run build`, clean and repeat migrations, populated-0001 and populated-0004 compatibility migrations, Drizzle metadata consistency, and `git diff --check` pass. The build retains the existing adapter-auto deployment-target notice.
 - The retained required `evidence_requests.match_id` foreign key still has legacy cascade behavior. Versioned ownership is explicit, but a broad legacy relationship/deletion redesign is deferred together with dispatch/receipt workflow, claim assessment, question resolution, identity-question modeling, conflicts, and AI.
-- Verified with the focused registry/database/lifecycle suites (28 tests), the full suite (142 tests in 23 files), `npm.cmd run check` (0 errors/warnings), `npm.cmd run build`, clean and repeat `db:migrate` runs, the populated-`0001` migration compatibility test, and `git diff --check`. Green checks reduce known risk but do not prove the absence of defects.
