@@ -1,6 +1,6 @@
 # VeriRecall — состояние блока B
 
-Дата: 2026-09-09. **Этап 7 Германа объединён с текущей веткой `mykyta_dev`; Mykyta Investigation Engine Commit 1–5 завершены.** Следующий запланированный слой — только persistent untrusted batch claims; он ещё не реализован. Актуальная точка продолжения описана в `docs/HANDOFF_TO_FRIEND.md`.
+Дата: 2026-09-09. **Этап 7 Германа объединён с текущей веткой `mykyta_dev`; Mykyta Investigation Engine Commit 1–6 реализованы.** Persistent batch claims остаются untrusted assertions; assessment и применение trusted facts к InvestigationOutcome ещё не реализованы. Актуальная точка продолжения описана в `docs/HANDOFF_TO_FRIEND.md`.
 
 ## Что работает
 
@@ -96,3 +96,12 @@ npm run dev -- --host 127.0.0.1 --port 5187
 - An `investigation_evidence` receipt linked to a versioned request must use the same `caseId` and `questionRef`; receipt still does not change request status or establish/resolve a fact. Legacy `requestMatchEvidence` remains a separate compatibility flow and writes null/null ownership fields.
 - Verification: focused request/registry/database/Review/lifecycle suites pass 47/47; the full suite passes 156/156 in 24 files; `npm.cmd run check`, `npm.cmd run build`, clean and repeat migrations, populated-0001 and populated-0004 compatibility migrations, Drizzle metadata consistency, and `git diff --check` pass. The build retains the existing adapter-auto deployment-target notice.
 - The retained required `evidence_requests.match_id` foreign key still has legacy cascade behavior. Versioned ownership is explicit, but a broad legacy relationship/deletion redesign is deferred together with dispatch/receipt workflow, claim assessment, question resolution, identity-question modeling, conflicts, and AI.
+
+## Mykyta Investigation Engine — Commit 6 untrusted batch claims
+
+- Migration `0006_cynical_rictor.sql` adds append-only `investigation_claims`. The only supported claim type is `AFFECTED_BATCH_LOT`, and a new claim may address only the exact current `BATCH_MISSING` gap. The product subject is derived from the authoritative current `CaseSnapshot`; it is never accepted from the caller.
+- Claims reference one or more registered `investigation_evidence` rows owned by the same case and question. Evidence linked to a legacy null/null request is not accepted because that request cannot prove versioned question ownership. Evidence references and JSON payloads are canonicalized without normalizing the asserted lot text.
+- `originKind` records derivation method only: `DETERMINISTIC_EXTRACTED`, `AI_PROPOSED`, or `HUMAN_OBSERVED`. It is not an evidence source or trust decision. Deterministic extraction is not automatically factual, `AI_PROPOSED` never establishes a fact, and `HUMAN_OBSERVED` is not a `HumanDecision`.
+- Claim IDs are idempotency keys. Exact replay returns the immutable stored claim without another audit event, including after the question or case version advances; changed semantics conflict. Supersession creates a new same-case/question/subject/type claim and preserves the original. Multiple incompatible values such as MFT24 and MFT25 remain visible; no latest claim or winner is inferred.
+- No assessment layer, verdict, trusted status, claim-driven gap resolution, or InvestigationOutcome revision exists. Request creation, evidence receipt, and claim recording do not mutate `CaseSnapshot`, `caseVersion`, `materialRevision`, lifecycle history/commands, decisions, exposure, tasks, closure, or readiness.
+- Verification: focused claim/database suites pass 20/20; the full suite passes 172/172 in 25 files; `npm.cmd run check` reports 0 errors/warnings; `npm.cmd run build`, clean and repeat migrations, populated-0005 compatibility, `foreign_key_check`, Drizzle metadata consistency, and `git diff --check` pass. The build retains the existing adapter-auto deployment-target notice.

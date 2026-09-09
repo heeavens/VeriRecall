@@ -51,6 +51,7 @@ describe('Stage 1 database', () => {
         'case_revisions',
         'case_commands',
         'investigation_evidence',
+        'investigation_claims',
         'traceability_records'
       ])
     );
@@ -75,13 +76,14 @@ describe('Stage 1 database', () => {
         'case_tasks_case_type_unique',
         'evidence_requests_case_question_created_idx',
         'investigation_evidence_case_idx',
+        'investigation_claims_case_question_created_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
       ])
     );
   });
 
-  it('enforces evidence source, content and integrity constraints in SQLite', () => {
+  it('enforces evidence and investigation-claim constraints in SQLite', () => {
     const fixtures = loadDemoFixtures();
     seedDemoData(connection.db, fixtures);
     const caseId = '60000000-0000-4000-8000-000000000001';
@@ -142,6 +144,55 @@ describe('Stage 1 database', () => {
       'evidence:invalid-hash', common[0], common[1], 'REGULATOR', common[2], common[3],
       'STRUCTURED', '{}', null, 'not-a-content-hash'
     )).toThrow(/investigation_evidence_integrity_hash_check/);
+
+    const insertClaim = connection.sqlite.prepare(`
+      insert into investigation_claims (
+        claim_ref, case_id, question_ref, subject_ref, claim_type,
+        value_json, evidence_refs_json, origin_kind, producer_identifier,
+        derivation_metadata_json, supersedes_claim_ref, created_at, demo
+      ) values (?, ?, 'demo:scope-gap:test', ?, ?, '{"lot":"MFT24"}',
+        '["evidence:test"]', ?, 'parser:test', null, null, ?, ?)
+    `);
+    expect(() => insertClaim.run(
+      '92000000-0000-4000-8000-000000000091',
+      caseId,
+      fixtures.products[0].id,
+      'IDENTITY',
+      'DETERMINISTIC_EXTRACTED',
+      '2026-09-08T12:00:00.000Z',
+      1
+    )).toThrow(/investigation_claims_claim_type_check/);
+    expect(() => insertClaim.run(
+      '92000000-0000-4000-8000-000000000092',
+      caseId,
+      fixtures.products[0].id,
+      'AFFECTED_BATCH_LOT',
+      'ESTABLISHED',
+      '2026-09-08T12:00:00.000Z',
+      1
+    )).toThrow(/investigation_claims_origin_kind_check/);
+    expect(() => insertClaim.run(
+      '92000000-0000-4000-8000-000000000093',
+      caseId,
+      fixtures.products[0].id,
+      'AFFECTED_BATCH_LOT',
+      'HUMAN_OBSERVED',
+      '2026-09-08T12:00:00.000Z',
+      2
+    )).toThrow(/investigation_claims_demo_check/);
+
+    const claimForeignKeys = connection.sqlite
+      .prepare("pragma foreign_key_list('investigation_claims')")
+      .all() as Array<{ from: string; table: string; on_delete: string }>;
+    expect(claimForeignKeys).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'case_id', table: 'cases', on_delete: 'NO ACTION' }),
+      expect.objectContaining({ from: 'subject_ref', table: 'products', on_delete: 'NO ACTION' }),
+      expect.objectContaining({
+        from: 'supersedes_claim_ref',
+        table: 'investigation_claims',
+        on_delete: 'NO ACTION'
+      })
+    ]));
   });
 
   it('seeds deterministically and preserves all three demo scenarios', () => {

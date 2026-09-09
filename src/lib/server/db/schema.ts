@@ -1,5 +1,13 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  type AnySQLiteColumn,
+  check,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex
+} from 'drizzle-orm/sqlite-core';
 
 import {
   actionStatuses,
@@ -19,6 +27,14 @@ export const investigationEvidenceSourceKinds = [
 ] as const;
 
 export const investigationEvidenceContentKinds = ['STRUCTURED', 'LOCATOR'] as const;
+
+export const investigationClaimTypes = ['AFFECTED_BATCH_LOT'] as const;
+
+export const investigationClaimOriginKinds = [
+  'DETERMINISTIC_EXTRACTED',
+  'AI_PROPOSED',
+  'HUMAN_OBSERVED'
+] as const;
 
 export const settings = sqliteTable(
   'settings',
@@ -293,6 +309,46 @@ export const investigationEvidence = sqliteTable(
       sql`length(${table.integrityHash}) = 64 and ${table.integrityHash} not glob '*[^0-9a-f]*'`
     ),
     check('investigation_evidence_demo_check', sql`${table.demo} in (0, 1)`)
+  ]
+);
+
+export const investigationClaims = sqliteTable(
+  'investigation_claims',
+  {
+    claimRef: text('claim_ref').primaryKey(),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => cases.id),
+    questionRef: text('question_ref').notNull(),
+    subjectRef: text('subject_ref')
+      .notNull()
+      .references(() => products.id),
+    claimType: text('claim_type', { enum: investigationClaimTypes }).notNull(),
+    valueJson: text('value_json').notNull(),
+    evidenceRefsJson: text('evidence_refs_json').notNull(),
+    originKind: text('origin_kind', { enum: investigationClaimOriginKinds }).notNull(),
+    producerIdentifier: text('producer_identifier').notNull(),
+    derivationMetadataJson: text('derivation_metadata_json'),
+    supersedesClaimRef: text('supersedes_claim_ref')
+      .references((): AnySQLiteColumn => investigationClaims.claimRef),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    index('investigation_claims_case_question_created_idx').on(
+      table.caseId,
+      table.questionRef,
+      table.createdAt
+    ),
+    check(
+      'investigation_claims_claim_type_check',
+      sql`${table.claimType} in ('AFFECTED_BATCH_LOT')`
+    ),
+    check(
+      'investigation_claims_origin_kind_check',
+      sql`${table.originKind} in ('DETERMINISTIC_EXTRACTED', 'AI_PROPOSED', 'HUMAN_OBSERVED')`
+    ),
+    check('investigation_claims_demo_check', sql`${table.demo} in (0, 1)`)
   ]
 );
 
