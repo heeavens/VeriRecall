@@ -52,6 +52,7 @@ describe('Stage 1 database', () => {
         'case_commands',
         'investigation_evidence',
         'investigation_claims',
+        'investigation_assessments',
         'traceability_records'
       ])
     );
@@ -77,13 +78,14 @@ describe('Stage 1 database', () => {
         'evidence_requests_case_question_created_idx',
         'investigation_evidence_case_idx',
         'investigation_claims_case_question_created_idx',
+        'investigation_assessments_case_question_created_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
       ])
     );
   });
 
-  it('enforces evidence and investigation-claim constraints in SQLite', () => {
+  it('enforces evidence, claim and assessment constraints in SQLite', () => {
     const fixtures = loadDemoFixtures();
     seedDemoData(connection.db, fixtures);
     const caseId = '60000000-0000-4000-8000-000000000001';
@@ -181,6 +183,51 @@ describe('Stage 1 database', () => {
       2
     )).toThrow(/investigation_claims_demo_check/);
 
+    const validClaimRef = '92000000-0000-4000-8000-000000000094';
+    insertClaim.run(
+      validClaimRef,
+      caseId,
+      fixtures.products[0].id,
+      'AFFECTED_BATCH_LOT',
+      'HUMAN_OBSERVED',
+      '2026-09-08T12:00:00.000Z',
+      1
+    );
+    const insertAssessment = connection.sqlite.prepare(`
+      insert into investigation_assessments (
+        assessment_ref, case_id, question_ref, target_claim_ref, verdict,
+        evidence_refs_json, related_claim_refs_json, assessor_kind,
+        assessor_identifier, rule_identifier, rule_version, rationale,
+        basis_case_version, supersedes_assessment_ref, created_at, demo
+      ) values (?, ?, 'demo:scope-gap:test', ?, ?, '["evidence:test"]', '[]', ?,
+        'assessor:test', ?, ?, 'Reviewed immutable evidence basis.', ?, null, ?, ?)
+    `);
+    const assessmentCreatedAt = '2026-09-08T13:00:00.000Z';
+    expect(() => insertAssessment.run(
+      '95000000-0000-4000-8000-000000000091', caseId, validClaimRef,
+      'ESTABLISHED', 'HUMAN', null, null, 1, assessmentCreatedAt, 1
+    )).toThrow(/investigation_assessments_verdict_check/);
+    expect(() => insertAssessment.run(
+      '95000000-0000-4000-8000-000000000092', caseId, validClaimRef,
+      'SUPPORTED', 'SYSTEM', 'rule:test', 'v1', 1, assessmentCreatedAt, 1
+    )).toThrow(/investigation_assessments_assessor_kind_check/);
+    expect(() => insertAssessment.run(
+      '95000000-0000-4000-8000-000000000093', caseId, validClaimRef,
+      'SUPPORTED', 'HUMAN', 'rule:test', null, 1, assessmentCreatedAt, 1
+    )).toThrow(/investigation_assessments_rule_pair_check/);
+    expect(() => insertAssessment.run(
+      '95000000-0000-4000-8000-000000000094', caseId, validClaimRef,
+      'SUPPORTED', 'RULE', null, null, 1, assessmentCreatedAt, 1
+    )).toThrow(/investigation_assessments_rule_required_check/);
+    expect(() => insertAssessment.run(
+      '95000000-0000-4000-8000-000000000095', caseId, validClaimRef,
+      'SUPPORTED', 'HUMAN', null, null, 0, assessmentCreatedAt, 1
+    )).toThrow(/investigation_assessments_basis_case_version_check/);
+    expect(() => insertAssessment.run(
+      '95000000-0000-4000-8000-000000000096', caseId, validClaimRef,
+      'SUPPORTED', 'HUMAN', null, null, 1, assessmentCreatedAt, 2
+    )).toThrow(/investigation_assessments_demo_check/);
+
     const claimForeignKeys = connection.sqlite
       .prepare("pragma foreign_key_list('investigation_claims')")
       .all() as Array<{ from: string; table: string; on_delete: string }>;
@@ -190,6 +237,23 @@ describe('Stage 1 database', () => {
       expect.objectContaining({
         from: 'supersedes_claim_ref',
         table: 'investigation_claims',
+        on_delete: 'NO ACTION'
+      })
+    ]));
+
+    const assessmentForeignKeys = connection.sqlite
+      .prepare("pragma foreign_key_list('investigation_assessments')")
+      .all() as Array<{ from: string; table: string; on_delete: string }>;
+    expect(assessmentForeignKeys).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'case_id', table: 'cases', on_delete: 'NO ACTION' }),
+      expect.objectContaining({
+        from: 'target_claim_ref',
+        table: 'investigation_claims',
+        on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'supersedes_assessment_ref',
+        table: 'investigation_assessments',
         on_delete: 'NO ACTION'
       })
     ]));

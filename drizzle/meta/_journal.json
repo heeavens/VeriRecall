@@ -50,6 +50,13 @@
       "when": 1788910920264,
       "tag": "0006_cynical_rictor",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788933374022,
+      "tag": "0007_calm_captain_cross",
+      "breakpoints": true
     }
   ]
 }

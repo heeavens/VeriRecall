@@ -36,6 +36,15 @@ export const investigationClaimOriginKinds = [
   'HUMAN_OBSERVED'
 ] as const;
 
+export const investigationAssessmentVerdicts = [
+  'SUPPORTED',
+  'INSUFFICIENT',
+  'REJECTED',
+  'CONTRADICTED'
+] as const;
+
+export const investigationAssessmentAssessorKinds = ['RULE', 'HUMAN', 'AI'] as const;
+
 export const settings = sqliteTable(
   'settings',
   {
@@ -349,6 +358,78 @@ export const investigationClaims = sqliteTable(
       sql`${table.originKind} in ('DETERMINISTIC_EXTRACTED', 'AI_PROPOSED', 'HUMAN_OBSERVED')`
     ),
     check('investigation_claims_demo_check', sql`${table.demo} in (0, 1)`)
+  ]
+);
+
+export const investigationAssessments = sqliteTable(
+  'investigation_assessments',
+  {
+    assessmentRef: text('assessment_ref').primaryKey(),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => cases.id),
+    questionRef: text('question_ref').notNull(),
+    targetClaimRef: text('target_claim_ref')
+      .references(() => investigationClaims.claimRef),
+    verdict: text('verdict', { enum: investigationAssessmentVerdicts }).notNull(),
+    evidenceRefsJson: text('evidence_refs_json').notNull(),
+    relatedClaimRefsJson: text('related_claim_refs_json').notNull(),
+    assessorKind: text('assessor_kind', {
+      enum: investigationAssessmentAssessorKinds
+    }).notNull(),
+    assessorIdentifier: text('assessor_identifier').notNull(),
+    ruleIdentifier: text('rule_identifier'),
+    ruleVersion: text('rule_version'),
+    rationale: text('rationale').notNull(),
+    basisCaseVersion: integer('basis_case_version').notNull(),
+    supersedesAssessmentRef: text('supersedes_assessment_ref')
+      .references((): AnySQLiteColumn => investigationAssessments.assessmentRef),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    index('investigation_assessments_case_question_created_idx').on(
+      table.caseId,
+      table.questionRef,
+      table.createdAt
+    ),
+    check(
+      'investigation_assessments_verdict_check',
+      sql`${table.verdict} in ('SUPPORTED', 'INSUFFICIENT', 'REJECTED', 'CONTRADICTED')`
+    ),
+    check(
+      'investigation_assessments_assessor_kind_check',
+      sql`${table.assessorKind} in ('RULE', 'HUMAN', 'AI')`
+    ),
+    check(
+      'investigation_assessments_rule_pair_check',
+      sql`(${table.ruleIdentifier} is null and ${table.ruleVersion} is null)
+          or (${table.ruleIdentifier} is not null and ${table.ruleVersion} is not null)`
+    ),
+    check(
+      'investigation_assessments_rule_required_check',
+      sql`${table.assessorKind} = 'HUMAN'
+          or (${table.ruleIdentifier} is not null and ${table.ruleVersion} is not null)`
+    ),
+    check(
+      'investigation_assessments_target_check',
+      sql`(${table.verdict} in ('SUPPORTED', 'REJECTED') and ${table.targetClaimRef} is not null)
+          or (${table.verdict} = 'INSUFFICIENT')
+          or (${table.verdict} = 'CONTRADICTED' and ${table.targetClaimRef} is null)`
+    ),
+    check(
+      'investigation_assessments_assessor_identifier_check',
+      sql`length(trim(${table.assessorIdentifier})) > 0`
+    ),
+    check(
+      'investigation_assessments_rationale_check',
+      sql`length(trim(${table.rationale})) > 0`
+    ),
+    check(
+      'investigation_assessments_basis_case_version_check',
+      sql`${table.basisCaseVersion} > 0`
+    ),
+    check('investigation_assessments_demo_check', sql`${table.demo} in (0, 1)`)
   ]
 );
 
