@@ -27,6 +27,11 @@ afterEach(() => {
 });
 
 describe('Stage 1 database', () => {
+  it('reruns the complete clean-database migration set without foreign-key violations', () => {
+    expect(() => migrate(connection.db, { migrationsFolder: resolve('drizzle') })).not.toThrow();
+    expect(connection.sqlite.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('migrates every P0 table into a new empty database', () => {
     const tableNames = connection.sqlite
       .prepare("select name from sqlite_master where type = 'table'")
@@ -54,6 +59,7 @@ describe('Stage 1 database', () => {
         'investigation_claims',
         'investigation_assessments',
         'investigation_establishments',
+        'investigation_questions',
         'traceability_records'
       ])
     );
@@ -81,6 +87,7 @@ describe('Stage 1 database', () => {
         'investigation_claims_case_question_created_idx',
         'investigation_assessments_case_question_created_idx',
         'investigation_establishments_case_question_created_idx',
+        'investigation_questions_case_created_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
       ])
@@ -121,6 +128,42 @@ describe('Stage 1 database', () => {
       'demo:scope-gap:test',
       '2026-09-08T12:00:00.000Z'
     )).toThrow(/evidence_requests_versioned_question_check/);
+
+    const insertQuestion = connection.sqlite.prepare(`
+      insert into investigation_questions (
+        question_ref, case_id, subject_ref, question_type,
+        origin_case_version, origin_material_revision, created_at, demo
+      ) values (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const questionCreatedAt = '2026-09-08T11:00:00.000Z';
+    expect(() => insertQuestion.run(
+      ' ', caseId, fixtures.products[0].id, 'AFFECTED_BATCH_LOT',
+      1, 1, questionCreatedAt, 1
+    )).toThrow(/investigation_questions_question_ref_check/);
+    expect(() => insertQuestion.run(
+      'question:invalid-type', caseId, fixtures.products[0].id, 'PRODUCT_IDENTITY',
+      1, 1, questionCreatedAt, 1
+    )).toThrow(/investigation_questions_question_type_check/);
+    expect(() => insertQuestion.run(
+      'question:invalid-case-version', caseId, fixtures.products[0].id,
+      'AFFECTED_BATCH_LOT', 0, 1, questionCreatedAt, 1
+    )).toThrow(/investigation_questions_origin_case_version_check/);
+    expect(() => insertQuestion.run(
+      'question:invalid-material-revision', caseId, fixtures.products[0].id,
+      'AFFECTED_BATCH_LOT', 1, 0, questionCreatedAt, 1
+    )).toThrow(/investigation_questions_origin_material_revision_check/);
+    expect(() => insertQuestion.run(
+      'question:invalid-demo', caseId, fixtures.products[0].id,
+      'AFFECTED_BATCH_LOT', 1, 1, questionCreatedAt, 2
+    )).toThrow(/investigation_questions_demo_check/);
+
+    const questionForeignKeys = connection.sqlite
+      .prepare("pragma foreign_key_list('investigation_questions')")
+      .all() as Array<{ from: string; table: string; on_delete: string }>;
+    expect(questionForeignKeys).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'case_id', table: 'cases', on_delete: 'NO ACTION' }),
+      expect.objectContaining({ from: 'subject_ref', table: 'products', on_delete: 'NO ACTION' })
+    ]));
 
     const insert = connection.sqlite.prepare(`
       insert into investigation_evidence (

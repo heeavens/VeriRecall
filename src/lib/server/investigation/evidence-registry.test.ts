@@ -44,12 +44,13 @@ function reserveCase(matchIndex = 0) {
 
 function structuredEvidence(
   caseId: string,
+  questionRef: string,
   overrides: Partial<RecordInvestigationEvidenceInput> = {}
 ): RecordInvestigationEvidenceInput {
   return {
     evidenceRef: 'evidence:regulator:alert-2026-001',
     caseId,
-    questionRef: 'question:product-identity:ean',
+    questionRef,
     evidenceRequestId: null,
     sourceKind: 'REGULATOR',
     sourceIdentifier: 'safety-gate:alert-2026-001',
@@ -70,16 +71,7 @@ function record(input: RecordInvestigationEvidenceInput) {
 }
 
 function versionedGapRequest() {
-  const matchId = '50000000-0000-4000-8000-000000000002';
-  const confirmed = confirmReviewMatch(
-    connection.db,
-    { matchId, actorName: 'demo_operator' },
-    new Date('2026-09-08T10:00:00.000Z'),
-    { mode: 'demo' }
-  );
-  const snapshot = readCaseSnapshot(connection.db, confirmed.caseId);
-  const gap = snapshot?.investigation?.gaps.find((issue) => issue.code === 'BATCH_MISSING');
-  if (!snapshot || !gap) throw new Error('Expected a current versioned batch gap.');
+  const { gap, snapshot } = versionedGapCase();
   const requestId = '90000000-0000-4000-8000-000000000001';
   requestInvestigationEvidence(connection.db, {
     requestId,
@@ -90,6 +82,20 @@ function versionedGapRequest() {
     demo: true
   }, { mode: 'demo' }, new Date('2026-09-08T11:00:00.000Z'));
   return { gap, requestId, snapshot };
+}
+
+function versionedGapCase() {
+  const matchId = '50000000-0000-4000-8000-000000000002';
+  const confirmed = confirmReviewMatch(
+    connection.db,
+    { matchId, actorName: 'demo_operator' },
+    new Date('2026-09-08T10:00:00.000Z'),
+    { mode: 'demo' }
+  );
+  const snapshot = readCaseSnapshot(connection.db, confirmed.caseId);
+  const gap = snapshot?.investigation?.gaps.find((issue) => issue.code === 'BATCH_MISSING');
+  if (!snapshot || !gap) throw new Error('Expected a current versioned batch gap.');
+  return { gap, snapshot, matchId };
 }
 
 function workflowCounts() {
@@ -130,8 +136,8 @@ afterEach(() => {
 
 describe('investigation evidence registry', () => {
   it('persists structured evidence with immutable provenance and a server-calculated hash', () => {
-    const { snapshot } = reserveCase();
-    const input = structuredEvidence(snapshot.caseId);
+    const { snapshot, gap } = versionedGapCase();
+    const input = structuredEvidence(snapshot.caseId, gap.id);
     const expectedHash = createHash('sha256')
       .update('{"batch":"MFT24","ean":"3073646035990"}')
       .digest('hex');
@@ -152,8 +158,8 @@ describe('investigation evidence registry', () => {
   });
 
   it('preserves an unknown valid-as-of time as null', () => {
-    const { snapshot } = reserveCase();
-    const input = structuredEvidence(snapshot.caseId, { validAsOf: null });
+    const { snapshot, gap } = versionedGapCase();
+    const input = structuredEvidence(snapshot.caseId, gap.id, { validAsOf: null });
 
     record(input);
 
@@ -162,8 +168,8 @@ describe('investigation evidence registry', () => {
   });
 
   it('returns an exact replay without inserting a duplicate', () => {
-    const { snapshot } = reserveCase();
-    const input = structuredEvidence(snapshot.caseId);
+    const { snapshot, gap } = versionedGapCase();
+    const input = structuredEvidence(snapshot.caseId, gap.id);
     const first = record(input);
     const replay = record(input);
 
@@ -174,12 +180,12 @@ describe('investigation evidence registry', () => {
   });
 
   it('rejects reuse of an evidence reference with different content', () => {
-    const { snapshot } = reserveCase();
-    const input = structuredEvidence(snapshot.caseId);
+    const { snapshot, gap } = versionedGapCase();
+    const input = structuredEvidence(snapshot.caseId, gap.id);
     record(input);
 
     expectRegistryError(
-      () => record(structuredEvidence(snapshot.caseId, {
+      () => record(structuredEvidence(snapshot.caseId, gap.id, {
         contentJson: { batch: 'DIFFERENT', ean: '3073646035990' }
       })),
       'EVIDENCE_CONFLICT'
@@ -187,12 +193,12 @@ describe('investigation evidence registry', () => {
   });
 
   it('rejects reuse of an evidence reference with different provenance metadata', () => {
-    const { snapshot } = reserveCase();
-    const input = structuredEvidence(snapshot.caseId);
+    const { snapshot, gap } = versionedGapCase();
+    const input = structuredEvidence(snapshot.caseId, gap.id);
     record(input);
 
     expectRegistryError(
-      () => record(structuredEvidence(snapshot.caseId, {
+      () => record(structuredEvidence(snapshot.caseId, gap.id, {
         sourceIdentifier: 'safety-gate:another-alert'
       })),
       'EVIDENCE_CONFLICT'
@@ -200,9 +206,9 @@ describe('investigation evidence registry', () => {
   });
 
   it('does not resolve evidence through another case', () => {
-    const first = reserveCase(0);
-    const second = reserveCase(1);
-    const input = structuredEvidence(first.snapshot.caseId);
+    const first = versionedGapCase();
+    const second = reserveCase(0);
+    const input = structuredEvidence(first.snapshot.caseId, first.gap.id);
     record(input);
 
     expect(getInvestigationEvidence(connection.db, second.snapshot.caseId, input.evidenceRef))
@@ -210,14 +216,14 @@ describe('investigation evidence registry', () => {
   });
 
   it('rejects an unknown case and a nonexistent evidence request', () => {
-    const { snapshot } = reserveCase();
+    const { snapshot, gap } = versionedGapCase();
 
     expectRegistryError(
-      () => record(structuredEvidence(randomUUID())),
+      () => record(structuredEvidence(randomUUID(), gap.id)),
       'CASE_NOT_FOUND'
     );
     expectRegistryError(
-      () => record(structuredEvidence(snapshot.caseId, {
+      () => record(structuredEvidence(snapshot.caseId, gap.id, {
         evidenceRequestId: randomUUID()
       })),
       'EVIDENCE_REQUEST_NOT_FOUND'
@@ -225,14 +231,14 @@ describe('investigation evidence registry', () => {
   });
 
   it('accepts only an evidence request related to the same case through its match', () => {
-    const first = reserveCase(0);
-    const second = reserveCase(1);
+    const first = versionedGapCase();
+    const second = reserveCase(0);
     const firstRequestId = randomUUID();
     const secondRequestId = randomUUID();
     connection.db.insert(schema.evidenceRequests).values([
       {
         id: firstRequestId,
-        matchId: first.match.id,
+        matchId: first.matchId,
         requestedEvidence: '["barcode_photo"]',
         recipient: null,
         status: 'pending',
@@ -250,11 +256,11 @@ describe('investigation evidence registry', () => {
       }
     ]).run();
 
-    expect(record(structuredEvidence(first.snapshot.caseId, {
+    expect(record(structuredEvidence(first.snapshot.caseId, first.gap.id, {
       evidenceRequestId: firstRequestId
     }))).toMatchObject({ replayed: false, evidence: { evidenceRequestId: firstRequestId } });
     expectRegistryError(
-      () => record(structuredEvidence(first.snapshot.caseId, {
+      () => record(structuredEvidence(first.snapshot.caseId, first.gap.id, {
         evidenceRef: 'evidence:external:wrong-case-request',
         evidenceRequestId: secondRequestId,
         sourceKind: 'EXTERNAL_PARTY',
@@ -265,12 +271,12 @@ describe('investigation evidence registry', () => {
   });
 
   it('records locator evidence only with the caller-provided content hash', () => {
-    const { snapshot } = reserveCase();
+    const { snapshot, gap } = versionedGapCase();
     const hash = 'a'.repeat(64);
     const input: RecordInvestigationEvidenceInput = {
       evidenceRef: 'evidence:external:document-001',
       caseId: snapshot.caseId,
-      questionRef: 'question:product-identity:barcode-photo',
+      questionRef: gap.id,
       evidenceRequestId: null,
       sourceKind: 'EXTERNAL_PARTY',
       sourceIdentifier: 'supplier:document-001',
@@ -291,7 +297,7 @@ describe('investigation evidence registry', () => {
       .where(eq(schema.evidenceRequests.id, requestId)).get();
     const snapshotBefore = readCaseSnapshot(connection.db, snapshot.caseId);
     const beforeWorkflowCounts = workflowCounts();
-    const evidence = structuredEvidence(snapshot.caseId, {
+    const evidence = structuredEvidence(snapshot.caseId, gap.id, {
       evidenceRef: 'evidence:external:batch-label-001',
       questionRef: gap.id,
       evidenceRequestId: requestId,
@@ -313,9 +319,8 @@ describe('investigation evidence registry', () => {
   it('rejects receipt whose question does not match its versioned request', () => {
     const { requestId, snapshot } = versionedGapRequest();
 
-    expectRegistryError(() => record(structuredEvidence(snapshot.caseId, {
+    expectRegistryError(() => record(structuredEvidence(snapshot.caseId, 'demo:another-current-looking-question', {
       evidenceRef: 'evidence:external:wrong-question',
-      questionRef: 'demo:another-current-looking-question',
       evidenceRequestId: requestId,
       sourceKind: 'EXTERNAL_PARTY',
       sourceIdentifier: 'supplier:wrong-question'
@@ -324,19 +329,19 @@ describe('investigation evidence registry', () => {
   });
 
   it('leaves the authoritative case snapshot byte-for-byte unchanged', () => {
-    const { snapshot } = reserveCase();
+    const { snapshot, gap } = versionedGapCase();
     const before = readCaseSnapshot(connection.db, snapshot.caseId);
     const beforeWorkflowCounts = workflowCounts();
 
-    record(structuredEvidence(snapshot.caseId));
+    record(structuredEvidence(snapshot.caseId, gap.id));
 
     expect(readCaseSnapshot(connection.db, snapshot.caseId)).toEqual(before);
     expect(workflowCounts()).toEqual(beforeWorkflowCounts);
   });
 
   it('survives closing and reopening the database', () => {
-    const { snapshot } = reserveCase();
-    const input = structuredEvidence(snapshot.caseId);
+    const { snapshot, gap } = versionedGapCase();
+    const input = structuredEvidence(snapshot.caseId, gap.id);
     const recorded = record(input).evidence;
     connection.sqlite.close();
     connection = createDatabaseConnection(databasePath);

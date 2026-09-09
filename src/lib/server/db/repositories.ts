@@ -99,6 +99,7 @@ export function clearDemoData(database: RecallDatabase): void {
     transaction.delete(schema.auditEvents).run();
     transaction.delete(schema.actionDrafts).run();
     transaction.delete(schema.evidenceRequests).run();
+    transaction.delete(schema.investigationQuestions).run();
     transaction.delete(schema.caseTasks).run();
     transaction.delete(schema.caseItems).run();
     transaction.delete(schema.cases).run();
@@ -120,6 +121,7 @@ export function replaceWithDemoData(database: RecallDatabase, fixtures: DemoFixt
     transaction.delete(schema.auditEvents).run();
     transaction.delete(schema.actionDrafts).run();
     transaction.delete(schema.evidenceRequests).run();
+    transaction.delete(schema.investigationQuestions).run();
     transaction.delete(schema.caseTasks).run();
     transaction.delete(schema.caseItems).run();
     transaction.delete(schema.cases).run();

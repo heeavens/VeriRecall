@@ -47,6 +47,8 @@ export const investigationAssessmentAssessorKinds = ['RULE', 'HUMAN', 'AI'] as c
 
 export const investigationEstablishmentEvaluatorKinds = ['RULE'] as const;
 
+export const investigationQuestionTypes = ['AFFECTED_BATCH_LOT'] as const;
+
 export const settings = sqliteTable(
   'settings',
   {
@@ -280,6 +282,44 @@ export const evidenceRequests = sqliteTable('evidence_requests', {
         or (${table.caseId} is not null and ${table.questionRef} is not null)`
   )
 ]);
+
+export const investigationQuestions = sqliteTable(
+  'investigation_questions',
+  {
+    questionRef: text('question_ref').primaryKey(),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => cases.id),
+    subjectRef: text('subject_ref')
+      .notNull()
+      .references(() => products.id),
+    questionType: text('question_type', { enum: investigationQuestionTypes }).notNull(),
+    originCaseVersion: integer('origin_case_version').notNull(),
+    originMaterialRevision: integer('origin_material_revision').notNull(),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    index('investigation_questions_case_created_idx').on(table.caseId, table.createdAt),
+    check(
+      'investigation_questions_question_ref_check',
+      sql`length(trim(${table.questionRef})) > 0`
+    ),
+    check(
+      'investigation_questions_question_type_check',
+      sql`${table.questionType} = 'AFFECTED_BATCH_LOT'`
+    ),
+    check(
+      'investigation_questions_origin_case_version_check',
+      sql`${table.originCaseVersion} > 0`
+    ),
+    check(
+      'investigation_questions_origin_material_revision_check',
+      sql`${table.originMaterialRevision} > 0`
+    ),
+    check('investigation_questions_demo_check', sql`${table.demo} in (0, 1)`)
+  ]
+);
 
 export const investigationEvidence = sqliteTable(
   'investigation_evidence',

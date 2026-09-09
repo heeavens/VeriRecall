@@ -5,6 +5,10 @@ import { z } from 'zod';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import {
+  ensureInvestigationQuestionLineageRegistered,
+  InvestigationQuestionError
+} from './questions';
 
 const opaqueReferenceSchema = z.string().min(1).max(500).refine(
   (value) => value.trim().length > 0,
@@ -86,6 +90,8 @@ export type EvidenceRegistryErrorCode =
   | 'EVIDENCE_REQUEST_NOT_FOUND'
   | 'EVIDENCE_REQUEST_CASE_MISMATCH'
   | 'EVIDENCE_REQUEST_QUESTION_MISMATCH'
+  | 'QUESTION_NOT_REGISTERED'
+  | 'QUESTION_OWNERSHIP_MISMATCH'
   | 'EVIDENCE_CONFLICT';
 
 export class EvidenceRegistryError extends Error {
@@ -255,6 +261,31 @@ export function recordInvestigationEvidence(
         prepared.questionRef,
         prepared.evidenceRequestId
       );
+    }
+
+    try {
+      ensureInvestigationQuestionLineageRegistered(transaction, {
+        caseId: prepared.caseId,
+        questionRef: prepared.questionRef,
+        demo: prepared.demo
+      });
+    } catch (error) {
+      if (
+        error instanceof InvestigationQuestionError &&
+        ['QUESTION_HISTORY_UNPROVEN', 'QUESTION_NOT_FOUND'].includes(error.code)
+      ) {
+        throw new EvidenceRegistryError(
+          'QUESTION_NOT_REGISTERED',
+          'Evidence must belong to a registered, authoritatively proven investigation question.'
+        );
+      }
+      if (error instanceof InvestigationQuestionError) {
+        throw new EvidenceRegistryError(
+          'QUESTION_OWNERSHIP_MISMATCH',
+          'Evidence case, product, question, or demo ownership is inconsistent.'
+        );
+      }
+      throw error;
     }
 
     const insertedRecord = {

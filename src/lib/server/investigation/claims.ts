@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { ensureCurrentInvestigationQuestionRegistered } from './questions';
 import {
   readCaseSnapshot,
   type LifecycleContext
@@ -337,6 +338,13 @@ export function recordInvestigationClaim(
         'Only the current BATCH_MISSING gap supports claims in this version.'
       );
     }
+
+    ensureCurrentInvestigationQuestionRegistered(transaction, {
+      caseId: current.caseId,
+      questionRef: matchingGaps[0].id,
+      expectedCaseVersion: current.caseVersion,
+      demo: true
+    });
 
     validateEvidenceOwnership(transaction, prepared);
     validateSupersession(transaction, prepared, current.productId);

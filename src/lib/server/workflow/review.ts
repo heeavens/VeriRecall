@@ -5,6 +5,7 @@ import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { produceInvestigationOutcome } from '../investigation/outcome-producer';
+import { ensureCurrentInvestigationQuestionRegistered } from '../investigation/questions';
 import { assessHarm, type HarmAssessment } from '../risk/harm';
 import { applyConfirmedReviewOutcomeInTransaction, readCaseSnapshot, type LifecycleContext } from './case-lifecycle';
 import { nextCaseNumber, severityForRisk } from './case-record';
@@ -552,6 +553,15 @@ export function confirmReviewMatch(
       }, caseMode, new Date(outcome.updatedAt));
       if (!integrated.ok) {
         throw new ReviewWorkflowError('invalid_state', integrated.error.message);
+      }
+      for (const gap of integrated.snapshot.investigation?.gaps ?? []) {
+        if (gap.code !== 'BATCH_MISSING') continue;
+        ensureCurrentInvestigationQuestionRegistered(transaction, {
+          caseId: integrated.snapshot.caseId,
+          questionRef: gap.id,
+          expectedCaseVersion: integrated.snapshot.caseVersion,
+          demo: true
+        });
       }
       lifecycleChanged = !integrated.replayed;
     } else {

@@ -10,6 +10,7 @@ import {
   type LifecycleContext
 } from '../workflow/case-lifecycle';
 import { evidenceTypes, type EvidenceType } from '../workflow/review';
+import { ensureCurrentInvestigationQuestionRegistered } from './questions';
 
 const actorId = 'demo_operator';
 const questionRefSchema = z.string().trim().min(1).max(500);
@@ -171,6 +172,13 @@ export function requestInvestigationEvidence(
         'Only the current BATCH_MISSING gap is requestable in this version.'
       );
     }
+
+    ensureCurrentInvestigationQuestionRegistered(transaction, {
+      caseId: current.caseId,
+      questionRef: matchingGaps[0].id,
+      expectedCaseVersion: current.caseVersion,
+      demo: true
+    });
 
     const caseRecord = transaction
       .select()

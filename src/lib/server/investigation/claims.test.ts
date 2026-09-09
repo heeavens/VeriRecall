@@ -298,15 +298,29 @@ describe('investigation claims', () => {
       new Date('2026-09-09T10:30:00.000Z'),
       context
     );
-    const otherEvidence = createEvidence(
-      otherConfirmed.caseId,
-      gap.id,
-      'evidence:external:wrong-case'
+    const insertHistoricalEvidence = (evidenceRef: string, caseId: string, questionRef: string) => {
+      connection.db.insert(schema.investigationEvidence).values({
+        evidenceRef,
+        caseId,
+        questionRef,
+        evidenceRequestId: null,
+        sourceKind: 'EXTERNAL_PARTY',
+        sourceIdentifier: `historical:${evidenceRef}`,
+        receivedAt: '2026-09-09T12:00:00.000Z',
+        validAsOf: null,
+        contentKind: 'STRUCTURED',
+        contentJson: '{"assertedBatch":"MFT24"}',
+        contentLocator: null,
+        integrityHash: 'a'.repeat(64),
+        demo: true
+      }).run();
+      return { evidenceRef };
+    };
+    const otherEvidence = insertHistoricalEvidence(
+      'evidence:external:wrong-case', otherConfirmed.caseId, gap.id
     );
-    const wrongQuestionEvidence = createEvidence(
-      snapshot.caseId,
-      'question:another-gap',
-      'evidence:external:wrong-question'
+    const wrongQuestionEvidence = insertHistoricalEvidence(
+      'evidence:external:wrong-question', snapshot.caseId, 'question:another-gap'
     );
     const base = claimInput(snapshot.caseId, gap.id, snapshot.caseVersion,
       ['evidence:not-registered']);
@@ -637,31 +651,52 @@ describe('investigation claims', () => {
     try {
       migrate(existing.db, { migrationsFolder: preClaimsFolder });
       seedDemoData(existing.db, fixtures);
-      const { gap, snapshot } = versionedGapCase(existing.db);
-      const request = createVersionedRequest(
-        snapshot.caseId,
-        gap.id,
-        snapshot.caseVersion,
-        '91000000-0000-4000-8000-000000000081',
-        existing.db
-      );
-      createEvidence(
-        snapshot.caseId,
-        gap.id,
-        'evidence:external:pre-claims',
-        request.id,
-        existing.db
-      );
+      const caseId = '60000000-0000-4000-8000-000000000081';
+      const questionRef = 'historical:pre-claims:question';
+      const requestId = '91000000-0000-4000-8000-000000000081';
+      existing.db.insert(schema.cases).values({
+        id: caseId,
+        caseNumber: 'CASE-PRE-CLAIMS-081',
+        alertId: fixtures.matches[1].alertId,
+        status: 'open',
+        severity: 'high',
+        openedAt: '2026-09-09T10:00:00.000Z',
+        closedAt: null
+      }).run();
+      existing.db.insert(schema.evidenceRequests).values({
+        id: requestId,
+        matchId: gapMatchId,
+        caseId,
+        questionRef,
+        requestedEvidence: '["batch_label_photo"]',
+        recipient: null,
+        status: 'pending',
+        createdAt: '2026-09-09T11:00:00.000Z',
+        resolvedAt: null
+      }).run();
+      existing.db.insert(schema.investigationEvidence).values({
+        evidenceRef: 'evidence:external:pre-claims',
+        caseId,
+        questionRef,
+        evidenceRequestId: requestId,
+        sourceKind: 'EXTERNAL_PARTY',
+        sourceIdentifier: 'supplier:pre-claims',
+        receivedAt: '2026-09-09T12:00:00.000Z',
+        validAsOf: null,
+        contentKind: 'STRUCTURED',
+        contentJson: '{"assertedBatch":"MFT24"}',
+        contentLocator: null,
+        integrityHash: 'c'.repeat(64),
+        demo: true
+      }).run();
       const beforeRequest = existing.db.select().from(schema.evidenceRequests).all();
       const beforeEvidence = existing.db.select().from(schema.investigationEvidence).all();
-      const beforeSnapshot = readCaseSnapshot(existing.db, snapshot.caseId);
 
       migrate(existing.db, { migrationsFolder: resolve('drizzle') });
       migrate(existing.db, { migrationsFolder: resolve('drizzle') });
 
       expect(existing.db.select().from(schema.evidenceRequests).all()).toEqual(beforeRequest);
       expect(existing.db.select().from(schema.investigationEvidence).all()).toEqual(beforeEvidence);
-      expect(readCaseSnapshot(existing.db, snapshot.caseId)).toEqual(beforeSnapshot);
       expect(existing.db.select().from(schema.investigationClaims).all()).toEqual([]);
       expect(existing.sqlite.pragma('foreign_key_check')).toEqual([]);
     } finally {

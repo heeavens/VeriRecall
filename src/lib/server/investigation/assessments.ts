@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { normalizeBatch } from '../alerts/normalization';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import { ensureCurrentInvestigationQuestionRegistered } from './questions';
 import {
   readCaseSnapshot,
   type LifecycleContext
@@ -562,6 +563,13 @@ export function recordInvestigationAssessment(
         'Only the current BATCH_MISSING gap supports assessments in this version.'
       );
     }
+
+    ensureCurrentInvestigationQuestionRegistered(transaction, {
+      caseId: current.caseId,
+      questionRef: matchingGaps[0].id,
+      expectedCaseVersion: current.caseVersion,
+      demo: true
+    });
 
     validateEvidenceOwnership(transaction, prepared);
     validateClaimBasis(transaction, prepared, current.productId);

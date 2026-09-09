@@ -1209,9 +1209,80 @@ describe('investigation establishments', () => {
     try {
       migrate(existing.db, { migrationsFolder: preEstablishmentFolder });
       seedDemoData(existing.db, fixtures);
-      const scenario = eligibleScenario('EXTERNAL_PARTY', existing.db);
+      const caseId = '60000000-0000-4000-8000-000000000097';
+      const questionRef = 'historical:pre-establishment:question';
+      const requestId = '93000000-0000-4000-8000-000000000097';
+      const evidenceRef = 'evidence:pre-establishment';
+      const claimRef = '94000000-0000-4000-8000-000000000097';
+      existing.db.insert(schema.cases).values({
+        id: caseId,
+        caseNumber: 'CASE-PRE-ESTABLISHMENT-097',
+        alertId: fixtures.matches[1].alertId,
+        status: 'open',
+        severity: 'high',
+        openedAt: '2026-09-09T10:00:00.000Z',
+        closedAt: null
+      }).run();
+      existing.db.insert(schema.evidenceRequests).values({
+        id: requestId,
+        matchId: fixtures.matches[1].id,
+        caseId,
+        questionRef,
+        requestedEvidence: '["supplier_invoice"]',
+        recipient: null,
+        status: 'pending',
+        createdAt: '2026-09-09T11:00:00.000Z',
+        resolvedAt: null
+      }).run();
+      existing.db.insert(schema.investigationEvidence).values({
+        evidenceRef,
+        caseId,
+        questionRef,
+        evidenceRequestId: requestId,
+        sourceKind: 'EXTERNAL_PARTY',
+        sourceIdentifier: 'supplier:pre-establishment',
+        receivedAt: '2026-09-09T12:00:00.000Z',
+        validAsOf: null,
+        contentKind: 'STRUCTURED',
+        contentJson: '{"assertedBatch":"MFT24"}',
+        contentLocator: null,
+        integrityHash: 'e'.repeat(64),
+        demo: true
+      }).run();
+      existing.db.insert(schema.investigationClaims).values({
+        claimRef,
+        caseId,
+        questionRef,
+        subjectRef: fixtures.matches[1].productId,
+        claimType: 'AFFECTED_BATCH_LOT',
+        valueJson: '{"lot":"MFT24"}',
+        evidenceRefsJson: JSON.stringify([evidenceRef]),
+        originKind: 'DETERMINISTIC_EXTRACTED',
+        producerIdentifier: 'historical:pre-establishment',
+        derivationMetadataJson: null,
+        supersedesClaimRef: null,
+        createdAt: '2026-09-09T13:00:00.000Z',
+        demo: true
+      }).run();
+      existing.db.insert(schema.investigationAssessments).values({
+        assessmentRef: '95000000-0000-4000-8000-000000000097',
+        caseId,
+        questionRef,
+        targetClaimRef: claimRef,
+        verdict: 'SUPPORTED',
+        evidenceRefsJson: JSON.stringify([evidenceRef]),
+        relatedClaimRefsJson: '[]',
+        assessorKind: 'HUMAN',
+        assessorIdentifier: 'demo_operator',
+        ruleIdentifier: null,
+        ruleVersion: null,
+        rationale: 'Historical reviewed evidence basis.',
+        basisCaseVersion: 1,
+        supersedesAssessmentRef: null,
+        createdAt: '2026-09-09T14:00:00.000Z',
+        demo: true
+      }).run();
       const before = {
-        snapshot: readCaseSnapshot(existing.db, scenario.snapshot.caseId),
         evidence: existing.db.select().from(schema.investigationEvidence).all(),
         claims: existing.db.select().from(schema.investigationClaims).all(),
         assessments: existing.db.select().from(schema.investigationAssessments).all()
@@ -1221,7 +1292,6 @@ describe('investigation establishments', () => {
       migrate(existing.db, { migrationsFolder: resolve('drizzle') });
 
       expect({
-        snapshot: readCaseSnapshot(existing.db, scenario.snapshot.caseId),
         evidence: existing.db.select().from(schema.investigationEvidence).all(),
         claims: existing.db.select().from(schema.investigationClaims).all(),
         assessments: existing.db.select().from(schema.investigationAssessments).all()

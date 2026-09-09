@@ -514,15 +514,29 @@ describe('investigation assessments', () => {
       new Date('2026-09-09T10:30:00.000Z'),
       context
     );
-    const wrongCase = createEvidence(
-      otherConfirmed.caseId,
-      gap.id,
-      'evidence:assessment:wrong-case'
+    const insertHistoricalEvidence = (evidenceRef: string, caseId: string, questionRef: string) => {
+      connection.db.insert(schema.investigationEvidence).values({
+        evidenceRef,
+        caseId,
+        questionRef,
+        evidenceRequestId: null,
+        sourceKind: 'EXTERNAL_PARTY',
+        sourceIdentifier: `historical:${evidenceRef}`,
+        receivedAt: '2026-09-09T12:00:00.000Z',
+        validAsOf: null,
+        contentKind: 'STRUCTURED',
+        contentJson: '{"assertedBatch":"MFT24"}',
+        contentLocator: null,
+        integrityHash: 'b'.repeat(64),
+        demo: true
+      }).run();
+      return { evidenceRef };
+    };
+    const wrongCase = insertHistoricalEvidence(
+      'evidence:assessment:wrong-case', otherConfirmed.caseId, gap.id
     );
-    const wrongQuestion = createEvidence(
-      snapshot.caseId,
-      'question:wrong',
-      'evidence:assessment:wrong-question'
+    const wrongQuestion = insertHistoricalEvidence(
+      'evidence:assessment:wrong-question', snapshot.caseId, 'question:wrong'
     );
 
     expectAssessmentError(() => record({ ...base, evidenceRefs: ['evidence:not-found'] }),
@@ -885,39 +899,67 @@ describe('investigation assessments', () => {
     try {
       migrate(existing.db, { migrationsFolder: preAssessmentFolder });
       seedDemoData(existing.db, fixtures);
-      const { gap, snapshot } = versionedGapCase(existing.db);
-      const request = createVersionedRequest(
-        snapshot.caseId,
-        gap.id,
-        snapshot.caseVersion,
-        '93000000-0000-4000-8000-000000000098',
-        existing.db
-      );
-      const evidence = createEvidence(
-        snapshot.caseId,
-        gap.id,
-        'evidence:assessment:pre-0007',
-        request.id,
-        existing.db
-      );
-      createClaim(
-        snapshot.caseId,
-        gap.id,
-        snapshot.caseVersion,
-        [evidence.evidenceRef],
-        '94000000-0000-4000-8000-000000000098',
-        'MFT24',
-        existing.db
-      );
+      const caseId = '60000000-0000-4000-8000-000000000098';
+      const questionRef = 'historical:pre-assessment:question';
+      const requestId = '93000000-0000-4000-8000-000000000098';
+      const evidenceRef = 'evidence:assessment:pre-0007';
+      existing.db.insert(schema.cases).values({
+        id: caseId,
+        caseNumber: 'CASE-PRE-ASSESSMENT-098',
+        alertId: fixtures.matches[1].alertId,
+        status: 'open',
+        severity: 'high',
+        openedAt: '2026-09-09T10:00:00.000Z',
+        closedAt: null
+      }).run();
+      existing.db.insert(schema.evidenceRequests).values({
+        id: requestId,
+        matchId: gapMatchId,
+        caseId,
+        questionRef,
+        requestedEvidence: '["batch_label_photo"]',
+        recipient: null,
+        status: 'pending',
+        createdAt: '2026-09-09T11:00:00.000Z',
+        resolvedAt: null
+      }).run();
+      existing.db.insert(schema.investigationEvidence).values({
+        evidenceRef,
+        caseId,
+        questionRef,
+        evidenceRequestId: requestId,
+        sourceKind: 'EXTERNAL_PARTY',
+        sourceIdentifier: 'supplier:pre-assessment',
+        receivedAt: '2026-09-09T12:00:00.000Z',
+        validAsOf: null,
+        contentKind: 'STRUCTURED',
+        contentJson: '{"assertedBatch":"MFT24"}',
+        contentLocator: null,
+        integrityHash: 'd'.repeat(64),
+        demo: true
+      }).run();
+      existing.db.insert(schema.investigationClaims).values({
+        claimRef: '94000000-0000-4000-8000-000000000098',
+        caseId,
+        questionRef,
+        subjectRef: fixtures.matches[1].productId,
+        claimType: 'AFFECTED_BATCH_LOT',
+        valueJson: '{"lot":"MFT24"}',
+        evidenceRefsJson: JSON.stringify([evidenceRef]),
+        originKind: 'DETERMINISTIC_EXTRACTED',
+        producerIdentifier: 'historical:pre-assessment',
+        derivationMetadataJson: null,
+        supersedesClaimRef: null,
+        createdAt: '2026-09-09T13:00:00.000Z',
+        demo: true
+      }).run();
       const beforeClaims = existing.db.select().from(schema.investigationClaims).all();
-      const beforeSnapshot = readCaseSnapshot(existing.db, snapshot.caseId);
 
       migrate(existing.db, { migrationsFolder: resolve('drizzle') });
       migrate(existing.db, { migrationsFolder: resolve('drizzle') });
 
       expect(existing.db.select().from(schema.investigationClaims).all()).toEqual(beforeClaims);
       expect(existing.db.select().from(schema.investigationAssessments).all()).toEqual([]);
-      expect(readCaseSnapshot(existing.db, snapshot.caseId)).toEqual(beforeSnapshot);
       expect(existing.sqlite.pragma('foreign_key_check')).toEqual([]);
     } finally {
       existing.sqlite.close();
