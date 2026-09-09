@@ -1,6 +1,6 @@
 # VeriRecall — состояние блока B
 
-Дата: 2026-09-09. **Этап 7 Германа объединён с текущей веткой `mykyta_dev`; Mykyta Investigation Engine Commit 1–7 реализованы.** Persistent batch claims остаются untrusted assertions; append-only assessments записывают только анализ, а применение trusted facts к InvestigationOutcome ещё не реализовано. Актуальная точка продолжения описана в `docs/HANDOFF_TO_FRIEND.md`.
+Дата: 2026-09-09. **Этап 7 Германа объединён с текущей веткой `mykyta_dev`; Mykyta Investigation Engine Commit 1–8 реализованы.** Persistent batch claims остаются untrusted assertions; append-only assessments записывают только анализ, а read-only effective-analysis projection сохраняет несколько одновременно применимых суждений без выбора истины. Establishment и применение trusted facts к InvestigationOutcome ещё не реализованы. Актуальная точка продолжения описана в `docs/HANDOFF_TO_FRIEND.md`.
 
 ## Что работает
 
@@ -114,3 +114,12 @@ npm run dev -- --host 127.0.0.1 --port 5187
 - Assessment IDs are idempotency keys. Exact replay returns the stored record without another audit event even after lifecycle advancement; changed semantics conflict. Reassessment uses `supersedesAssessmentRef`, preserves the old row, and does not infer effective truth from timestamps.
 - Recording any assessment leaves claims, requests, evidence, `InvestigationOutcome`, `CaseSnapshot`, `caseVersion`, `materialRevision`, revisions/commands/decisions, Exposure, Tasks, Closure, and Readiness unchanged. Explicit assessed-finding → InvestigationOutcome resolution remains a separate later commit.
 - Verification: focused assessment/database suites pass 22/22; the full suite passes 190/190 in 26 files; `npm.cmd run check` reports 0 errors/warnings; `npm.cmd run build`, clean and repeat migrations, populated-0006 compatibility, `foreign_key_check`, Drizzle metadata consistency, and `git diff --check` pass. The build retains the existing adapter-auto deployment-target notice.
+
+## Mykyta Investigation Engine — Commit 8 effective analysis projection
+
+- `projectEffectiveInvestigationAnalysis` is a pure projection and `readEffectiveInvestigationAnalysis` is its read-only database loader for the exact current `BATCH_MISSING` question. Commit 8 adds no table, migration, audit event, or write operation.
+- Claim and Assessment supersession are projected as graphs. Structural heads are not selected by timestamp; multiple branches remain visible. An Assessment head is applicable only while every Claim in its basis is still an active Claim head, and no analysis is transferred to a superseding Claim even when the asserted lot normalizes identically.
+- Assessment material currentness resolves the persisted `basisCaseVersion` through `case_revisions` to a material revision. Operational case-version advancement with the same material revision does not stale analysis; a different material revision does, and an absent or ambiguous historical basis fails closed as unresolved.
+- The projection returns collections of active/inactive Claims, structural/applicable/materially-current Assessment heads, stale reasons, targeted verdict refs, question-level insufficient attempts, active contradiction groups, and neutral ambiguity records. It deliberately returns no effective verdict, winner, trust result, establishment eligibility, or authoritative resolution.
+- Commit 9 is expected to add an explicit demo-only establishment policy on top of this projection. Source authenticity, `ESTABLISHED`, InvestigationOutcome revision, scope resolution, and all Exposure/Tasks/Closure/Readiness effects remain unimplemented here.
+- Verification: the focused projection suite passes 10/10 and the full suite passes 200/200 in 27 files; `npm.cmd run check` reports 0 errors/warnings; `npm.cmd run build` passes with the existing adapter-auto deployment-target notice; Drizzle reports no schema changes and no `0008` migration was generated; `git diff --check` passes.
