@@ -49,6 +49,8 @@ export const investigationEstablishmentEvaluatorKinds = ['RULE'] as const;
 
 export const investigationQuestionTypes = ['AFFECTED_BATCH_LOT'] as const;
 
+export const investigationChallengeOpenedByKinds = ['HUMAN'] as const;
+
 export const settings = sqliteTable(
   'settings',
   {
@@ -612,6 +614,65 @@ export const caseRevisions = sqliteTable('case_revisions', {
   uniqueIndex('case_revisions_version_unique').on(table.caseId, table.caseVersion),
   index('case_revisions_material_idx').on(table.caseId, table.materialRevision)
 ]);
+
+export const investigationChallenges = sqliteTable(
+  'investigation_challenges',
+  {
+    challengeRef: text('challenge_ref').primaryKey(),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => cases.id),
+    questionRef: text('question_ref')
+      .notNull()
+      .references(() => investigationQuestions.questionRef),
+    challengedRevisionId: text('challenged_revision_id')
+      .notNull()
+      .references(() => caseRevisions.id),
+    challengedMaterialRevision: integer('challenged_material_revision').notNull(),
+    openedCaseVersion: integer('opened_case_version').notNull(),
+    triggerEvidenceRefsJson: text('trigger_evidence_refs_json').notNull(),
+    openedByKind: text('opened_by_kind', {
+      enum: investigationChallengeOpenedByKinds
+    }).notNull(),
+    openedByIdentifier: text('opened_by_identifier').notNull(),
+    rationale: text('rationale').notNull(),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    uniqueIndex('investigation_challenges_case_question_material_unique').on(
+      table.caseId,
+      table.questionRef,
+      table.challengedMaterialRevision
+    ),
+    index('investigation_challenges_case_question_created_idx').on(
+      table.caseId,
+      table.questionRef,
+      table.createdAt
+    ),
+    check(
+      'investigation_challenges_material_revision_check',
+      sql`${table.challengedMaterialRevision} > 0`
+    ),
+    check(
+      'investigation_challenges_opened_case_version_check',
+      sql`${table.openedCaseVersion} > 0`
+    ),
+    check(
+      'investigation_challenges_opened_by_kind_check',
+      sql`${table.openedByKind} = 'HUMAN'`
+    ),
+    check(
+      'investigation_challenges_opened_by_identifier_check',
+      sql`length(trim(${table.openedByIdentifier})) > 0`
+    ),
+    check(
+      'investigation_challenges_rationale_check',
+      sql`length(trim(${table.rationale})) > 0`
+    ),
+    check('investigation_challenges_demo_check', sql`${table.demo} = 1`)
+  ]
+);
 
 export const caseCommands = sqliteTable('case_commands', {
   id: text('id').primaryKey(),

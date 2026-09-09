@@ -60,6 +60,7 @@ describe('Stage 1 database', () => {
         'investigation_assessments',
         'investigation_establishments',
         'investigation_questions',
+        'investigation_challenges',
         'traceability_records'
       ])
     );
@@ -88,6 +89,8 @@ describe('Stage 1 database', () => {
         'investigation_assessments_case_question_created_idx',
         'investigation_establishments_case_question_created_idx',
         'investigation_questions_case_created_idx',
+        'investigation_challenges_case_question_material_unique',
+        'investigation_challenges_case_question_created_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
       ])
