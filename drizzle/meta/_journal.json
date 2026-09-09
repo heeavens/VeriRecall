@@ -57,6 +57,13 @@
       "when": 1788933374022,
       "tag": "0007_calm_captain_cross",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788954024124,
+      "tag": "0008_warm_zarek",
+      "breakpoints": true
     }
   ]
 }

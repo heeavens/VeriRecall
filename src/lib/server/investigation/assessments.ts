@@ -11,7 +11,7 @@ import {
   type LifecycleContext
 } from '../workflow/case-lifecycle';
 
-const humanAssessorIdentifier = 'demo_operator';
+export const demoHumanAssessorIdentifier = 'demo_operator';
 export const batchContradictionRule = {
   identifier: 'batch-normalization-comparison',
   version: 'v1'
@@ -189,7 +189,7 @@ function prepareInput(input: ReturnType<typeof parseInput>) {
     evidenceRefsJson: JSON.stringify(evidenceRefs),
     relatedClaimRefsJson: JSON.stringify(relatedClaimRefs),
     assessorIdentifier: input.assessorKind === 'HUMAN'
-      ? humanAssessorIdentifier
+      ? demoHumanAssessorIdentifier
       : input.assessorIdentifier!,
     ruleIdentifier,
     ruleVersion

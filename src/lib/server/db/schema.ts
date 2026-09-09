@@ -45,6 +45,8 @@ export const investigationAssessmentVerdicts = [
 
 export const investigationAssessmentAssessorKinds = ['RULE', 'HUMAN', 'AI'] as const;
 
+export const investigationEstablishmentEvaluatorKinds = ['RULE'] as const;
+
 export const settings = sqliteTable(
   'settings',
   {
@@ -430,6 +432,65 @@ export const investigationAssessments = sqliteTable(
       sql`${table.basisCaseVersion} > 0`
     ),
     check('investigation_assessments_demo_check', sql`${table.demo} in (0, 1)`)
+  ]
+);
+
+export const investigationEstablishments = sqliteTable(
+  'investigation_establishments',
+  {
+    establishmentRef: text('establishment_ref').primaryKey(),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => cases.id),
+    questionRef: text('question_ref').notNull(),
+    claimRef: text('claim_ref')
+      .notNull()
+      .references(() => investigationClaims.claimRef),
+    policyIdentifier: text('policy_identifier').notNull(),
+    policyVersion: text('policy_version').notNull(),
+    basisClaimRefsJson: text('basis_claim_refs_json').notNull(),
+    basisAssessmentRefsJson: text('basis_assessment_refs_json').notNull(),
+    basisEvidenceRefsJson: text('basis_evidence_refs_json').notNull(),
+    evaluatorKind: text('evaluator_kind', {
+      enum: investigationEstablishmentEvaluatorKinds
+    }).notNull(),
+    evaluatorIdentifier: text('evaluator_identifier').notNull(),
+    basisCaseVersion: integer('basis_case_version').notNull(),
+    basisMaterialRevision: integer('basis_material_revision').notNull(),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    index('investigation_establishments_case_question_created_idx').on(
+      table.caseId,
+      table.questionRef,
+      table.createdAt
+    ),
+    check(
+      'investigation_establishments_evaluator_kind_check',
+      sql`${table.evaluatorKind} = 'RULE'`
+    ),
+    check(
+      'investigation_establishments_policy_identifier_check',
+      sql`length(trim(${table.policyIdentifier})) > 0`
+    ),
+    check(
+      'investigation_establishments_policy_version_check',
+      sql`length(trim(${table.policyVersion})) > 0`
+    ),
+    check(
+      'investigation_establishments_evaluator_identifier_check',
+      sql`length(trim(${table.evaluatorIdentifier})) > 0`
+    ),
+    check(
+      'investigation_establishments_basis_case_version_check',
+      sql`${table.basisCaseVersion} > 0`
+    ),
+    check(
+      'investigation_establishments_basis_material_revision_check',
+      sql`${table.basisMaterialRevision} > 0`
+    ),
+    check('investigation_establishments_demo_check', sql`${table.demo} = 1`)
   ]
 );
 

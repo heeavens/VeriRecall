@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { RecallDatabase } from '../db/repositories';
@@ -68,6 +68,11 @@ const investigationEvidenceSchema = z.discriminatedUnion('contentKind', [
 const readInputSchema = z.strictObject({
   caseId: z.string().uuid(),
   evidenceRef: opaqueReferenceSchema
+});
+
+const listInputSchema = z.strictObject({
+  caseId: z.string().uuid(),
+  questionRef: opaqueReferenceSchema
 });
 
 export type RecordInvestigationEvidenceInput = z.infer<
@@ -286,4 +291,29 @@ export function getInvestigationEvidence(
     ))
     .get();
   return row ? hydrateRecord(row) : null;
+}
+
+export function listInvestigationEvidence(
+  database: RecallDatabase,
+  caseId: string,
+  questionRef: string
+): InvestigationEvidence[] {
+  const parsed = listInputSchema.safeParse({ caseId, questionRef });
+  if (!parsed.success) {
+    throw new EvidenceRegistryError('INVALID_INPUT', 'Invalid investigation evidence list lookup.');
+  }
+
+  return database
+    .select()
+    .from(schema.investigationEvidence)
+    .where(and(
+      eq(schema.investigationEvidence.caseId, parsed.data.caseId),
+      eq(schema.investigationEvidence.questionRef, parsed.data.questionRef)
+    ))
+    .orderBy(
+      asc(schema.investigationEvidence.receivedAt),
+      asc(schema.investigationEvidence.evidenceRef)
+    )
+    .all()
+    .map(hydrateRecord);
 }

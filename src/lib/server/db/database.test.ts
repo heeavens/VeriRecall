@@ -53,6 +53,7 @@ describe('Stage 1 database', () => {
         'investigation_evidence',
         'investigation_claims',
         'investigation_assessments',
+        'investigation_establishments',
         'traceability_records'
       ])
     );
@@ -79,6 +80,7 @@ describe('Stage 1 database', () => {
         'investigation_evidence_case_idx',
         'investigation_claims_case_question_created_idx',
         'investigation_assessments_case_question_created_idx',
+        'investigation_establishments_case_question_created_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
       ])
@@ -254,6 +256,58 @@ describe('Stage 1 database', () => {
       expect.objectContaining({
         from: 'supersedes_assessment_ref',
         table: 'investigation_assessments',
+        on_delete: 'NO ACTION'
+      })
+    ]));
+
+    const insertEstablishment = connection.sqlite.prepare(`
+      insert into investigation_establishments (
+        establishment_ref, case_id, question_ref, claim_ref,
+        policy_identifier, policy_version, basis_claim_refs_json,
+        basis_assessment_refs_json, basis_evidence_refs_json,
+        evaluator_kind, evaluator_identifier, basis_case_version,
+        basis_material_revision, created_at, demo
+      ) values (?, ?, 'demo:scope-gap:test', ?, ?, ?, '["claim:test"]',
+        '["assessment:test"]', '["evidence:test"]', ?, ?, ?, ?, ?, ?)
+    `);
+    const establishmentCreatedAt = '2026-09-08T14:00:00.000Z';
+    expect(() => insertEstablishment.run(
+      '96000000-0000-4000-8000-000000000091', caseId, validClaimRef,
+      'policy:test', 'v1', 'AI', 'evaluator:test', 1, 1, establishmentCreatedAt, 1
+    )).toThrow(/investigation_establishments_evaluator_kind_check/);
+    expect(() => insertEstablishment.run(
+      '96000000-0000-4000-8000-000000000092', caseId, validClaimRef,
+      ' ', 'v1', 'RULE', 'evaluator:test', 1, 1, establishmentCreatedAt, 1
+    )).toThrow(/investigation_establishments_policy_identifier_check/);
+    expect(() => insertEstablishment.run(
+      '96000000-0000-4000-8000-000000000093', caseId, validClaimRef,
+      'policy:test', ' ', 'RULE', 'evaluator:test', 1, 1, establishmentCreatedAt, 1
+    )).toThrow(/investigation_establishments_policy_version_check/);
+    expect(() => insertEstablishment.run(
+      '96000000-0000-4000-8000-000000000094', caseId, validClaimRef,
+      'policy:test', 'v1', 'RULE', ' ', 1, 1, establishmentCreatedAt, 1
+    )).toThrow(/investigation_establishments_evaluator_identifier_check/);
+    expect(() => insertEstablishment.run(
+      '96000000-0000-4000-8000-000000000095', caseId, validClaimRef,
+      'policy:test', 'v1', 'RULE', 'evaluator:test', 0, 1, establishmentCreatedAt, 1
+    )).toThrow(/investigation_establishments_basis_case_version_check/);
+    expect(() => insertEstablishment.run(
+      '96000000-0000-4000-8000-000000000096', caseId, validClaimRef,
+      'policy:test', 'v1', 'RULE', 'evaluator:test', 1, 0, establishmentCreatedAt, 1
+    )).toThrow(/investigation_establishments_basis_material_revision_check/);
+    expect(() => insertEstablishment.run(
+      '96000000-0000-4000-8000-000000000097', caseId, validClaimRef,
+      'policy:test', 'v1', 'RULE', 'evaluator:test', 1, 1, establishmentCreatedAt, 0
+    )).toThrow(/investigation_establishments_demo_check/);
+
+    const establishmentForeignKeys = connection.sqlite
+      .prepare("pragma foreign_key_list('investigation_establishments')")
+      .all() as Array<{ from: string; table: string; on_delete: string }>;
+    expect(establishmentForeignKeys).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'case_id', table: 'cases', on_delete: 'NO ACTION' }),
+      expect.objectContaining({
+        from: 'claim_ref',
+        table: 'investigation_claims',
         on_delete: 'NO ACTION'
       })
     ]));
