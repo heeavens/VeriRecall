@@ -11,7 +11,7 @@ import {
   readCaseSnapshot,
   type LifecycleContext
 } from '../workflow/case-lifecycle';
-import { demoHumanAssessorIdentifier } from './assessments';
+import { demoHumanAssessorIdentifier } from './demo-context';
 import {
   listInvestigationEvidence,
   type InvestigationEvidence
@@ -69,6 +69,15 @@ const listChallengesInputSchema = z.strictObject({
   questionRef: opaqueReferenceSchema
 });
 
+const currentChallengeWriteInputSchema = z.strictObject({
+  caseId: z.string().uuid(),
+  questionRef: opaqueReferenceSchema,
+  challengeRef: z.string().uuid(),
+  expectedCaseVersion: z.number().int().positive(),
+  expectedMaterialRevision: z.number().int().positive(),
+  demo: z.literal(true)
+});
+
 export type OpenInvestigationChallengeInput = z.infer<
   typeof openInvestigationChallengeInputSchema
 >;
@@ -80,6 +89,8 @@ export type InvestigationChallengeErrorCode =
   | 'VERSIONED_CASE_REQUIRED'
   | 'QUESTION_NOT_FOUND'
   | 'QUESTION_OWNERSHIP_MISMATCH'
+  | 'CHALLENGE_NOT_FOUND'
+  | 'CHALLENGE_NOT_CURRENT'
   | 'QUESTION_OPEN'
   | 'QUESTION_NOT_ANSWERED'
   | 'ANSWER_CONTINUITY_UNPROVEN'
@@ -123,6 +134,13 @@ interface AnswerRevision {
   caseVersion: number;
   materialRevision: number;
   createdAt: string;
+}
+
+export interface CurrentInvestigationChallengeForWrite {
+  snapshot: CaseSnapshot;
+  question: InvestigationQuestion;
+  challenge: InvestigationChallenge;
+  challengedRevision: AnswerRevision;
 }
 
 function compareText(left: string, right: string): number {
@@ -418,6 +436,160 @@ function completeLateEvidence(
   return evidence.filter((item) => Date.parse(item.receivedAt) > challengedTime);
 }
 
+interface DerivedChallengeContext {
+  context: InvestigationChallengeContext;
+  snapshot: CaseSnapshot | null;
+  question: InvestigationQuestion | null;
+  challengedRevision: AnswerRevision | null;
+}
+
+function deriveChallengeContext(
+  database: RecallDatabase,
+  challenge: InvestigationChallenge
+): DerivedChallengeContext {
+  const reasons = new Set<InvestigationChallengeContextReason>();
+  const current = readCaseSnapshot(database, challenge.caseId);
+  if (!current) {
+    reasons.add('VERSIONED_CASE_MISSING');
+    return {
+      context: {
+        challenge,
+        contextKind: 'HISTORICAL',
+        reasonCodes: sortContextReasons(reasons),
+        currentCaseVersion: null,
+        currentMaterialRevision: null
+      },
+      snapshot: null,
+      question: null,
+      challengedRevision: null
+    };
+  }
+
+  const question = getInvestigationQuestion(
+    database,
+    challenge.caseId,
+    challenge.questionRef
+  );
+  if (!question) {
+    reasons.add('QUESTION_CONTEXT_INVALID');
+  } else if (question.subjectRef !== current.productId || question.demo !== current.demo) {
+    reasons.add('PRODUCT_CHANGED');
+  }
+  if (current.materialRevision !== challenge.challengedMaterialRevision) {
+    reasons.add('MATERIAL_REVISION_CHANGED');
+  }
+
+  let challengedRevision: AnswerRevision | null = null;
+  if (question && reasons.size === 0) {
+    try {
+      const resolved = resolveAnsweredQuestionRevision(database, question, current);
+      if (resolved.id !== challenge.challengedRevisionId) {
+        reasons.add('ANSWER_CONTEXT_CHANGED');
+      } else {
+        challengedRevision = resolved;
+      }
+    } catch {
+      reasons.add('ANSWER_CONTEXT_CHANGED');
+    }
+  }
+
+  return {
+    context: {
+      challenge,
+      contextKind: reasons.size === 0 ? 'CURRENT' : 'HISTORICAL',
+      reasonCodes: sortContextReasons(reasons),
+      currentCaseVersion: current.caseVersion,
+      currentMaterialRevision: current.materialRevision
+    },
+    snapshot: current,
+    question,
+    challengedRevision
+  };
+}
+
+/**
+ * Transaction-compatible authorization for non-authoritative writes under a current Challenge.
+ * The caller supplies the surrounding immediate transaction.
+ */
+export function resolveCurrentInvestigationChallengeForWrite(
+  database: RecallDatabase,
+  input: {
+    caseId: string;
+    questionRef: string;
+    challengeRef: string;
+    expectedCaseVersion: number;
+    expectedMaterialRevision: number;
+    demo: true;
+  }
+): CurrentInvestigationChallengeForWrite {
+  const parsed = currentChallengeWriteInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new InvestigationChallengeError(
+      'INVALID_INPUT',
+      'Invalid current Challenge authorization input.'
+    );
+  }
+  const challenge = getInvestigationChallenge(
+    database,
+    parsed.data.caseId,
+    parsed.data.challengeRef
+  );
+  if (!challenge) {
+    throw new InvestigationChallengeError(
+      'CHALLENGE_NOT_FOUND',
+      'The selected investigation Challenge does not exist for this case.'
+    );
+  }
+  if (challenge.questionRef !== parsed.data.questionRef) {
+    throw new InvestigationChallengeError(
+      'QUESTION_OWNERSHIP_MISMATCH',
+      'The selected Challenge belongs to a different investigation Question.'
+    );
+  }
+
+  const derived = deriveChallengeContext(database, challenge);
+  if (!derived.snapshot) {
+    throw new InvestigationChallengeError(
+      'VERSIONED_CASE_REQUIRED',
+      'The owning case does not have a versioned investigation lifecycle.'
+    );
+  }
+  if (derived.snapshot.caseVersion !== parsed.data.expectedCaseVersion) {
+    throw new InvestigationChallengeError(
+      'STALE_CASE_VERSION',
+      'Refresh the case before writing under its current Challenge.'
+    );
+  }
+  if (derived.snapshot.materialRevision !== parsed.data.expectedMaterialRevision) {
+    throw new InvestigationChallengeError(
+      'STALE_MATERIAL_REVISION',
+      'Refresh the authoritative material answer before writing under its Challenge.'
+    );
+  }
+  if (!parsed.data.demo || !challenge.demo || !derived.snapshot.demo || !derived.question?.demo) {
+    throw new InvestigationChallengeError(
+      'FORBIDDEN',
+      'Challenge-scoped investigation writes require explicit matching demo provenance.'
+    );
+  }
+  if (
+    derived.context.contextKind !== 'CURRENT' ||
+    !derived.question ||
+    !derived.challengedRevision
+  ) {
+    throw new InvestigationChallengeError(
+      'CHALLENGE_NOT_CURRENT',
+      'The selected Challenge is no longer current for the authoritative material answer.'
+    );
+  }
+  return {
+    snapshot: derived.snapshot,
+    question: derived.question,
+    challenge,
+    challengedRevision: derived.challengedRevision
+  };
+}
+
 export function openInvestigationChallenge(
   database: RecallDatabase,
   input: OpenInvestigationChallengeInput,
@@ -657,50 +829,6 @@ export function readInvestigationChallengeContext(
       parsed.data.challengeRef
     );
     if (!challenge) return null;
-
-    const reasons = new Set<InvestigationChallengeContextReason>();
-    const current = readCaseSnapshot(transaction, parsed.data.caseId);
-    if (!current) {
-      reasons.add('VERSIONED_CASE_MISSING');
-      return {
-        challenge,
-        contextKind: 'HISTORICAL',
-        reasonCodes: sortContextReasons(reasons),
-        currentCaseVersion: null,
-        currentMaterialRevision: null
-      };
-    }
-    const question = getInvestigationQuestion(
-      transaction,
-      parsed.data.caseId,
-      challenge.questionRef
-    );
-    if (!question) {
-      reasons.add('QUESTION_CONTEXT_INVALID');
-    } else if (question.subjectRef !== current.productId || question.demo !== current.demo) {
-      reasons.add('PRODUCT_CHANGED');
-    }
-    if (current.materialRevision !== challenge.challengedMaterialRevision) {
-      reasons.add('MATERIAL_REVISION_CHANGED');
-    }
-
-    if (question && reasons.size === 0) {
-      try {
-        const resolved = resolveAnsweredQuestionRevision(transaction, question, current);
-        if (resolved.id !== challenge.challengedRevisionId) {
-          reasons.add('ANSWER_CONTEXT_CHANGED');
-        }
-      } catch {
-        reasons.add('ANSWER_CONTEXT_CHANGED');
-      }
-    }
-
-    return {
-      challenge,
-      contextKind: reasons.size === 0 ? 'CURRENT' : 'HISTORICAL',
-      reasonCodes: sortContextReasons(reasons),
-      currentCaseVersion: current.caseVersion,
-      currentMaterialRevision: current.materialRevision
-    };
+    return deriveChallengeContext(transaction, challenge).context;
   });
 }

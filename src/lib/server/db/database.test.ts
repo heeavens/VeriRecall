@@ -61,6 +61,9 @@ describe('Stage 1 database', () => {
         'investigation_establishments',
         'investigation_questions',
         'investigation_challenges',
+        'investigation_challenge_requests',
+        'investigation_challenge_claims',
+        'investigation_challenge_assessments',
         'traceability_records'
       ])
     );
@@ -91,6 +94,9 @@ describe('Stage 1 database', () => {
         'investigation_questions_case_created_idx',
         'investigation_challenges_case_question_material_unique',
         'investigation_challenges_case_question_created_idx',
+        'investigation_challenge_requests_challenge_idx',
+        'investigation_challenge_claims_challenge_idx',
+        'investigation_challenge_assessments_challenge_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
       ])
@@ -305,6 +311,42 @@ describe('Stage 1 database', () => {
         on_delete: 'NO ACTION'
       })
     ]));
+
+    const challengeAssociationForeignKeys = (
+      table: string
+    ): Array<{ from: string; table: string; on_delete: string }> => connection.sqlite
+      .prepare(`pragma foreign_key_list('${table}')`)
+      .all() as Array<{ from: string; table: string; on_delete: string }>;
+    expect(challengeAssociationForeignKeys('investigation_challenge_requests')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: 'request_id', table: 'evidence_requests', on_delete: 'NO ACTION'
+        }),
+        expect.objectContaining({
+          from: 'challenge_ref', table: 'investigation_challenges', on_delete: 'NO ACTION'
+        })
+      ])
+    );
+    expect(challengeAssociationForeignKeys('investigation_challenge_claims')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: 'claim_ref', table: 'investigation_claims', on_delete: 'NO ACTION'
+        }),
+        expect.objectContaining({
+          from: 'challenge_ref', table: 'investigation_challenges', on_delete: 'NO ACTION'
+        })
+      ])
+    );
+    expect(challengeAssociationForeignKeys('investigation_challenge_assessments')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: 'assessment_ref', table: 'investigation_assessments', on_delete: 'NO ACTION'
+        }),
+        expect.objectContaining({
+          from: 'challenge_ref', table: 'investigation_challenges', on_delete: 'NO ACTION'
+        })
+      ])
+    );
 
     const insertEstablishment = connection.sqlite.prepare(`
       insert into investigation_establishments (

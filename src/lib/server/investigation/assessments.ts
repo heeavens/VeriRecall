@@ -6,13 +6,24 @@ import { z } from 'zod';
 import { normalizeBatch } from '../alerts/normalization';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
+import {
+  classifyEvidenceForInvestigationChallenge,
+  getInvestigationAssessmentChallengeRef,
+  getInvestigationClaimChallengeRef
+} from './challenge-artifacts';
+import {
+  InvestigationChallengeError,
+  resolveCurrentInvestigationChallengeForWrite,
+  type CurrentInvestigationChallengeForWrite
+} from './challenges';
+import { demoHumanAssessorIdentifier } from './demo-context';
 import { ensureCurrentInvestigationQuestionRegistered } from './questions';
 import {
   readCaseSnapshot,
   type LifecycleContext
 } from '../workflow/case-lifecycle';
 
-export const demoHumanAssessorIdentifier = 'demo_operator';
+export { demoHumanAssessorIdentifier };
 export const batchContradictionRule = {
   identifier: 'batch-normalization-comparison',
   version: 'v1'
@@ -28,7 +39,7 @@ const rationaleSchema = z.string().min(1).max(10_000).refine(
 );
 const timestampSchema = z.string().datetime();
 
-const recordInvestigationAssessmentInputSchema = z.strictObject({
+const assessmentInputShape = {
   assessmentRef: z.string().uuid(),
   caseId: z.string().uuid(),
   questionRef: opaqueReferenceSchema,
@@ -44,7 +55,12 @@ const recordInvestigationAssessmentInputSchema = z.strictObject({
   rationale: rationaleSchema,
   supersedesAssessmentRef: z.string().uuid().nullable(),
   demo: z.literal(true)
-}).superRefine((value, context) => {
+};
+
+function validateAssessorInput(
+  value: z.infer<z.ZodObject<typeof assessmentInputShape>>,
+  context: z.RefinementCtx
+): void {
   const hasRuleIdentifier = value.ruleIdentifier !== null;
   const hasRuleVersion = value.ruleVersion !== null;
   if (hasRuleIdentifier !== hasRuleVersion) {
@@ -71,7 +87,21 @@ const recordInvestigationAssessmentInputSchema = z.strictObject({
       });
     }
   }
-});
+}
+
+const openGapAssessmentInputSchema = z.strictObject(assessmentInputShape)
+  .superRefine(validateAssessorInput);
+
+const challengeAssessmentInputSchema = z.strictObject({
+  ...assessmentInputShape,
+  challengeRef: z.string().uuid(),
+  expectedMaterialRevision: z.number().int().positive()
+}).superRefine(validateAssessorInput);
+
+const recordInvestigationAssessmentInputSchema = z.union([
+  challengeAssessmentInputSchema,
+  openGapAssessmentInputSchema
+]);
 
 const investigationAssessmentSchema = z.strictObject({
   assessmentRef: z.string().uuid(),
@@ -121,8 +151,14 @@ export type InvestigationAssessmentErrorCode =
   | 'FORBIDDEN'
   | 'VERSIONED_CASE_REQUIRED'
   | 'STALE_CASE_VERSION'
+  | 'STALE_MATERIAL_REVISION'
   | 'QUESTION_NOT_CURRENT'
   | 'QUESTION_AMBIGUOUS'
+  | 'CHALLENGE_NOT_CURRENT'
+  | 'CHALLENGE_ASSOCIATION_CONFLICT'
+  | 'CHALLENGE_EVIDENCE_REQUIRED'
+  | 'EVIDENCE_CHALLENGE_MISMATCH'
+  | 'CLAIM_CHALLENGE_MISMATCH'
   | 'INVALID_VERDICT_BASIS'
   | 'CLAIM_NOT_FOUND'
   | 'CLAIM_CASE_MISMATCH'
@@ -199,6 +235,37 @@ function prepareInput(input: ReturnType<typeof parseInput>) {
 
 type PreparedAssessmentInput = ReturnType<typeof prepareInput>;
 type ClaimRow = typeof schema.investigationClaims.$inferSelect;
+
+function challengeRefOf(input: PreparedAssessmentInput): string | null {
+  return 'challengeRef' in input ? input.challengeRef : null;
+}
+
+function resolveChallengeAuthorization(
+  database: RecallDatabase,
+  input: PreparedAssessmentInput & { challengeRef: string; expectedMaterialRevision: number }
+): CurrentInvestigationChallengeForWrite {
+  try {
+    return resolveCurrentInvestigationChallengeForWrite(database, {
+      caseId: input.caseId,
+      questionRef: input.questionRef,
+      challengeRef: input.challengeRef,
+      expectedCaseVersion: input.expectedCaseVersion,
+      expectedMaterialRevision: input.expectedMaterialRevision,
+      demo: input.demo
+    });
+  } catch (error) {
+    if (error instanceof InvestigationChallengeError) {
+      if (error.code === 'STALE_CASE_VERSION') {
+        throw new InvestigationAssessmentError('STALE_CASE_VERSION', error.message);
+      }
+      if (error.code === 'STALE_MATERIAL_REVISION') {
+        throw new InvestigationAssessmentError('STALE_MATERIAL_REVISION', error.message);
+      }
+      throw new InvestigationAssessmentError('CHALLENGE_NOT_CURRENT', error.message);
+    }
+    throw error;
+  }
+}
 
 function hydrateAssessment(
   row: typeof schema.investigationAssessments.$inferSelect
@@ -344,13 +411,27 @@ function loadClaim(
 function validateClaimBasis(
   database: RecallDatabase,
   input: PreparedAssessmentInput,
-  subjectRef: string
+  subjectRef: string,
+  partition: string | null
 ): ClaimRow[] {
   const claimRefs = [
     ...(input.targetClaimRef === null ? [] : [input.targetClaimRef]),
     ...input.relatedClaimRefs
   ];
   const claims = claimRefs.map((claimRef) => loadClaim(database, claimRef, input, subjectRef));
+  if (claims.some((claim) => {
+    const claimPartition = getInvestigationClaimChallengeRef(database, claim.claimRef);
+    return partition === null
+      ? claimPartition !== null
+      : claimPartition !== null && claimPartition !== partition;
+  })) {
+    throw new InvestigationAssessmentError(
+      'CLAIM_CHALLENGE_MISMATCH',
+      partition === null
+        ? 'OPEN_GAP assessments may use only unassociated Claims.'
+        : 'Challenge assessments may use only baseline or same-Challenge claims.'
+    );
+  }
   const requiredEvidence = new Set(claims.flatMap(readClaimEvidenceRefs));
   const suppliedEvidence = new Set(input.evidenceRefs);
   if ([...requiredEvidence].some((evidenceRef) => !suppliedEvidence.has(evidenceRef))) {
@@ -378,7 +459,8 @@ function validateClaimBasis(
 function validateEvidenceOwnership(
   database: RecallDatabase,
   input: PreparedAssessmentInput
-): void {
+): Array<typeof schema.investigationEvidence.$inferSelect> {
+  const records: Array<typeof schema.investigationEvidence.$inferSelect> = [];
   for (const evidenceRef of input.evidenceRefs) {
     const evidence = database
       .select()
@@ -403,6 +485,7 @@ function validateEvidenceOwnership(
         'Assessment evidence must belong to the investigation question.'
       );
     }
+    records.push(evidence);
     if (evidence.evidenceRequestId === null) continue;
 
     const request = database
@@ -432,11 +515,35 @@ function validateEvidenceOwnership(
       );
     }
   }
+  return records;
+}
+
+function validateChallengeEvidenceBasis(
+  database: RecallDatabase,
+  evidence: readonly (typeof schema.investigationEvidence.$inferSelect)[],
+  authorization: CurrentInvestigationChallengeForWrite
+): void {
+  const relevance = evidence.map((item) =>
+    classifyEvidenceForInvestigationChallenge(database, item, authorization)
+  );
+  if (relevance.includes('OTHER_CHALLENGE')) {
+    throw new InvestigationAssessmentError(
+      'EVIDENCE_CHALLENGE_MISMATCH',
+      'Challenge assessments cannot use Evidence exclusively associated with another Challenge.'
+    );
+  }
+  if (!relevance.includes('CHALLENGE_RELEVANT')) {
+    throw new InvestigationAssessmentError(
+      'CHALLENGE_EVIDENCE_REQUIRED',
+      'A Challenge assessment requires at least one Evidence item relevant to that Challenge.'
+    );
+  }
 }
 
 function validateSupersession(
   database: RecallDatabase,
-  input: PreparedAssessmentInput
+  input: PreparedAssessmentInput,
+  partition: string | null
 ): void {
   if (input.supersedesAssessmentRef === null) return;
   if (input.supersedesAssessmentRef === input.assessmentRef) {
@@ -463,6 +570,14 @@ function validateSupersession(
     throw new InvestigationAssessmentError(
       'SUPERSESSION_MISMATCH',
       'An assessment may supersede only one for the same case and question.'
+    );
+  }
+  if (
+    getInvestigationAssessmentChallengeRef(database, superseded.assessmentRef) !== partition
+  ) {
+    throw new InvestigationAssessmentError(
+      'SUPERSESSION_MISMATCH',
+      'Assessment supersession cannot cross OPEN_GAP or Challenge association partitions.'
     );
   }
 
@@ -522,58 +637,78 @@ export function recordInvestigationAssessment(
           'This assessment reference already identifies different immutable analysis.'
         );
       }
+      const existingChallengeRef = getInvestigationAssessmentChallengeRef(
+        transaction,
+        prepared.assessmentRef
+      );
+      if (existingChallengeRef !== challengeRefOf(prepared)) {
+        throw new InvestigationAssessmentError(
+          'CHALLENGE_ASSOCIATION_CONFLICT',
+          'This assessment reference belongs to a different investigation authorization context.'
+        );
+      }
       return { assessment: hydrateAssessment(existing), replayed: true };
     }
 
     validateVerdictStructure(prepared);
     validateContradictionRule(prepared);
 
-    const current = readCaseSnapshot(transaction, prepared.caseId);
+    const challengeRef = challengeRefOf(prepared);
+    const challengeAuthorization = 'challengeRef' in prepared
+      ? resolveChallengeAuthorization(transaction, prepared)
+      : null;
+    const current = challengeAuthorization?.snapshot ??
+      readCaseSnapshot(transaction, prepared.caseId);
     if (!current) {
       throw new InvestigationAssessmentError(
         'VERSIONED_CASE_REQUIRED',
         'The owning case does not have a versioned investigation lifecycle.'
       );
     }
-    if (current.caseVersion !== prepared.expectedCaseVersion) {
-      throw new InvestigationAssessmentError(
-        'STALE_CASE_VERSION',
-        'Refresh the case before assessing its current investigation question.'
-      );
+    if (challengeAuthorization === null) {
+      if (current.caseVersion !== prepared.expectedCaseVersion) {
+        throw new InvestigationAssessmentError(
+          'STALE_CASE_VERSION',
+          'Refresh the case before assessing its current investigation question.'
+        );
+      }
+
+      const matchingGaps = current.investigation?.gaps.filter(
+        (gap) => gap.id === prepared.questionRef
+      ) ?? [];
+      if (matchingGaps.length === 0) {
+        throw new InvestigationAssessmentError(
+          'QUESTION_NOT_CURRENT',
+          'The question reference is not an exact current InvestigationOutcome gap.'
+        );
+      }
+      if (matchingGaps.length > 1) {
+        throw new InvestigationAssessmentError(
+          'QUESTION_AMBIGUOUS',
+          'The current investigation contains a duplicated gap identity.'
+        );
+      }
+      if (matchingGaps[0].code !== 'BATCH_MISSING') {
+        throw new InvestigationAssessmentError(
+          'QUESTION_NOT_CURRENT',
+          'Only the current BATCH_MISSING gap supports assessments in this version.'
+        );
+      }
+
+      ensureCurrentInvestigationQuestionRegistered(transaction, {
+        caseId: current.caseId,
+        questionRef: matchingGaps[0].id,
+        expectedCaseVersion: current.caseVersion,
+        demo: true
+      });
     }
 
-    const matchingGaps = current.investigation?.gaps.filter(
-      (gap) => gap.id === prepared.questionRef
-    ) ?? [];
-    if (matchingGaps.length === 0) {
-      throw new InvestigationAssessmentError(
-        'QUESTION_NOT_CURRENT',
-        'The question reference is not an exact current InvestigationOutcome gap.'
-      );
+    const evidence = validateEvidenceOwnership(transaction, prepared);
+    if (challengeAuthorization !== null) {
+      validateChallengeEvidenceBasis(transaction, evidence, challengeAuthorization);
     }
-    if (matchingGaps.length > 1) {
-      throw new InvestigationAssessmentError(
-        'QUESTION_AMBIGUOUS',
-        'The current investigation contains a duplicated gap identity.'
-      );
-    }
-    if (matchingGaps[0].code !== 'BATCH_MISSING') {
-      throw new InvestigationAssessmentError(
-        'QUESTION_NOT_CURRENT',
-        'Only the current BATCH_MISSING gap supports assessments in this version.'
-      );
-    }
-
-    ensureCurrentInvestigationQuestionRegistered(transaction, {
-      caseId: current.caseId,
-      questionRef: matchingGaps[0].id,
-      expectedCaseVersion: current.caseVersion,
-      demo: true
-    });
-
-    validateEvidenceOwnership(transaction, prepared);
-    validateClaimBasis(transaction, prepared, current.productId);
-    validateSupersession(transaction, prepared);
+    validateClaimBasis(transaction, prepared, current.productId, challengeRef);
+    validateSupersession(transaction, prepared, challengeRef);
 
     const caseRecord = transaction
       .select({ alertId: schema.cases.alertId })
@@ -591,7 +726,7 @@ export function recordInvestigationAssessment(
     transaction.insert(schema.investigationAssessments).values({
       assessmentRef: prepared.assessmentRef,
       caseId: current.caseId,
-      questionRef: matchingGaps[0].id,
+      questionRef: prepared.questionRef,
       targetClaimRef: prepared.targetClaimRef,
       verdict: prepared.verdict,
       evidenceRefsJson: prepared.evidenceRefsJson,
@@ -606,6 +741,12 @@ export function recordInvestigationAssessment(
       createdAt,
       demo: prepared.demo
     }).run();
+    if (challengeRef !== null) {
+      transaction.insert(schema.investigationChallengeAssessments).values({
+        assessmentRef: prepared.assessmentRef,
+        challengeRef
+      }).run();
+    }
     transaction.insert(schema.auditEvents).values({
       id: randomUUID(),
       caseId: current.caseId,
@@ -613,11 +754,13 @@ export function recordInvestigationAssessment(
       eventType: 'investigation_assessment_recorded',
       actorType: prepared.assessorKind === 'HUMAN' ? 'human' : 'agent',
       actorName: prepared.assessorIdentifier,
-      summary: 'Recorded non-authoritative analysis of investigation evidence and claims.',
+      summary: challengeRef === null
+        ? 'Recorded non-authoritative analysis of investigation evidence and claims.'
+        : 'Recorded non-authoritative analysis under a current investigation Challenge.',
       metadataJson: JSON.stringify({
         assessmentRef: prepared.assessmentRef,
         caseId: current.caseId,
-        questionRef: matchingGaps[0].id,
+        questionRef: prepared.questionRef,
         verdict: prepared.verdict,
         targetClaimRef: prepared.targetClaimRef,
         evidenceRefs: prepared.evidenceRefs,
@@ -628,6 +771,9 @@ export function recordInvestigationAssessment(
         ruleVersion: prepared.ruleVersion,
         basisCaseVersion: current.caseVersion,
         supersedesAssessmentRef: prepared.supersedesAssessmentRef,
+        ...(challengeRef === null
+          ? {}
+          : { authorizationContext: 'OPEN_CHALLENGE', challengeRef }),
         demo: prepared.demo
       }),
       createdAt

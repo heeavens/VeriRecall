@@ -674,6 +674,51 @@ export const investigationChallenges = sqliteTable(
   ]
 );
 
+export const investigationChallengeRequests = sqliteTable(
+  'investigation_challenge_requests',
+  {
+    requestId: text('request_id')
+      .primaryKey()
+      .references(() => evidenceRequests.id),
+    challengeRef: text('challenge_ref')
+      .notNull()
+      .references(() => investigationChallenges.challengeRef)
+  },
+  (table) => [
+    index('investigation_challenge_requests_challenge_idx').on(table.challengeRef)
+  ]
+);
+
+export const investigationChallengeClaims = sqliteTable(
+  'investigation_challenge_claims',
+  {
+    claimRef: text('claim_ref')
+      .primaryKey()
+      .references(() => investigationClaims.claimRef),
+    challengeRef: text('challenge_ref')
+      .notNull()
+      .references(() => investigationChallenges.challengeRef)
+  },
+  (table) => [
+    index('investigation_challenge_claims_challenge_idx').on(table.challengeRef)
+  ]
+);
+
+export const investigationChallengeAssessments = sqliteTable(
+  'investigation_challenge_assessments',
+  {
+    assessmentRef: text('assessment_ref')
+      .primaryKey()
+      .references(() => investigationAssessments.assessmentRef),
+    challengeRef: text('challenge_ref')
+      .notNull()
+      .references(() => investigationChallenges.challengeRef)
+  },
+  (table) => [
+    index('investigation_challenge_assessments_challenge_idx').on(table.challengeRef)
+  ]
+);
+
 export const caseCommands = sqliteTable('case_commands', {
   id: text('id').primaryKey(),
   caseId: text('case_id').notNull().references(() => caseLifecycle.caseId, { onDelete: 'cascade' }),

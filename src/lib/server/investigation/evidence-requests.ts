@@ -10,13 +10,21 @@ import {
   type LifecycleContext
 } from '../workflow/case-lifecycle';
 import { evidenceTypes, type EvidenceType } from '../workflow/review';
+import {
+  getInvestigationRequestChallengeRef
+} from './challenge-artifacts';
+import {
+  InvestigationChallengeError,
+  resolveCurrentInvestigationChallengeForWrite
+} from './challenges';
+import { demoHumanAssessorIdentifier } from './demo-context';
 import { ensureCurrentInvestigationQuestionRegistered } from './questions';
 
-const actorId = 'demo_operator';
+const actorId = demoHumanAssessorIdentifier;
 const questionRefSchema = z.string().trim().min(1).max(500);
 const timestampSchema = z.string().datetime();
 
-const requestInvestigationEvidenceInputSchema = z.strictObject({
+const openGapRequestInputSchema = z.strictObject({
   requestId: z.string().uuid(),
   caseId: z.string().uuid(),
   questionRef: questionRefSchema,
@@ -24,6 +32,22 @@ const requestInvestigationEvidenceInputSchema = z.strictObject({
   requestedEvidence: z.array(z.enum(evidenceTypes)).min(1),
   demo: z.literal(true)
 });
+
+const challengeRequestInputSchema = z.strictObject({
+  requestId: z.string().uuid(),
+  caseId: z.string().uuid(),
+  questionRef: questionRefSchema,
+  challengeRef: z.string().uuid(),
+  expectedCaseVersion: z.number().int().positive(),
+  expectedMaterialRevision: z.number().int().positive(),
+  requestedEvidence: z.array(z.enum(evidenceTypes)).min(1),
+  demo: z.literal(true)
+});
+
+const requestInvestigationEvidenceInputSchema = z.union([
+  challengeRequestInputSchema,
+  openGapRequestInputSchema
+]);
 
 const investigationEvidenceRequestSchema = z.strictObject({
   id: z.string().uuid(),
@@ -49,8 +73,11 @@ export type InvestigationEvidenceRequestErrorCode =
   | 'FORBIDDEN'
   | 'VERSIONED_CASE_REQUIRED'
   | 'STALE_CASE_VERSION'
+  | 'STALE_MATERIAL_REVISION'
   | 'QUESTION_NOT_CURRENT'
   | 'QUESTION_AMBIGUOUS'
+  | 'CHALLENGE_NOT_CURRENT'
+  | 'CHALLENGE_ASSOCIATION_CONFLICT'
   | 'MATCH_NOT_FOUND'
   | 'MATCH_AMBIGUOUS'
   | 'REQUEST_CONFLICT';
@@ -82,6 +109,39 @@ function parseStoredEvidence(value: string): EvidenceType[] | null {
 
 function sameEvidence(left: readonly EvidenceType[], right: readonly EvidenceType[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function challengeRefOf(
+  input: z.infer<typeof requestInvestigationEvidenceInputSchema>
+): string | null {
+  return 'challengeRef' in input ? input.challengeRef : null;
+}
+
+function resolveChallengeAuthorization(
+  database: RecallDatabase,
+  input: z.infer<typeof challengeRequestInputSchema>
+) {
+  try {
+    return resolveCurrentInvestigationChallengeForWrite(database, {
+      caseId: input.caseId,
+      questionRef: input.questionRef,
+      challengeRef: input.challengeRef,
+      expectedCaseVersion: input.expectedCaseVersion,
+      expectedMaterialRevision: input.expectedMaterialRevision,
+      demo: input.demo
+    });
+  } catch (error) {
+    if (error instanceof InvestigationChallengeError) {
+      if (error.code === 'STALE_CASE_VERSION') {
+        throw new InvestigationEvidenceRequestError('STALE_CASE_VERSION', error.message);
+      }
+      if (error.code === 'STALE_MATERIAL_REVISION') {
+        throw new InvestigationEvidenceRequestError('STALE_MATERIAL_REVISION', error.message);
+      }
+      throw new InvestigationEvidenceRequestError('CHALLENGE_NOT_CURRENT', error.message);
+    }
+    throw error;
+  }
 }
 
 function hydrateRequest(
@@ -134,51 +194,66 @@ export function requestInvestigationEvidence(
           'This request ID already identifies a different immutable request attempt.'
         );
       }
+      const existingChallengeRef = getInvestigationRequestChallengeRef(
+        transaction,
+        parsed.data.requestId
+      );
+      if (existingChallengeRef !== challengeRefOf(parsed.data)) {
+        throw new InvestigationEvidenceRequestError(
+          'CHALLENGE_ASSOCIATION_CONFLICT',
+          'This request ID belongs to a different investigation authorization context.'
+        );
+      }
       return { request: hydrateRequest(existing), replayed: true };
     }
 
-    const current = readCaseSnapshot(transaction, parsed.data.caseId);
+    const challengeRef = challengeRefOf(parsed.data);
+    const current = 'challengeRef' in parsed.data
+      ? resolveChallengeAuthorization(transaction, parsed.data).snapshot
+      : readCaseSnapshot(transaction, parsed.data.caseId);
     if (!current) {
       throw new InvestigationEvidenceRequestError(
         'VERSIONED_CASE_REQUIRED',
         'The owning case does not have a versioned investigation lifecycle.'
       );
     }
-    if (current.caseVersion !== parsed.data.expectedCaseVersion) {
-      throw new InvestigationEvidenceRequestError(
-        'STALE_CASE_VERSION',
-        'Refresh the case before requesting evidence for its current gaps.'
-      );
-    }
+    if (!('challengeRef' in parsed.data)) {
+      if (current.caseVersion !== parsed.data.expectedCaseVersion) {
+        throw new InvestigationEvidenceRequestError(
+          'STALE_CASE_VERSION',
+          'Refresh the case before requesting evidence for its current gaps.'
+        );
+      }
 
-    const matchingGaps = current.investigation?.gaps.filter(
-      (gap) => gap.id === parsed.data.questionRef
-    ) ?? [];
-    if (matchingGaps.length === 0) {
-      throw new InvestigationEvidenceRequestError(
-        'QUESTION_NOT_CURRENT',
-        'The question reference is not an exact current InvestigationOutcome gap.'
-      );
-    }
-    if (matchingGaps.length > 1) {
-      throw new InvestigationEvidenceRequestError(
-        'QUESTION_AMBIGUOUS',
-        'The current investigation contains a duplicated gap identity.'
-      );
-    }
-    if (matchingGaps[0].code !== 'BATCH_MISSING') {
-      throw new InvestigationEvidenceRequestError(
-        'QUESTION_NOT_CURRENT',
-        'Only the current BATCH_MISSING gap is requestable in this version.'
-      );
-    }
+      const matchingGaps = current.investigation?.gaps.filter(
+        (gap) => gap.id === parsed.data.questionRef
+      ) ?? [];
+      if (matchingGaps.length === 0) {
+        throw new InvestigationEvidenceRequestError(
+          'QUESTION_NOT_CURRENT',
+          'The question reference is not an exact current InvestigationOutcome gap.'
+        );
+      }
+      if (matchingGaps.length > 1) {
+        throw new InvestigationEvidenceRequestError(
+          'QUESTION_AMBIGUOUS',
+          'The current investigation contains a duplicated gap identity.'
+        );
+      }
+      if (matchingGaps[0].code !== 'BATCH_MISSING') {
+        throw new InvestigationEvidenceRequestError(
+          'QUESTION_NOT_CURRENT',
+          'Only the current BATCH_MISSING gap is requestable in this version.'
+        );
+      }
 
-    ensureCurrentInvestigationQuestionRegistered(transaction, {
-      caseId: current.caseId,
-      questionRef: matchingGaps[0].id,
-      expectedCaseVersion: current.caseVersion,
-      demo: true
-    });
+      ensureCurrentInvestigationQuestionRegistered(transaction, {
+        caseId: current.caseId,
+        questionRef: matchingGaps[0].id,
+        expectedCaseVersion: current.caseVersion,
+        demo: true
+      });
+    }
 
     const caseRecord = transaction
       .select()
@@ -229,13 +304,19 @@ export function requestInvestigationEvidence(
       id: parsed.data.requestId,
       matchId: candidateMatches[0].id,
       caseId: current.caseId,
-      questionRef: matchingGaps[0].id,
+      questionRef: parsed.data.questionRef,
       requestedEvidence: JSON.stringify(requestedEvidence),
       recipient: product.supplierEmail,
       status: 'pending',
       createdAt,
       resolvedAt: null
     }).run();
+    if (challengeRef !== null) {
+      transaction.insert(schema.investigationChallengeRequests).values({
+        requestId: parsed.data.requestId,
+        challengeRef
+      }).run();
+    }
     transaction.insert(schema.auditEvents).values({
       id: randomUUID(),
       caseId: current.caseId,
@@ -243,15 +324,20 @@ export function requestInvestigationEvidence(
       eventType: 'investigation_evidence_requested',
       actorType: 'human',
       actorName: actorId,
-      summary: 'Recorded a pending evidence-request attempt for a current investigation gap.',
+      summary: challengeRef === null
+        ? 'Recorded a pending evidence-request attempt for a current investigation gap.'
+        : 'Recorded a pending evidence-request attempt under a current investigation Challenge.',
       metadataJson: JSON.stringify({
         requestId: parsed.data.requestId,
         caseId: current.caseId,
-        questionRef: matchingGaps[0].id,
+        questionRef: parsed.data.questionRef,
         requestedEvidence,
         caseVersion: current.caseVersion,
         materialRevision: current.materialRevision,
         matchId: candidateMatches[0].id,
+        ...(challengeRef === null
+          ? {}
+          : { authorizationContext: 'OPEN_CHALLENGE', challengeRef }),
         demo: true
       }),
       createdAt
