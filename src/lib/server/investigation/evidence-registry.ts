@@ -166,7 +166,7 @@ function recordsAreEqual(
     existing.demo === incoming.demo;
 }
 
-function assertEvidenceRequestOwnership(
+export function assertInvestigationEvidenceRequestOwnership(
   database: RecallDatabase,
   caseId: string,
   questionRef: string,
@@ -255,7 +255,7 @@ export function recordInvestigationEvidence(
     }
 
     if (prepared.evidenceRequestId !== null) {
-      assertEvidenceRequestOwnership(
+      assertInvestigationEvidenceRequestOwnership(
         transaction,
         prepared.caseId,
         prepared.questionRef,

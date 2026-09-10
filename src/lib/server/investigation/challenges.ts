@@ -78,6 +78,12 @@ const currentChallengeWriteInputSchema = z.strictObject({
   demo: z.literal(true)
 });
 
+const currentChallengeReadInputSchema = z.strictObject({
+  caseId: z.string().uuid(),
+  questionRef: opaqueReferenceSchema,
+  challengeRef: z.string().uuid()
+});
+
 export type OpenInvestigationChallengeInput = z.infer<
   typeof openInvestigationChallengeInputSchema
 >;
@@ -142,6 +148,8 @@ export interface CurrentInvestigationChallengeForWrite {
   challenge: InvestigationChallenge;
   challengedRevision: AnswerRevision;
 }
+
+export type CurrentInvestigationChallengeForRead = CurrentInvestigationChallengeForWrite;
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -504,6 +512,77 @@ function deriveChallengeContext(
     snapshot: current,
     question,
     challengedRevision
+  };
+}
+
+/**
+ * Transaction-compatible current Challenge resolution for read models.
+ * The caller owns the surrounding read transaction and observes the versions returned here.
+ */
+export function resolveCurrentInvestigationChallengeForRead(
+  database: RecallDatabase,
+  input: {
+    caseId: string;
+    questionRef: string;
+    challengeRef: string;
+  }
+): CurrentInvestigationChallengeForRead {
+  const parsed = currentChallengeReadInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new InvestigationChallengeError(
+      'INVALID_INPUT',
+      'Invalid current Challenge read input.'
+    );
+  }
+  const challenge = getInvestigationChallenge(
+    database,
+    parsed.data.caseId,
+    parsed.data.challengeRef
+  );
+  if (!challenge) {
+    throw new InvestigationChallengeError(
+      'CHALLENGE_NOT_FOUND',
+      'The selected investigation Challenge does not exist for this case.'
+    );
+  }
+  if (challenge.questionRef !== parsed.data.questionRef) {
+    throw new InvestigationChallengeError(
+      'QUESTION_OWNERSHIP_MISMATCH',
+      'The selected Challenge belongs to a different investigation Question.'
+    );
+  }
+
+  const derived = deriveChallengeContext(database, challenge);
+  if (!derived.snapshot) {
+    throw new InvestigationChallengeError(
+      'VERSIONED_CASE_REQUIRED',
+      'The owning case does not have a versioned investigation lifecycle.'
+    );
+  }
+  if (
+    !derived.question ||
+    derived.question.questionType !== 'AFFECTED_BATCH_LOT' ||
+    derived.question.caseId !== challenge.caseId ||
+    derived.question.subjectRef !== derived.snapshot.productId ||
+    derived.question.demo !== challenge.demo ||
+    derived.snapshot.demo !== challenge.demo
+  ) {
+    throw new InvestigationChallengeError(
+      'QUESTION_OWNERSHIP_MISMATCH',
+      'The selected Challenge does not match the permanent Question or current product.'
+    );
+  }
+  if (derived.context.contextKind !== 'CURRENT' || !derived.challengedRevision) {
+    throw new InvestigationChallengeError(
+      'CHALLENGE_NOT_CURRENT',
+      'The selected Challenge is no longer current for the authoritative material answer.'
+    );
+  }
+  return {
+    snapshot: derived.snapshot,
+    question: derived.question,
+    challenge,
+    challengedRevision: derived.challengedRevision
   };
 }
 
