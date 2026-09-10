@@ -15,8 +15,37 @@ import { nextCaseNumber, severityForRisk } from './case-record';
 
 const reserveSchema = z.strictObject({ alertId: z.string().uuid(), productId: z.string().uuid() });
 export interface LifecycleContext { mode: 'demo' | 'disabled' }
+const internalInvestigationAcceptanceCapabilityKey: unique symbol = Symbol(
+  'internal-investigation-acceptance-capability'
+);
+const internalInvestigationAcceptanceCapability = Object.freeze({});
+type InternalInvestigationAcceptanceContext = LifecycleContext & {
+  readonly [internalInvestigationAcceptanceCapabilityKey]:
+    typeof internalInvestigationAcceptanceCapability;
+};
 const actorId = 'demo_operator';
 const actorRole = 'CASE_MANAGER';
+
+/**
+ * Construct an explicitly trusted, server-only context for legacy lifecycle plumbing.
+ * The opaque capability is deliberately non-enumerable and cannot survive JSON serialization.
+ */
+export function internalInvestigationAcceptanceContext(): LifecycleContext {
+  const context: LifecycleContext = { mode: 'demo' };
+  Object.defineProperty(context, internalInvestigationAcceptanceCapabilityKey, {
+    value: internalInvestigationAcceptanceCapability,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  });
+  return Object.freeze(context);
+}
+
+function canAcceptInvestigationOutcome(context: LifecycleContext): boolean {
+  return (context as Partial<InternalInvestigationAcceptanceContext>)[
+    internalInvestigationAcceptanceCapabilityKey
+  ] === internalInvestigationAcceptanceCapability;
+}
 
 function failure(code: ContractError['code'], message: string, currentCaseVersion: number | null = null): { ok: false; error: ContractError } {
   return { ok: false, error: { code, message, currentCaseVersion, issueRefs: [] } };
@@ -509,6 +538,15 @@ export function createRecallService(database: RecallDatabase, context: Lifecycle
       const parsed = recallCommandSchema.safeParse(input);
       if (!parsed.success) return failure('INVALID_INPUT', 'Invalid command or mismatched caseId.');
       const command = parsed.data;
+      if (
+        command.type === 'ACCEPT_INVESTIGATION' &&
+        !canAcceptInvestigationOutcome(context)
+      ) {
+        return failure(
+          'FORBIDDEN',
+          'Authoritative investigation outcome acceptance is restricted to internal workflow operations.'
+        );
+      }
       if (!['ACCEPT_INVESTIGATION', 'CALCULATE_EXPOSURE', 'DECIDE_INVESTIGATION', 'DECIDE_ACTION', 'REQUEST_ACTION', 'ATTACH_RESULT', 'REQUEST_CLOSURE'].includes(command.type)) {
         return failure('NOT_IMPLEMENTED', 'This command is not implemented in the current lifecycle stage.');
       }

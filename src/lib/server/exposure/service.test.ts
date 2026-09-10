@@ -11,12 +11,17 @@ import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
-import { createRecallService, getCaseHistory, reserveInvestigationCase } from '../workflow/case-lifecycle';
+import {
+  createRecallService,
+  getCaseHistory,
+  internalInvestigationAcceptanceContext,
+  reserveInvestigationCase
+} from '../workflow/case-lifecycle';
 import { normalExposureRecords, withProduct } from './fixtures';
 
 let directory: string;
 let connection: ReturnType<typeof createDatabaseConnection>;
-const context = { mode: 'demo' as const };
+const context = internalInvestigationAcceptanceContext();
 const fixtures = loadDemoFixtures();
 const candidate = fixtures.matches.find((match) => !match.hasHardConflict)!;
 

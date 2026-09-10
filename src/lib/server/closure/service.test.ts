@@ -14,11 +14,17 @@ import { seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
 import { getCasesView } from '../cases/queries';
 import { normalExposureRecords, withProduct } from '../exposure/fixtures';
-import { createRecallService, getCaseHistory, readCaseSnapshot, reserveInvestigationCase } from '../workflow/case-lifecycle';
+import {
+  createRecallService,
+  getCaseHistory,
+  internalInvestigationAcceptanceContext,
+  readCaseSnapshot,
+  reserveInvestigationCase
+} from '../workflow/case-lifecycle';
 
 let directory: string;
 let connection: ReturnType<typeof createDatabaseConnection>;
-const context = { mode: 'demo' as const };
+const context = internalInvestigationAcceptanceContext();
 const fixtures = loadDemoFixtures();
 const candidate = fixtures.matches.find((match) => !match.hasHardConflict)!;
 
@@ -237,6 +243,38 @@ describe('human decisions and conservative closure', () => {
     expect(getCasesView(connection.db)).toEqual(expect.arrayContaining([expect.objectContaining({
       versionedStage: 'CLOSED', pendingTasks: 0, nextTaskLabel: null
     })]));
+
+    const beforeCase = connection.db.select().from(schema.cases)
+      .where(eq(schema.cases.id, closed.snapshot.caseId)).get();
+    const beforeHistory = getCaseHistory(connection.db, closed.snapshot.caseId);
+    const beforeCommands = connection.db.select().from(schema.caseCommands)
+      .where(eq(schema.caseCommands.caseId, closed.snapshot.caseId)).all();
+    const beforeAudit = connection.db.select().from(schema.auditEvents)
+      .where(eq(schema.auditEvents.caseId, closed.snapshot.caseId)).all();
+    const beforeTraceability = connection.db.select().from(schema.traceabilityRecords)
+      .where(eq(schema.traceabilityRecords.caseId, closed.snapshot.caseId)).all();
+    const unauthorizedOutcome: InvestigationOutcome = {
+      ...structuredClone(expandedLotOutcome),
+      caseId: closed.snapshot.caseId,
+      productId: candidate.productId
+    };
+    expect(await createRecallService(connection.db, { mode: 'demo' }).execute({
+      type: 'ACCEPT_INVESTIGATION', schemaVersion: 1,
+      caseId: closed.snapshot.caseId, commandId: randomUUID(),
+      expectedCaseVersion: closed.snapshot.caseVersion,
+      outcome: unauthorizedOutcome
+    })).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+    expect(readCaseSnapshot(connection.db, closed.snapshot.caseId)).toEqual(closed.snapshot);
+    expect(connection.db.select().from(schema.cases)
+      .where(eq(schema.cases.id, closed.snapshot.caseId)).get()).toEqual(beforeCase);
+    expect(getCaseHistory(connection.db, closed.snapshot.caseId)).toEqual(beforeHistory);
+    expect(connection.db.select().from(schema.caseCommands)
+      .where(eq(schema.caseCommands.caseId, closed.snapshot.caseId)).all()).toEqual(beforeCommands);
+    expect(connection.db.select().from(schema.auditEvents)
+      .where(eq(schema.auditEvents.caseId, closed.snapshot.caseId)).all()).toEqual(beforeAudit);
+    expect(connection.db.select().from(schema.traceabilityRecords)
+      .where(eq(schema.traceabilityRecords.caseId, closed.snapshot.caseId)).all())
+      .toEqual(beforeTraceability);
   });
 
   it('keeps factual critical blockers after every generated task is completed', async () => {

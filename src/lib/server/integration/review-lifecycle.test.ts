@@ -14,7 +14,12 @@ import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
 import { confirmReviewMatch, legacyReviewCaseMode } from '../workflow/review';
-import { createRecallService, getCaseHistory, readCaseSnapshot } from '../workflow/case-lifecycle';
+import {
+  createRecallService,
+  getCaseHistory,
+  internalInvestigationAcceptanceContext,
+  readCaseSnapshot
+} from '../workflow/case-lifecycle';
 
 let directory: string;
 let connection: ReturnType<typeof createDatabaseConnection>;
@@ -304,7 +309,11 @@ describe('review to versioned case integration', () => {
       new Date('2026-09-08T12:00:00Z'),
       { mode: 'demo' }
     );
-    const service = createRecallService(connection.db, { mode: 'demo' }, () => new Date('2026-09-08T12:30:00Z'));
+    const service = createRecallService(
+      connection.db,
+      internalInvestigationAcceptanceContext(),
+      () => new Date('2026-09-08T12:30:00Z')
+    );
     const productId = readCaseSnapshot(connection.db, confirmed.caseId)!.productId;
     const records: TraceabilityRecord[] = [
       { type: 'RECEIPT', sourceRef: 'demo:integration:receipt', productId, lot: 'MFT24', occurredAt: '2026-09-08T10:00:00.000Z', demo: true, receiptRef: 'INT-RECEIPT', quantity: 50 },

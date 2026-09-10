@@ -13,11 +13,16 @@ import { seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
 import { getCasesView } from '../cases/queries';
 import { normalExposureRecords, withProduct } from '../exposure/fixtures';
-import { createRecallService, getCaseHistory, reserveInvestigationCase } from '../workflow/case-lifecycle';
+import {
+  createRecallService,
+  getCaseHistory,
+  internalInvestigationAcceptanceContext,
+  reserveInvestigationCase
+} from '../workflow/case-lifecycle';
 
 let directory: string;
 let connection: ReturnType<typeof createDatabaseConnection>;
-const context = { mode: 'demo' as const };
+const context = internalInvestigationAcceptanceContext();
 const fixtures = loadDemoFixtures();
 const candidate = fixtures.matches.find((match) => !match.hasHardConflict)!;
 

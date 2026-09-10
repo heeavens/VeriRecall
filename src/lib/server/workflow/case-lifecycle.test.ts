@@ -6,7 +6,11 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 
-import { caseSnapshotSchema, type InvestigationOutcome } from '../../contracts/recall';
+import {
+  caseSnapshotSchema,
+  recallCommandSchema,
+  type InvestigationOutcome
+} from '../../contracts/recall';
 import { confirmedLotOutcome, expandedLotOutcome, unresolvedScopeOutcome } from '../../contracts/recall.fixtures';
 import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
@@ -16,11 +20,19 @@ import { getCasesView } from '../cases/queries';
 import { CaseReportExporter } from '../exports/case-report';
 import { closeRecallCase, completeCaseTask } from './case-actions';
 import { confirmReviewMatch, legacyReviewCaseMode, rejectReviewMatch, requestMatchEvidence } from './review';
-import { createRecallService, getCaseHistory, readCaseSnapshot, reserveInvestigationCase } from './case-lifecycle';
+import {
+  createRecallService,
+  getCaseHistory,
+  internalInvestigationAcceptanceContext,
+  readCaseSnapshot,
+  reserveInvestigationCase,
+  type LifecycleContext
+} from './case-lifecycle';
+import { localLifecycleContext } from './lifecycle-http';
 
 let directory: string;
 let connection: ReturnType<typeof createDatabaseConnection>;
-const context = { mode: 'demo' as const };
+const context = internalInvestigationAcceptanceContext();
 const fixtures = loadDemoFixtures();
 const candidate = fixtures.matches.find((match) => !match.hasHardConflict)!;
 const reservation = { alertId: candidate.alertId, productId: candidate.productId };
@@ -80,6 +92,85 @@ describe('persisted case lifecycle', () => {
     expect(event?.actorName).toBe('demo_operator');
     expect(connection.db.select().from(schema.caseItems).all()).toHaveLength(0);
     expect(connection.db.select().from(schema.caseTasks).all()).toHaveLength(0);
+  });
+
+  it('rejects caller-authored investigation outcomes in public contexts before freshness checks or writes', async () => {
+    const initial = reserve();
+    const before = counts();
+    const beforeSnapshot = readCaseSnapshot(connection.db, initial.caseId);
+    const input = command(
+      initial.caseId,
+      { ...confirmedLotOutcome, materialRevision: 99 },
+      999
+    );
+    expect(recallCommandSchema.safeParse(input).success).toBe(true);
+
+    const previousDemoMode = process.env.VERIRECALL_DEMO_MODE;
+    process.env.VERIRECALL_DEMO_MODE = 'true';
+    let publicContext: LifecycleContext;
+    try {
+      publicContext = localLifecycleContext();
+    } finally {
+      if (previousDemoMode === undefined) delete process.env.VERIRECALL_DEMO_MODE;
+      else process.env.VERIRECALL_DEMO_MODE = previousDemoMode;
+    }
+    expect(publicContext).toEqual({ mode: 'demo' });
+    expect(Object.getOwnPropertySymbols(publicContext)).toEqual([]);
+
+    expect(await createRecallService(connection.db, publicContext).execute(input)).toMatchObject({
+      ok: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Authoritative investigation outcome acceptance is restricted to internal workflow operations.'
+      }
+    });
+
+    const serializedTrustedContext = JSON.parse(
+      JSON.stringify(internalInvestigationAcceptanceContext())
+    ) as LifecycleContext;
+    const forgedContext = {
+      ...serializedTrustedContext,
+      investigationAcceptanceCapability: true,
+      actorName: 'demo_operator'
+    } as LifecycleContext;
+    expect(await createRecallService(connection.db, forgedContext).execute(input)).toMatchObject({
+      ok: false,
+      error: { code: 'FORBIDDEN' }
+    });
+
+    expect(counts()).toEqual(before);
+    expect(readCaseSnapshot(connection.db, initial.caseId)).toEqual(beforeSnapshot);
+  });
+
+  it('keeps unrelated lifecycle commands available in the public demo context', async () => {
+    const initial = reserve();
+    const accepted = await createRecallService(connection.db, context).execute(
+      command(initial.caseId)
+    );
+    if (!accepted.ok) throw new Error(accepted.error.message);
+
+    const calculated = await createRecallService(connection.db, { mode: 'demo' }).execute({
+      type: 'CALCULATE_EXPOSURE',
+      schemaVersion: 1,
+      caseId: initial.caseId,
+      commandId: randomUUID(),
+      expectedCaseVersion: accepted.snapshot.caseVersion,
+      records: [{
+        type: 'RECEIPT',
+        sourceRef: 'demo:authority-boundary:receipt',
+        productId: candidate.productId,
+        lot: 'L-2403',
+        occurredAt: '2026-09-07T14:30:00.000Z',
+        demo: true,
+        receiptRef: 'AUTHORITY-BOUNDARY-RECEIPT',
+        quantity: 1
+      }]
+    });
+
+    expect(calculated).toMatchObject({
+      ok: true,
+      snapshot: { caseVersion: accepted.snapshot.caseVersion + 1 }
+    });
   });
 
   it('preserves state, history and command replay after a new database connection', async () => {

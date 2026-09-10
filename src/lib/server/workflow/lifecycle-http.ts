@@ -3,6 +3,7 @@ import type { CommandResult, SnapshotResult } from '../../contracts/recall';
 import type { LifecycleContext } from './case-lifecycle';
 
 export function localLifecycleContext(): LifecycleContext {
+  // HTTP callers receive demo-mode availability, never internal outcome-acceptance authority.
   return { mode: process.env.VERIRECALL_DEMO_MODE === 'true' ? 'demo' : 'disabled' };
 }
 export function lifecycleResponse(result: CommandResult | SnapshotResult) {

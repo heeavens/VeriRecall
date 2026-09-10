@@ -43,9 +43,8 @@ Review form использует обычный form content type, но его v
 
 Versioned Review не создаёт legacy `case_items`: scope authority находится только в `InvestigationOutcome`/`CaseSnapshot`. `getCaseDetail` также не запускает legacy affected-customer projection для lifecycle case. Если case был upgraded и уже содержит исторический `case_items.batch = 'Unknown'`, строка сохраняется для совместимости и аудита, но не интерпретируется как whole-product scope и не добавляет customers в versioned server payload. Sentinel `Unknown` и прежняя wildcard-семантика остаются только в pure legacy path.
 
-Поддерживаемые команды:
+Публично поддерживаемые команды:
 
-- `ACCEPT_INVESTIGATION`
 - `CALCULATE_EXPOSURE`
 - `DECIDE_INVESTIGATION`
 - `DECIDE_ACTION`
@@ -53,23 +52,13 @@ Versioned Review не создаёт legacy `case_items`: scope authority нах
 - `ATTACH_RESULT`
 - `REQUEST_CLOSURE`
 
-Каждая мутация использует новый UUID `commandId` и текущий `expectedCaseVersion`. Точный повтор сохраняет исходный effect, тот же id с другим payload даёт `IDEMPOTENCY_CONFLICT`, устаревшая версия — `VERSION_CONFLICT`. `schemaVersion`, `materialRevision` и `caseVersion` независимы.
+`ACCEPT_INVESTIGATION` остаётся parseable internal lifecycle plumbing, но `/api/cases/{id}/commands` не обладает opaque server capability и всегда возвращает `FORBIDDEN` для этой команды. Browser/client code не может передать authoritative `InvestigationOutcome`; `demo:true`, actor, headers и contents payload не дают authority. Initial Review применяет первичный outcome через отдельный server-side `applyConfirmedReviewOutcomeInTransaction(...)`, а будущая Challenge conflict application будет отдельной HUMAN-controlled server operation.
 
-## Пример producer и UI
+Каждая публичная мутация использует новый UUID `commandId` и текущий `expectedCaseVersion`. Точный повтор сохраняет исходный effect, тот же id с другим payload даёт `IDEMPOTENCY_CONFLICT`, устаревшая версия — `VERSION_CONFLICT`. `schemaVersion`, `materialRevision` и `caseVersion` независимы.
 
-```ts
-const outcome = investigationOutcomeSchema.parse(aiOrInvestigationPayload);
-const accepted = commandResultSchema.parse(await post(`/api/cases/${outcome.caseId}/commands`, {
-  type: 'ACCEPT_INVESTIGATION', schemaVersion: 1,
-  caseId: outcome.caseId, commandId: crypto.randomUUID(),
-  expectedCaseVersion: current.caseVersion, outcome
-}));
+## UI boundary
 
-if (!accepted.ok) throw new Error(accepted.error.message);
-renderCase(caseSnapshotSchema.parse(accepted.snapshot));
-```
-
-UI должен всегда перерисовываться из возвращённого snapshot. Значение `null` вместе с knowledgeStatus нельзя показывать как ноль. `pendingDecisions` содержит только ожидающие решения, `decisions` — сохранённые APPROVED/REJECTED/STALE. KnowledgeStatus, task status и decision status нельзя объединять.
+UI не строит и не отправляет authoritative `InvestigationOutcome`. Initial Review вызывает выделенный server-side bridge, а UI получает сохранённый `CaseSnapshot` через Review result или snapshot route. Все последующие разрешённые команды должны перерисовывать UI из возвращённого snapshot. Значение `null` вместе с knowledgeStatus нельзя показывать как ноль. `pendingDecisions` содержит только ожидающие решения, `decisions` — сохранённые APPROVED/REJECTED/STALE. KnowledgeStatus, task status и decision status нельзя объединять.
 
 Для решения investigation UI отправляет полный evidence basis pending decision:
 
@@ -106,10 +95,11 @@ npm run dev -- --host 127.0.0.1 --port 5186
 
 ```bash
 VERIRECALL_BASE_URL=http://127.0.0.1:5186 \
+  VERIRECALL_CASE_ID=<case-id-confirmed-through-review> \
   node --import tsx scripts/demo-closure-ready.ts
 ```
 
-Скрипт печатает `caseUrl`, caseVersion и допустимый `closureEvidenceRefs`. Открой URL: дело находится в `CLOSURE_REVIEW`. Заполни rationale, оставь напечатанный evidence ref и нажми **Confirm closure for this version**. Страница и `/cases` должны показать `CLOSED`, 0 open cases и сохранённое `CLOSE_CASE` decision. Перезапуск с тем же `DATABASE_URL` должен сохранить состояние и историю.
+Сначала создай authoritative initial outcome через Review confirmation и передай полученный case ID. Скрипт не создаёт и не принимает caller-authored `InvestigationOutcome`; он начинает с сохранённого Review snapshot и использует только публично разрешённые downstream-команды. Скрипт печатает `caseUrl`, caseVersion и допустимый `closureEvidenceRefs`. Открой URL: дело находится в `CLOSURE_REVIEW`. Заполни rationale, оставь напечатанный evidence ref и нажми **Confirm closure for this version**. Страница и `/cases` должны показать `CLOSED`, 0 open cases и сохранённое `CLOSE_CASE` decision. Перезапуск с тем же `DATABASE_URL` должен сохранить состояние и историю.
 
 ## Что пересчитать при новых данных
 
@@ -170,8 +160,9 @@ Completed Mykyta boundaries:
 12. `feat(investigation): persist challenge-scoped investigation writes` — immutable association rows authorize non-authoritative Request, Claim, and Assessment writes under one exact CURRENT Challenge without changing lifecycle state.
 13. `feat(investigation): project challenge-scoped effective analysis` — a read-only first-cycle projection combines unassociated baseline plus one selected Challenge while preserving graph boundaries, staleness, ambiguity, and no-winner semantics.
 14A. `feat(investigation): derive challenge conflict application basis` — a read-only canonical policy basis and SHA-256 digest cover the complete Challenge analysis plus every registered Question Evidence ref; this is a fingerprint, not approval or authoritative application.
+14B1. `fix(workflow): internalize investigation outcome acceptance` — generic `ACCEPT_INVESTIGATION` execution now requires an opaque server-created capability; public HTTP/local lifecycle context is default-denied while the dedicated initial Review bridge remains functional.
 
-Migrations present are `0000_initial.sql`, `0001_last_living_lightning.sql`, `0002_case_lifecycle.sql`, `0003_traceability_exposure.sql`, `0004_last_thunderbolt.sql`, `0005_majestic_centennial.sql`, `0006_cynical_rictor.sql`, `0007_calm_captain_cross.sql`, additive `0008_warm_zarek.sql`, additive `0009_glamorous_celestials.sql`, additive `0010_lying_hellcat.sql`, and additive `0011_confused_hannibal_king.sql`. Commits 13 and 14A add no migration. The current baseline passes 296 tests in 33 files, including 78/78 focused Commit-14A/Challenge-analysis/Effective-Analysis/Challenge-write/Challenge/Evidence checks. `npm.cmd run check` reports 0 errors/warnings and the production build passes with the existing adapter-auto notice. Commit 12's clean/repeat/populated-0010 migration, restrictive association FK, reset/reseed, reopen persistence, SQLite constraint, `foreign_key_check`, and exact 0010→0011 metadata checks remain covered by the full suite. The final Drizzle generation reports no schema changes, no `0012` migration or metadata change exists, and `git diff --check` passes. Re-run current checks after future work because a green baseline is not proof that a later diff is correct.
+Migrations present are `0000_initial.sql`, `0001_last_living_lightning.sql`, `0002_case_lifecycle.sql`, `0003_traceability_exposure.sql`, `0004_last_thunderbolt.sql`, `0005_majestic_centennial.sql`, `0006_cynical_rictor.sql`, `0007_calm_captain_cross.sql`, additive `0008_warm_zarek.sql`, additive `0009_glamorous_celestials.sql`, additive `0010_lying_hellcat.sql`, and additive `0011_confused_hannibal_king.sql`. Commits 13, 14A, and 14B1 add no migration. The current baseline passes 298 tests in 33 files; the focused Commit-14B1 lifecycle/closure/Review/exposure/task authority suite passes 43/43 in 5 files. `npm.cmd run check` reports 0 errors/warnings and the production build passes with the existing adapter-auto notice. Commit 12's clean/repeat/populated-0010 migration, restrictive association FK, reset/reseed, reopen persistence, SQLite constraint, `foreign_key_check`, and exact 0010→0011 metadata checks remain covered by the full suite. The final Drizzle generation reports no schema changes, no `0012` migration or metadata change exists, and `git diff --check` passes. Re-run current checks after future work because a green baseline is not proof that a later diff is correct.
 
 Commit 6 supports only `AFFECTED_BATCH_LOT` for an exact current `BATCH_MISSING` gap. Claims reference registered evidence with matching case/question ownership; legacy-request-linked evidence is rejected because null/null legacy ownership cannot prove the versioned question. Evidence refs and JSON are canonicalized, while asserted lot text is preserved for later explicit comparison rules. Exact replay remains valid after the gap or case version advances. A correction creates a new claim with `supersedesClaimRef`; the original remains readable, and conflicting MFT24/MFT25 assertions coexist without an inferred winner.
 
@@ -215,6 +206,10 @@ Commit 14A adds `readChallengeConflictApplicationBasis`. The public Commit 13 AP
 
 The basis distinguishes graph-referenced Evidence from every registered case/Question Evidence ref. Its canonical SHA-256 digest covers the Challenge/current-answer context, complete projection basis, Claim and Assessment head/currentness state, staleness reasons, targeted judgments, contradiction groups, ambiguity, complete Evidence corpus, deterministic blockers, and exact qualifying conflict. Appending Evidence, Claims, or Assessments can therefore invalidate a reviewed digest without changing caseVersion or materialRevision. Eligibility requires one current selected-Challenge HUMAN or RULE contradiction over every active Claim, baseline plus selected-Challenge participation, distinct normalized lots, complete Evidence coverage, and no current negative or non-benign ambiguous analysis. It chooses no winner.
 
-Commit 14A performs no write and adds no schema or migration. The digest is not an approval, authorization token, HumanDecision, application record, or authoritative fact. Commit 14B must recompute it inside one immediate mutation transaction, compare the exact human-reviewed digest, persist durable application provenance, and reuse the authoritative lifecycle path for the CONFLICTED/UNRESOLVED revision. The generic external post-initial `ACCEPT_INVESTIGATION` authority remains an explicit bypass blocker that Commit 14B must harden or make internal-only. Established-batch application, Challenge closure, and multi-cycle inheritance remain deferred. The monitoring provenance conflation described below also remains unresolved.
+Commit 14A performs no write and adds no schema or migration. The digest is not an approval, authorization token, HumanDecision, application record, or authoritative fact. Commit 14B2 must recompute it inside one immediate mutation transaction, compare the exact human-reviewed digest, persist durable application provenance, and reuse the authoritative lifecycle path for the CONFLICTED/UNRESOLVED revision. Established-batch application, Challenge closure, and multi-cycle inheritance remain deferred. The monitoring provenance conflation described below also remains unresolved.
+
+Commit 14B1 closes the generic authority bypass. `createRecallService(...).execute(...)` accepts `ACCEPT_INVESTIGATION` only when its server-side `LifecycleContext` was produced by the explicit internal acceptance factory. The capability uses a private Symbol plus private object identity, is non-enumerable, is absent from `localLifecycleContext()`, and cannot be serialized or supplied in command JSON. External `/api/cases/{id}/commands` calls therefore receive typed `FORBIDDEN` before lifecycle state, versions, commands, revisions, audit, decisions, tasks, exposure, closure, or CLOSED status are touched. Other command variants retain their existing public demo behavior.
+
+The initial Review path does not use generic HTTP acceptance: `confirmReviewMatch(...)` continues calling `applyConfirmedReviewOutcomeInTransaction(...)` inside its server transaction and still registers current Questions. Explicit internal generic acceptance remains available only for trusted server/test lifecycle plumbing and retains its prior replay and material-revision semantics. Commit 14B1 adds no schema or migration and does not implement Challenge conflict application; that remains Commit 14B2.
 
 Important provenance risk to preserve visibly: the current monitoring/LLM alert-extraction path can persist AI-extracted alert EAN or batch values into the same alert fields later read by deterministic investigation rules. Persisted alert fields therefore do not yet prove raw-source or trusted-fact provenance. Commit 10 does not resolve that conflation, classify AI output as raw evidence, or allow AI claims/assessments/establishments to become factual automatically.
