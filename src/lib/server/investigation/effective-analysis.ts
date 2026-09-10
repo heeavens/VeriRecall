@@ -880,131 +880,149 @@ function assertArtifactEvidenceIntegrity(
   }
 }
 
+/**
+ * Build the current Challenge projection inside a transaction owned by the caller.
+ * Structural/currentness failures retain the public Challenge projection error semantics.
+ */
+export function readChallengeEffectiveInvestigationAnalysisInTransaction(
+  database: RecallDatabase,
+  caseId: string,
+  questionRef: string,
+  challengeRef: string
+): ChallengeEffectiveInvestigationAnalysis {
+  const authorization = resolveChallengeForAnalysis(
+    database,
+    caseId,
+    questionRef,
+    challengeRef
+  );
+  const history = getCaseHistory(database, caseId);
+  assertFirstCycleBaseline(database, authorization, history);
+
+  const claims = listInvestigationClaims(database, caseId, questionRef);
+  const assessments = listInvestigationAssessments(database, caseId, questionRef);
+  assertSelectedChallengeAssociationsVisible(
+    database,
+    challengeRef,
+    claims,
+    assessments
+  );
+  validateClaimOwnership(claims, authorization.snapshot, questionRef);
+  validateAssessmentOwnership(assessments, authorization.snapshot, questionRef);
+  validateSupersessionGraph(
+    claims,
+    (claim) => claim.claimRef,
+    (claim) => claim.supersedesClaimRef,
+    'INVALID_CLAIM_STATE'
+  );
+  validateSupersessionGraph(
+    assessments,
+    (assessment) => assessment.assessmentRef,
+    (assessment) => assessment.supersedesAssessmentRef,
+    'INVALID_ASSESSMENT_STATE'
+  );
+
+  const claimPartitionByRef = claimPartitions(database, claims);
+  const assessmentPartitionByRef = assessmentPartitions(database, assessments);
+  assertSameSupersessionPartitions(
+    claims,
+    claimPartitionByRef,
+    (claim) => claim.claimRef,
+    (claim) => claim.supersedesClaimRef
+  );
+  assertSameSupersessionPartitions(
+    assessments,
+    assessmentPartitionByRef,
+    (assessment) => assessment.assessmentRef,
+    (assessment) => assessment.supersedesAssessmentRef
+  );
+
+  const includedClaims = claims.filter((claim) => {
+    const partition = claimPartitionByRef.get(claim.claimRef) ?? null;
+    return partition === null || partition === challengeRef;
+  });
+  const includedClaimRefs = new Set(includedClaims.map((claim) => claim.claimRef));
+  const includedAssessments = assessments.filter((assessment) => {
+    const partition = assessmentPartitionByRef.get(assessment.assessmentRef) ?? null;
+    return partition === null || partition === challengeRef;
+  });
+  assertIncludedAssessmentClaimBoundaries(
+    includedAssessments,
+    includedClaimRefs,
+    claimPartitionByRef,
+    assessmentPartitionByRef,
+    challengeRef
+  );
+
+  const evidence = listInvestigationEvidence(database, caseId, questionRef);
+  const evidenceByRef = new Map(evidence.map((item) => [item.evidenceRef, item]));
+  for (const claim of includedClaims) {
+    assertArtifactEvidenceIntegrity(
+      database,
+      claim,
+      claimPartitionByRef.get(claim.claimRef) ?? null,
+      evidenceByRef,
+      authorization
+    );
+  }
+  for (const assessment of includedAssessments) {
+    assertArtifactEvidenceIntegrity(
+      database,
+      assessment,
+      assessmentPartitionByRef.get(assessment.assessmentRef) ?? null,
+      evidenceByRef,
+      authorization
+    );
+  }
+
+  const analysis = projectInvestigationGraph({
+    snapshot: authorization.snapshot,
+    questionRef,
+    claims: includedClaims,
+    assessments: includedAssessments,
+    caseRevisions: history.map((revision) => ({
+      caseVersion: revision.caseVersion,
+      materialRevision: revision.materialRevision
+    })),
+    currentMaterialRevision: authorization.challenge.challengedMaterialRevision
+  });
+  return {
+    analysisContext: {
+      kind: 'OPEN_CHALLENGE',
+      challengeRef: authorization.challenge.challengeRef,
+      challengedRevisionId: authorization.challenge.challengedRevisionId,
+      challengedMaterialRevision: authorization.challenge.challengedMaterialRevision,
+      currentCaseVersion: authorization.snapshot.caseVersion,
+      currentMaterialRevision: authorization.snapshot.materialRevision!
+    },
+    projectionBasis: {
+      claimRefs: includedClaims.map((claim) => claim.claimRef).sort(compareText),
+      assessmentRefs: includedAssessments
+        .map((assessment) => assessment.assessmentRef)
+        .sort(compareText),
+      referencedEvidenceRefs: sortedUnique([
+        ...includedClaims.flatMap((claim) => claim.evidenceRefs),
+        ...includedAssessments.flatMap((assessment) => assessment.evidenceRefs)
+      ])
+    },
+    analysis
+  };
+}
+
 export function readChallengeEffectiveInvestigationAnalysis(
   database: RecallDatabase,
   caseId: string,
   questionRef: string,
   challengeRef: string
 ): ChallengeEffectiveInvestigationAnalysis {
-  return database.transaction((transaction) => {
-    const authorization = resolveChallengeForAnalysis(
+  return database.transaction((transaction) =>
+    readChallengeEffectiveInvestigationAnalysisInTransaction(
       transaction,
       caseId,
       questionRef,
       challengeRef
-    );
-    const history = getCaseHistory(transaction, caseId);
-    assertFirstCycleBaseline(transaction, authorization, history);
-
-    const claims = listInvestigationClaims(transaction, caseId, questionRef);
-    const assessments = listInvestigationAssessments(transaction, caseId, questionRef);
-    assertSelectedChallengeAssociationsVisible(
-      transaction,
-      challengeRef,
-      claims,
-      assessments
-    );
-    validateClaimOwnership(claims, authorization.snapshot, questionRef);
-    validateAssessmentOwnership(assessments, authorization.snapshot, questionRef);
-    validateSupersessionGraph(
-      claims,
-      (claim) => claim.claimRef,
-      (claim) => claim.supersedesClaimRef,
-      'INVALID_CLAIM_STATE'
-    );
-    validateSupersessionGraph(
-      assessments,
-      (assessment) => assessment.assessmentRef,
-      (assessment) => assessment.supersedesAssessmentRef,
-      'INVALID_ASSESSMENT_STATE'
-    );
-
-    const claimPartitionByRef = claimPartitions(transaction, claims);
-    const assessmentPartitionByRef = assessmentPartitions(transaction, assessments);
-    assertSameSupersessionPartitions(
-      claims,
-      claimPartitionByRef,
-      (claim) => claim.claimRef,
-      (claim) => claim.supersedesClaimRef
-    );
-    assertSameSupersessionPartitions(
-      assessments,
-      assessmentPartitionByRef,
-      (assessment) => assessment.assessmentRef,
-      (assessment) => assessment.supersedesAssessmentRef
-    );
-
-    const includedClaims = claims.filter((claim) => {
-      const partition = claimPartitionByRef.get(claim.claimRef) ?? null;
-      return partition === null || partition === challengeRef;
-    });
-    const includedClaimRefs = new Set(includedClaims.map((claim) => claim.claimRef));
-    const includedAssessments = assessments.filter((assessment) => {
-      const partition = assessmentPartitionByRef.get(assessment.assessmentRef) ?? null;
-      return partition === null || partition === challengeRef;
-    });
-    assertIncludedAssessmentClaimBoundaries(
-      includedAssessments,
-      includedClaimRefs,
-      claimPartitionByRef,
-      assessmentPartitionByRef,
-      challengeRef
-    );
-
-    const evidence = listInvestigationEvidence(transaction, caseId, questionRef);
-    const evidenceByRef = new Map(evidence.map((item) => [item.evidenceRef, item]));
-    for (const claim of includedClaims) {
-      assertArtifactEvidenceIntegrity(
-        transaction,
-        claim,
-        claimPartitionByRef.get(claim.claimRef) ?? null,
-        evidenceByRef,
-        authorization
-      );
-    }
-    for (const assessment of includedAssessments) {
-      assertArtifactEvidenceIntegrity(
-        transaction,
-        assessment,
-        assessmentPartitionByRef.get(assessment.assessmentRef) ?? null,
-        evidenceByRef,
-        authorization
-      );
-    }
-
-    const analysis = projectInvestigationGraph({
-      snapshot: authorization.snapshot,
-      questionRef,
-      claims: includedClaims,
-      assessments: includedAssessments,
-      caseRevisions: history.map((revision) => ({
-        caseVersion: revision.caseVersion,
-        materialRevision: revision.materialRevision
-      })),
-      currentMaterialRevision: authorization.challenge.challengedMaterialRevision
-    });
-    return {
-      analysisContext: {
-        kind: 'OPEN_CHALLENGE',
-        challengeRef: authorization.challenge.challengeRef,
-        challengedRevisionId: authorization.challenge.challengedRevisionId,
-        challengedMaterialRevision: authorization.challenge.challengedMaterialRevision,
-        currentCaseVersion: authorization.snapshot.caseVersion,
-        currentMaterialRevision: authorization.snapshot.materialRevision!
-      },
-      projectionBasis: {
-        claimRefs: includedClaims.map((claim) => claim.claimRef).sort(compareText),
-        assessmentRefs: includedAssessments
-          .map((assessment) => assessment.assessmentRef)
-          .sort(compareText),
-        referencedEvidenceRefs: sortedUnique([
-          ...includedClaims.flatMap((claim) => claim.evidenceRefs),
-          ...includedAssessments.flatMap((assessment) => assessment.evidenceRefs)
-        ])
-      },
-      analysis
-    };
-  });
+    )
+  );
 }
 
 export function readEffectiveInvestigationAnalysis(
