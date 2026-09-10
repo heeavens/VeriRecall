@@ -65,6 +65,7 @@ describe('Stage 1 database', () => {
         'investigation_challenge_claims',
         'investigation_challenge_assessments',
         'investigation_challenge_conflict_applications',
+        'investigation_established_batch_applications',
         'traceability_records'
       ])
     );
@@ -101,6 +102,9 @@ describe('Stage 1 database', () => {
         'investigation_challenge_conflict_applications_challenge_unique',
         'investigation_challenge_conflict_applications_result_revision_unique',
         'investigation_challenge_conflict_applications_case_question_created_idx',
+        'investigation_established_batch_applications_establishment_unique',
+        'investigation_established_batch_applications_result_revision_unique',
+        'investigation_established_batch_applications_case_question_created_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
       ])
@@ -362,6 +366,28 @@ describe('Stage 1 database', () => {
       }),
       expect.objectContaining({
         from: 'challenge_ref', table: 'investigation_challenges', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'source_revision_id', table: 'case_revisions', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'resulting_revision_id', table: 'case_revisions', on_delete: 'NO ACTION'
+      })
+    ]));
+    expect(challengeAssociationForeignKeys(
+      'investigation_established_batch_applications'
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        from: 'case_id', table: 'cases', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'question_ref', table: 'investigation_questions', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'establishment_ref', table: 'investigation_establishments', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'claim_ref', table: 'investigation_claims', on_delete: 'NO ACTION'
       }),
       expect.objectContaining({
         from: 'source_revision_id', table: 'case_revisions', on_delete: 'NO ACTION'

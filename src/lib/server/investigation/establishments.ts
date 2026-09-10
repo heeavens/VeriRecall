@@ -686,78 +686,99 @@ export function evaluateCurrentInvestigationEstablishment(
     );
   }
 
-  return database.transaction((transaction) => {
-    const row = transaction
-      .select()
-      .from(schema.investigationEstablishments)
-      .where(and(
-        eq(schema.investigationEstablishments.caseId, parsed.data.caseId),
-        eq(schema.investigationEstablishments.establishmentRef, parsed.data.establishmentRef)
-      ))
-      .get();
-    if (!row) return null;
-    const establishment = hydrateEstablishment(row);
-    const snapshot = readCaseSnapshot(transaction, parsed.data.caseId);
-    if (!snapshot?.investigation || snapshot.materialRevision === null) {
-      return currentEvaluationWithoutAnalysis(establishment, ['VERSIONED_CASE_REQUIRED']);
-    }
+  return database.transaction((transaction) =>
+    evaluateCurrentInvestigationEstablishmentInTransaction(
+      transaction,
+      parsed.data.caseId,
+      parsed.data.establishmentRef
+    )
+  );
+}
 
-    const currentBlockers = new Set<CurrentEstablishmentBlockerCode>();
-    if (
-      establishment.policyIdentifier !== demoBatchEstablishmentPolicy.policyIdentifier ||
-      establishment.policyVersion !== demoBatchEstablishmentPolicy.policyVersion ||
-      establishment.evaluatorKind !== demoBatchEstablishmentPolicy.evaluatorKind ||
-      establishment.evaluatorIdentifier !== demoBatchEstablishmentPolicy.evaluatorIdentifier
-    ) {
-      currentBlockers.add('POLICY_UNSUPPORTED');
-    }
-    if (snapshot.materialRevision !== establishment.basisMaterialRevision) {
-      currentBlockers.add('MATERIAL_REVISION_CHANGED');
-    }
+/** Evaluate an Establishment inside a transaction already owned by the caller. */
+export function evaluateCurrentInvestigationEstablishmentInTransaction(
+  database: RecallDatabase,
+  caseId: string,
+  establishmentRef: string
+): CurrentInvestigationEstablishmentEvaluation | null {
+  const parsed = getEstablishmentInputSchema.safeParse({ caseId, establishmentRef });
+  if (!parsed.success) {
+    throw new InvestigationEstablishmentError(
+      'INVALID_INPUT',
+      'Invalid current establishment evaluation lookup.'
+    );
+  }
 
-    let analysis: EffectiveInvestigationAnalysis;
-    try {
-      analysis = loadEffectiveAnalysis(transaction, snapshot, establishment.questionRef);
-    } catch (error) {
-      const mapped = mapAnalysisError(error);
-      if (mapped.length > 0) {
-        return currentEvaluationWithoutAnalysis(establishment, [
-          ...currentBlockers,
-          ...mapped
-        ]);
-      }
+  const row = database
+    .select()
+    .from(schema.investigationEstablishments)
+    .where(and(
+      eq(schema.investigationEstablishments.caseId, parsed.data.caseId),
+      eq(schema.investigationEstablishments.establishmentRef, parsed.data.establishmentRef)
+    ))
+    .get();
+  if (!row) return null;
+  const establishment = hydrateEstablishment(row);
+  const snapshot = readCaseSnapshot(database, parsed.data.caseId);
+  if (!snapshot?.investigation || snapshot.materialRevision === null) {
+    return currentEvaluationWithoutAnalysis(establishment, ['VERSIONED_CASE_REQUIRED']);
+  }
+
+  const currentBlockers = new Set<CurrentEstablishmentBlockerCode>();
+  if (
+    establishment.policyIdentifier !== demoBatchEstablishmentPolicy.policyIdentifier ||
+    establishment.policyVersion !== demoBatchEstablishmentPolicy.policyVersion ||
+    establishment.evaluatorKind !== demoBatchEstablishmentPolicy.evaluatorKind ||
+    establishment.evaluatorIdentifier !== demoBatchEstablishmentPolicy.evaluatorIdentifier
+  ) {
+    currentBlockers.add('POLICY_UNSUPPORTED');
+  }
+  if (snapshot.materialRevision !== establishment.basisMaterialRevision) {
+    currentBlockers.add('MATERIAL_REVISION_CHANGED');
+  }
+
+  let analysis: EffectiveInvestigationAnalysis;
+  try {
+    analysis = loadEffectiveAnalysis(database, snapshot, establishment.questionRef);
+  } catch (error) {
+    const mapped = mapAnalysisError(error);
+    if (mapped.length > 0) {
       return currentEvaluationWithoutAnalysis(establishment, [
         ...currentBlockers,
-        'ANALYSIS_UNAVAILABLE'
+        ...mapped
       ]);
     }
-    const evidence = listInvestigationEvidence(
-      transaction,
-      establishment.caseId,
-      establishment.questionRef
-    );
-    const policy = evaluateDemoBatchEstablishmentPolicy({
-      snapshot,
-      analysis,
-      evidence,
-      targetClaimRef: establishment.claimRef
-    });
-    for (const blocker of policy.blockerCodes) currentBlockers.add(blocker);
-    if (!sameRefs(establishment.basisClaimRefs, policy.basis.claimRefs)) {
-      currentBlockers.add('CLAIM_BASIS_CHANGED');
-    }
-    if (!sameRefs(establishment.basisAssessmentRefs, policy.basis.assessmentRefs)) {
-      currentBlockers.add('ASSESSMENT_BASIS_CHANGED');
-    }
-    if (!sameRefs(establishment.basisEvidenceRefs, policy.basis.evidenceRefs)) {
-      currentBlockers.add('EVIDENCE_BASIS_CHANGED');
-    }
-
-    return {
-      establishment,
-      currentlyEligible: currentBlockers.size === 0,
-      blockerCodes: sortCurrentBlockers(currentBlockers),
-      currentBasis: policy.basis
-    };
+    return currentEvaluationWithoutAnalysis(establishment, [
+      ...currentBlockers,
+      'ANALYSIS_UNAVAILABLE'
+    ]);
+  }
+  const evidence = listInvestigationEvidence(
+    database,
+    establishment.caseId,
+    establishment.questionRef
+  );
+  const policy = evaluateDemoBatchEstablishmentPolicy({
+    snapshot,
+    analysis,
+    evidence,
+    targetClaimRef: establishment.claimRef
   });
+  for (const blocker of policy.blockerCodes) currentBlockers.add(blocker);
+  if (!sameRefs(establishment.basisClaimRefs, policy.basis.claimRefs)) {
+    currentBlockers.add('CLAIM_BASIS_CHANGED');
+  }
+  if (!sameRefs(establishment.basisAssessmentRefs, policy.basis.assessmentRefs)) {
+    currentBlockers.add('ASSESSMENT_BASIS_CHANGED');
+  }
+  if (!sameRefs(establishment.basisEvidenceRefs, policy.basis.evidenceRefs)) {
+    currentBlockers.add('EVIDENCE_BASIS_CHANGED');
+  }
+
+  return {
+    establishment,
+    currentlyEligible: currentBlockers.size === 0,
+    blockerCodes: sortCurrentBlockers(currentBlockers),
+    currentBasis: policy.basis
+  };
 }

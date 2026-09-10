@@ -53,6 +53,8 @@ export const investigationChallengeOpenedByKinds = ['HUMAN'] as const;
 
 export const investigationChallengeConflictApplicationActorKinds = ['HUMAN'] as const;
 
+export const investigationEstablishedBatchApplicationActorKinds = ['HUMAN'] as const;
+
 export const settings = sqliteTable(
   'settings',
   {
@@ -825,6 +827,121 @@ export const investigationChallengeConflictApplications = sqliteTable(
     ),
     check(
       'investigation_challenge_conflict_applications_demo_check',
+      sql`${table.demo} = 1`
+    )
+  ]
+);
+
+export const investigationEstablishedBatchApplications = sqliteTable(
+  'investigation_established_batch_applications',
+  {
+    applicationRef: text('application_ref').primaryKey(),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => cases.id),
+    questionRef: text('question_ref')
+      .notNull()
+      .references(() => investigationQuestions.questionRef),
+    establishmentRef: text('establishment_ref')
+      .notNull()
+      .references(() => investigationEstablishments.establishmentRef),
+    claimRef: text('claim_ref')
+      .notNull()
+      .references(() => investigationClaims.claimRef),
+    applicationPolicyIdentifier: text('application_policy_identifier').notNull(),
+    applicationPolicyVersion: text('application_policy_version').notNull(),
+    basisFormatVersion: text('basis_format_version').notNull(),
+    basisDigest: text('basis_digest').notNull(),
+    reviewedClaimRefsJson: text('reviewed_claim_refs_json').notNull(),
+    reviewedAssessmentRefsJson: text('reviewed_assessment_refs_json').notNull(),
+    reviewedEvidenceRefsJson: text('reviewed_evidence_refs_json').notNull(),
+    appliedEvidenceRefsJson: text('applied_evidence_refs_json').notNull(),
+    appliedLot: text('applied_lot').notNull(),
+    sourceRevisionId: text('source_revision_id')
+      .notNull()
+      .references(() => caseRevisions.id),
+    sourceCaseVersion: integer('source_case_version').notNull(),
+    sourceMaterialRevision: integer('source_material_revision').notNull(),
+    resultingRevisionId: text('resulting_revision_id')
+      .notNull()
+      .references(() => caseRevisions.id),
+    resultingCaseVersion: integer('resulting_case_version').notNull(),
+    resultingMaterialRevision: integer('resulting_material_revision').notNull(),
+    actorKind: text('actor_kind', {
+      enum: investigationEstablishedBatchApplicationActorKinds
+    }).notNull(),
+    actorIdentifier: text('actor_identifier').notNull(),
+    rationale: text('rationale').notNull(),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    uniqueIndex('investigation_established_batch_applications_establishment_unique')
+      .on(table.establishmentRef),
+    uniqueIndex('investigation_established_batch_applications_result_revision_unique')
+      .on(table.resultingRevisionId),
+    index('investigation_established_batch_applications_case_question_created_idx')
+      .on(table.caseId, table.questionRef, table.createdAt),
+    check(
+      'investigation_established_batch_applications_source_case_version_check',
+      sql`${table.sourceCaseVersion} > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_source_material_revision_check',
+      sql`${table.sourceMaterialRevision} > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_resulting_case_version_check',
+      sql`${table.resultingCaseVersion} > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_resulting_material_revision_check',
+      sql`${table.resultingMaterialRevision} > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_case_version_step_check',
+      sql`${table.resultingCaseVersion} = ${table.sourceCaseVersion} + 1`
+    ),
+    check(
+      'investigation_established_batch_applications_material_revision_step_check',
+      sql`${table.resultingMaterialRevision} = ${table.sourceMaterialRevision} + 1`
+    ),
+    check(
+      'investigation_established_batch_applications_actor_kind_check',
+      sql`${table.actorKind} = 'HUMAN'`
+    ),
+    check(
+      'investigation_established_batch_applications_actor_identifier_check',
+      sql`length(trim(${table.actorIdentifier})) > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_rationale_check',
+      sql`length(trim(${table.rationale})) > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_policy_identifier_check',
+      sql`length(trim(${table.applicationPolicyIdentifier})) > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_policy_version_check',
+      sql`length(trim(${table.applicationPolicyVersion})) > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_basis_format_version_check',
+      sql`length(trim(${table.basisFormatVersion})) > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_basis_digest_check',
+      sql`length(${table.basisDigest}) = 71
+          and substr(${table.basisDigest}, 1, 7) = 'sha256:'
+          and substr(${table.basisDigest}, 8) not glob '*[^0-9a-f]*'`
+    ),
+    check(
+      'investigation_established_batch_applications_applied_lot_check',
+      sql`length(trim(${table.appliedLot})) > 0`
+    ),
+    check(
+      'investigation_established_batch_applications_demo_check',
       sql`${table.demo} = 1`
     )
   ]
