@@ -159,6 +159,68 @@ export function readCaseSnapshot(database: RecallDatabase, caseId: string): Case
   return snapshot;
 }
 
+export interface StoredCaseRevision {
+  revisionId: string;
+  caseId: string;
+  caseVersion: number;
+  materialRevision: number | null;
+  actorId: string;
+  createdAt: string;
+  snapshot: CaseSnapshot;
+}
+
+function hydrateCaseRevision(
+  row: typeof schema.caseRevisions.$inferSelect
+): StoredCaseRevision {
+  const snapshot = caseSnapshotSchema.parse(
+    upgradeStoredSnapshot(JSON.parse(row.snapshotJson))
+  );
+  if (
+    snapshot.caseId !== row.caseId ||
+    snapshot.caseVersion !== row.caseVersion ||
+    snapshot.materialRevision !== row.materialRevision
+  ) {
+    throw new Error('Stored case revision identity or version is inconsistent.');
+  }
+  return {
+    revisionId: row.id,
+    caseId: row.caseId,
+    caseVersion: row.caseVersion,
+    materialRevision: row.materialRevision,
+    actorId: row.actorId,
+    createdAt: row.createdAt,
+    snapshot
+  };
+}
+
+export function readCaseRevisionById(
+  database: RecallDatabase,
+  caseId: string,
+  revisionId: string
+): StoredCaseRevision | null {
+  const rows = database.select().from(schema.caseRevisions).where(and(
+    eq(schema.caseRevisions.caseId, caseId),
+    eq(schema.caseRevisions.id, revisionId)
+  )).all();
+  if (rows.length === 0) return null;
+  if (rows.length !== 1) throw new Error('Stored case revision identity is ambiguous.');
+  return hydrateCaseRevision(rows[0]);
+}
+
+export function readCaseRevisionByCaseVersion(
+  database: RecallDatabase,
+  caseId: string,
+  caseVersion: number
+): StoredCaseRevision | null {
+  const rows = database.select().from(schema.caseRevisions).where(and(
+    eq(schema.caseRevisions.caseId, caseId),
+    eq(schema.caseRevisions.caseVersion, caseVersion)
+  )).all();
+  if (rows.length === 0) return null;
+  if (rows.length !== 1) throw new Error('Stored case revision version is ambiguous.');
+  return hydrateCaseRevision(rows[0]);
+}
+
 export function getCaseHistory(database: RecallDatabase, caseId: string) {
   return database.select().from(schema.caseRevisions).where(eq(schema.caseRevisions.caseId, caseId))
     .orderBy(schema.caseRevisions.caseVersion).all().map((row) => ({
@@ -352,7 +414,7 @@ function commandReplay(
 
 function recordCommand(
   database: RecallDatabase,
-  command: RecallCommand,
+  command: Pick<RecallCommand, 'caseId' | 'commandId'>,
   payloadJson: string,
   appliedCaseVersion: number,
   createdAt: string
@@ -369,10 +431,11 @@ function recordRevision(
   alertId: string,
   eventType: string,
   eventSummary?: string,
-  eventMetadata: Record<string, unknown> = {}
-) {
+  eventMetadata: Record<string, unknown> = {},
+  revisionId = randomUUID()
+): string {
   const snapshotJson = JSON.stringify(snapshot);
-  database.insert(schema.caseRevisions).values({ id: randomUUID(), caseId: snapshot.caseId,
+  database.insert(schema.caseRevisions).values({ id: revisionId, caseId: snapshot.caseId,
     caseVersion: snapshot.caseVersion, materialRevision: snapshot.materialRevision, snapshotJson,
     actorId, createdAt: snapshot.updatedAt }).run();
   database.insert(schema.auditEvents).values({ id: randomUUID(), caseId: snapshot.caseId, alertId,
@@ -389,6 +452,97 @@ function recordRevision(
       ...eventMetadata
     }),
     createdAt: snapshot.updatedAt }).run();
+  return revisionId;
+}
+
+export interface AuthoritativeInvestigationOutcomeTransitionInput {
+  current: CaseSnapshot;
+  outcome: InvestigationOutcome;
+  alertId: string;
+  commandId: string;
+  commandPayloadJson: string;
+  updatedAt: string;
+  eventType: string;
+  eventSummary?: string;
+  eventMetadata?: Record<string, unknown>;
+  includeTransitionAuditMetadata?: boolean;
+}
+
+export interface AuthoritativeInvestigationOutcomeTransitionResult {
+  snapshot: CaseSnapshot;
+  resultingRevisionId: string;
+  reopened: boolean;
+}
+
+/**
+ * Apply one material InvestigationOutcome transition inside the caller's transaction.
+ * This helper owns the existing lifecycle projection and persistence path; it does not
+ * open a transaction and must never be exposed as caller-authored HTTP authority.
+ */
+export function applyAuthoritativeInvestigationOutcomeInTransaction(
+  database: RecallDatabase,
+  input: AuthoritativeInvestigationOutcomeTransitionInput
+): AuthoritativeInvestigationOutcomeTransitionResult {
+  const outcome = investigationOutcomeSchema.parse(input.outcome);
+  if (
+    outcome.caseId !== input.current.caseId ||
+    outcome.productId !== input.current.productId ||
+    outcome.materialRevision === input.current.materialRevision
+  ) {
+    throw new Error('Authoritative investigation transition identity or revision is invalid.');
+  }
+  const persisted = readCaseSnapshot(database, input.current.caseId);
+  if (!persisted || canonical(persisted) !== canonical(input.current)) {
+    throw new Error('Authoritative investigation transition source is no longer current.');
+  }
+
+  const projected = projectSnapshot(
+    input.current.caseId,
+    input.current.productId,
+    input.current.caseVersion + 1,
+    input.updatedAt,
+    outcome
+  );
+  const snapshot = carryOrInvalidateTasks(projected, input.current);
+  const reopened = input.current.stage === 'CLOSED';
+  if (reopened) {
+    database.update(schema.cases).set({ status: 'open', closedAt: null })
+      .where(eq(schema.cases.id, input.current.caseId)).run();
+  }
+  database.update(schema.caseLifecycle).set({
+    caseVersion: snapshot.caseVersion,
+    materialRevision: snapshot.materialRevision,
+    snapshotJson: JSON.stringify(snapshot),
+    updatedAt: input.updatedAt
+  }).where(eq(schema.caseLifecycle.caseId, input.current.caseId)).run();
+
+  const resultingRevisionId = randomUUID();
+  const eventMetadata = input.includeTransitionAuditMetadata
+    ? {
+        ...(input.eventMetadata ?? {}),
+        resultingRevisionId,
+        resultingCaseVersion: snapshot.caseVersion,
+        resultingMaterialRevision: snapshot.materialRevision,
+        reopened
+      }
+    : (input.eventMetadata ?? {});
+  recordRevision(
+    database,
+    snapshot,
+    input.alertId,
+    input.eventType,
+    input.eventSummary,
+    eventMetadata,
+    resultingRevisionId
+  );
+  recordCommand(
+    database,
+    { caseId: input.current.caseId, commandId: input.commandId },
+    input.commandPayloadJson,
+    snapshot.caseVersion,
+    input.updatedAt
+  );
+  return { snapshot, resultingRevisionId, reopened };
 }
 
 const confirmedReviewInputSchema = z.strictObject({
@@ -579,30 +733,28 @@ export function createRecallService(database: RecallDatabase, context: Lifecycle
           if (current.materialRevision !== null && command.outcome.materialRevision < current.materialRevision) return failure('STALE_INVESTIGATION', 'An older investigation cannot replace the current revision.', current.caseVersion);
           const sameRevision = command.outcome.materialRevision === current.materialRevision;
           if (sameRevision && canonical(command.outcome) !== canonical(current.investigation)) return failure('IDEMPOTENCY_CONFLICT', 'This investigation revision already has a different payload.', current.caseVersion);
-          const projected = sameRevision
-            ? current
-            : projectSnapshot(command.caseId, current.productId, current.caseVersion + 1, updatedAt, command.outcome);
-          const snapshot = sameRevision ? current : carryOrInvalidateTasks(projected, current);
-          if (!sameRevision) {
-            if (current.stage === 'CLOSED') {
-              tx.update(schema.cases).set({ status: 'open', closedAt: null })
-                .where(eq(schema.cases.id, command.caseId)).run();
-            }
-            tx.update(schema.caseLifecycle).set({ caseVersion: snapshot.caseVersion, materialRevision: snapshot.materialRevision,
-              snapshotJson: JSON.stringify(snapshot), updatedAt }).where(eq(schema.caseLifecycle.caseId, command.caseId)).run();
-            recordRevision(
-              tx,
-              snapshot,
-              caseRecord.alertId,
-              current.stage === 'CLOSED' ? 'case_reopened' : 'investigation_received',
-              current.stage === 'CLOSED'
-                ? 'Reopened the case after a new investigation revision; prior decisions and history were retained.'
-                : undefined,
-              current.stage === 'CLOSED' ? { previousCaseVersion: current.caseVersion } : {}
-            );
+          if (sameRevision) {
+            recordCommand(tx, command, payloadJson, current.caseVersion, updatedAt);
+            return { ok: true as const, commandId: command.commandId, replayed: true,
+              appliedCaseVersion: current.caseVersion, snapshot: current };
           }
-          recordCommand(tx, command, payloadJson, snapshot.caseVersion, updatedAt);
-          return { ok: true as const, commandId: command.commandId, replayed: sameRevision, appliedCaseVersion: snapshot.caseVersion, snapshot };
+          const transition = applyAuthoritativeInvestigationOutcomeInTransaction(tx, {
+            current,
+            outcome: command.outcome,
+            alertId: caseRecord.alertId,
+            commandId: command.commandId,
+            commandPayloadJson: payloadJson,
+            updatedAt,
+            eventType: current.stage === 'CLOSED' ? 'case_reopened' : 'investigation_received',
+            eventSummary: current.stage === 'CLOSED'
+              ? 'Reopened the case after a new investigation revision; prior decisions and history were retained.'
+              : undefined,
+            eventMetadata: current.stage === 'CLOSED'
+              ? { previousCaseVersion: current.caseVersion }
+              : {}
+          });
+          return { ok: true as const, commandId: command.commandId, replayed: false,
+            appliedCaseVersion: transition.snapshot.caseVersion, snapshot: transition.snapshot };
         }
 
         if (command.type === 'DECIDE_INVESTIGATION') {

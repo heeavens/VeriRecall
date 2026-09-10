@@ -85,6 +85,13 @@
       "when": 1788977278306,
       "tag": "0011_confused_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1789050949216,
+      "tag": "0012_stiff_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

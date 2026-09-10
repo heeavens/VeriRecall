@@ -64,6 +64,7 @@ describe('Stage 1 database', () => {
         'investigation_challenge_requests',
         'investigation_challenge_claims',
         'investigation_challenge_assessments',
+        'investigation_challenge_conflict_applications',
         'traceability_records'
       ])
     );
@@ -97,6 +98,9 @@ describe('Stage 1 database', () => {
         'investigation_challenge_requests_challenge_idx',
         'investigation_challenge_claims_challenge_idx',
         'investigation_challenge_assessments_challenge_idx',
+        'investigation_challenge_conflict_applications_challenge_unique',
+        'investigation_challenge_conflict_applications_result_revision_unique',
+        'investigation_challenge_conflict_applications_case_question_created_idx',
         'traceability_records_source_unique',
         'traceability_records_case_idx'
       ])
@@ -347,6 +351,38 @@ describe('Stage 1 database', () => {
         })
       ])
     );
+    expect(challengeAssociationForeignKeys(
+      'investigation_challenge_conflict_applications'
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        from: 'case_id', table: 'cases', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'question_ref', table: 'investigation_questions', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'challenge_ref', table: 'investigation_challenges', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'source_revision_id', table: 'case_revisions', on_delete: 'NO ACTION'
+      }),
+      expect.objectContaining({
+        from: 'resulting_revision_id', table: 'case_revisions', on_delete: 'NO ACTION'
+      })
+    ]));
+    const applicationIndexes = connection.sqlite
+      .prepare("pragma index_list('investigation_challenge_conflict_applications')")
+      .all() as Array<{ name: string; unique: number }>;
+    expect(applicationIndexes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: 'investigation_challenge_conflict_applications_challenge_unique',
+        unique: 1
+      }),
+      expect.objectContaining({
+        name: 'investigation_challenge_conflict_applications_result_revision_unique',
+        unique: 1
+      })
+    ]));
 
     const insertEstablishment = connection.sqlite.prepare(`
       insert into investigation_establishments (

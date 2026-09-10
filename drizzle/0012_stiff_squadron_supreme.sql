@@ -1,0 +1,52 @@
+CREATE TABLE `investigation_challenge_conflict_applications` (
+	`application_ref` text PRIMARY KEY NOT NULL,
+	`case_id` text NOT NULL,
+	`question_ref` text NOT NULL,
+	`challenge_ref` text NOT NULL,
+	`policy_identifier` text NOT NULL,
+	`policy_version` text NOT NULL,
+	`basis_format_version` text NOT NULL,
+	`basis_digest` text NOT NULL,
+	`reviewed_claim_refs_json` text NOT NULL,
+	`reviewed_assessment_refs_json` text NOT NULL,
+	`complete_evidence_refs_json` text NOT NULL,
+	`applied_claim_refs_json` text NOT NULL,
+	`applied_assessment_refs_json` text NOT NULL,
+	`applied_evidence_refs_json` text NOT NULL,
+	`source_revision_id` text NOT NULL,
+	`source_case_version` integer NOT NULL,
+	`source_material_revision` integer NOT NULL,
+	`resulting_revision_id` text NOT NULL,
+	`resulting_case_version` integer NOT NULL,
+	`resulting_material_revision` integer NOT NULL,
+	`actor_kind` text NOT NULL,
+	`actor_identifier` text NOT NULL,
+	`rationale` text NOT NULL,
+	`created_at` text NOT NULL,
+	`demo` integer NOT NULL,
+	FOREIGN KEY (`case_id`) REFERENCES `cases`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`question_ref`) REFERENCES `investigation_questions`(`question_ref`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`challenge_ref`) REFERENCES `investigation_challenges`(`challenge_ref`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`source_revision_id`) REFERENCES `case_revisions`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`resulting_revision_id`) REFERENCES `case_revisions`(`id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "investigation_challenge_conflict_applications_source_case_version_check" CHECK("investigation_challenge_conflict_applications"."source_case_version" > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_source_material_revision_check" CHECK("investigation_challenge_conflict_applications"."source_material_revision" > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_resulting_case_version_check" CHECK("investigation_challenge_conflict_applications"."resulting_case_version" > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_resulting_material_revision_check" CHECK("investigation_challenge_conflict_applications"."resulting_material_revision" > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_case_version_step_check" CHECK("investigation_challenge_conflict_applications"."resulting_case_version" = "investigation_challenge_conflict_applications"."source_case_version" + 1),
+	CONSTRAINT "investigation_challenge_conflict_applications_material_revision_step_check" CHECK("investigation_challenge_conflict_applications"."resulting_material_revision" = "investigation_challenge_conflict_applications"."source_material_revision" + 1),
+	CONSTRAINT "investigation_challenge_conflict_applications_actor_kind_check" CHECK("investigation_challenge_conflict_applications"."actor_kind" = 'HUMAN'),
+	CONSTRAINT "investigation_challenge_conflict_applications_actor_identifier_check" CHECK(length(trim("investigation_challenge_conflict_applications"."actor_identifier")) > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_rationale_check" CHECK(length(trim("investigation_challenge_conflict_applications"."rationale")) > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_policy_identifier_check" CHECK(length(trim("investigation_challenge_conflict_applications"."policy_identifier")) > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_policy_version_check" CHECK(length(trim("investigation_challenge_conflict_applications"."policy_version")) > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_basis_format_version_check" CHECK(length(trim("investigation_challenge_conflict_applications"."basis_format_version")) > 0),
+	CONSTRAINT "investigation_challenge_conflict_applications_basis_digest_check" CHECK(length("investigation_challenge_conflict_applications"."basis_digest") = 71
+          and substr("investigation_challenge_conflict_applications"."basis_digest", 1, 7) = 'sha256:'
+          and substr("investigation_challenge_conflict_applications"."basis_digest", 8) not glob '*[^0-9a-f]*'),
+	CONSTRAINT "investigation_challenge_conflict_applications_demo_check" CHECK("investigation_challenge_conflict_applications"."demo" = 1)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `investigation_challenge_conflict_applications_challenge_unique` ON `investigation_challenge_conflict_applications` (`challenge_ref`);--> statement-breakpoint
+CREATE UNIQUE INDEX `investigation_challenge_conflict_applications_result_revision_unique` ON `investigation_challenge_conflict_applications` (`resulting_revision_id`);--> statement-breakpoint
+CREATE INDEX `investigation_challenge_conflict_applications_case_question_created_idx` ON `investigation_challenge_conflict_applications` (`case_id`,`question_ref`,`created_at`);
