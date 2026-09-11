@@ -775,7 +775,7 @@ describe('resolved-question Challenges', () => {
     ), { mode: 'demo' }), 'CHALLENGE_ALREADY_EXISTS');
   });
 
-  it('allows one later Challenge after a new authoritative Question-answer cycle', () => {
+  it('rejects a later known answer without positive application provenance', () => {
     const { snapshot, gap } = confirmGapCase();
     const firstAnswer = resolveGap(snapshot);
     recordEvidence(snapshot.caseId, gap.id, 'evidence:late:cycle-one', lateAt);
@@ -793,21 +793,17 @@ describe('resolved-question Challenges', () => {
       'evidence:late:cycle-two',
       '2026-09-09T19:00:00.000Z'
     );
-    const second = openInvestigationChallenge(connection.db, challengeInput(
+    expectChallengeError(() => openInvestigationChallenge(connection.db, challengeInput(
       secondAnswer,
       gap.id,
       ['evidence:late:cycle-two']
-    ), { mode: 'demo' }, new Date('2026-09-09T20:00:00.000Z')).challenge;
+    ), { mode: 'demo' }, new Date('2026-09-09T20:00:00.000Z')), 'ANSWER_CONTINUITY_UNPROVEN');
 
-    expect(second.challengedMaterialRevision).toBe(secondAnswer.materialRevision);
-    expect(second.challengedMaterialRevision).not.toBe(first.challengedMaterialRevision);
     expect(listInvestigationChallenges(connection.db, snapshot.caseId, gap.id)
       .map((challenge) => challenge.challengeRef))
-      .toEqual([first.challengeRef, second.challengeRef]);
+      .toEqual([first.challengeRef]);
     expect(readInvestigationChallengeContext(connection.db, snapshot.caseId, first.challengeRef))
       .toMatchObject({ contextKind: 'HISTORICAL' });
-    expect(readInvestigationChallengeContext(connection.db, snapshot.caseId, second.challengeRef))
-      .toMatchObject({ contextKind: 'CURRENT' });
   });
 
   it('becomes historical only when authoritative answer context changes materially', () => {

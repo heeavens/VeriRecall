@@ -412,18 +412,24 @@ function validateClaimBasis(
   database: RecallDatabase,
   input: PreparedAssessmentInput,
   subjectRef: string,
-  partition: string | null
+  partition: string | null,
+  challengeAuthorization: CurrentInvestigationChallengeForWrite | null
 ): ClaimRow[] {
   const claimRefs = [
     ...(input.targetClaimRef === null ? [] : [input.targetClaimRef]),
     ...input.relatedClaimRefs
   ];
   const claims = claimRefs.map((claimRef) => loadClaim(database, claimRef, input, subjectRef));
+  const inheritedClaimRefs = challengeAuthorization === null
+    ? new Set<string>()
+    : new Set(challengeAuthorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+      ? challengeAuthorization.authoritativeBaseline.baselineClaimRefs
+      : challengeAuthorization.authoritativeBaseline.resultBaselineClaimRefs);
   if (claims.some((claim) => {
     const claimPartition = getInvestigationClaimChallengeRef(database, claim.claimRef);
     return partition === null
       ? claimPartition !== null
-      : claimPartition !== null && claimPartition !== partition;
+      : claimPartition !== partition && !inheritedClaimRefs.has(claim.claimRef);
   })) {
     throw new InvestigationAssessmentError(
       'CLAIM_CHALLENGE_MISMATCH',
@@ -532,7 +538,7 @@ function validateChallengeEvidenceBasis(
       'Challenge assessments cannot use Evidence exclusively associated with another Challenge.'
     );
   }
-  if (!relevance.includes('CHALLENGE_RELEVANT')) {
+  if (!relevance.includes('CURRENT_CHALLENGE')) {
     throw new InvestigationAssessmentError(
       'CHALLENGE_EVIDENCE_REQUIRED',
       'A Challenge assessment requires at least one Evidence item relevant to that Challenge.'
@@ -707,7 +713,13 @@ export function recordInvestigationAssessment(
     if (challengeAuthorization !== null) {
       validateChallengeEvidenceBasis(transaction, evidence, challengeAuthorization);
     }
-    validateClaimBasis(transaction, prepared, current.productId, challengeRef);
+    validateClaimBasis(
+      transaction,
+      prepared,
+      current.productId,
+      challengeRef,
+      challengeAuthorization
+    );
     validateSupersession(transaction, prepared, challengeRef);
 
     const caseRecord = transaction

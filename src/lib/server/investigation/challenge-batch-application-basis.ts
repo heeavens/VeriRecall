@@ -14,11 +14,18 @@ import {
   getInvestigationEstablishmentChallengeRef
 } from './challenge-artifacts';
 import {
-  demoChallengeBatchEstablishmentPolicy,
   evaluateCurrentInvestigationChallengeBatchEstablishmentInTransaction,
   type CurrentChallengeBatchEstablishmentBlockerCode,
   type DemoChallengeBatchEstablishmentBasis
 } from './challenge-batch-establishments';
+import { challengeBatchEstablishmentPolicyForBaseline } from './challenge-batch-establishment-policy';
+import {
+  challengeBatchApplicationBasisFormatVersion,
+  challengeBatchApplicationPolicy,
+  inheritedChallengeBatchApplicationBasisFormatVersion,
+  type ChallengeBatchApplicationBasisFormatVersion
+} from './challenge-batch-application-policy';
+import type { AppliedChallengeBatchBaseline } from './authoritative-challenge-baseline';
 import {
   canonicalChallengeAnalysisState,
   type ChallengeConflictApplicationAnalysisState
@@ -34,12 +41,11 @@ import { listInvestigationEvidence } from './evidence-registry';
 import type { InvestigationEstablishment } from './establishments';
 import { getInvestigationQuestion } from './questions';
 
-export const challengeBatchApplicationBasisFormatVersion =
-  'challenge-batch-application-basis/v1' as const;
-export const challengeBatchApplicationPolicy = {
-  identifier: 'demo-challenge-batch-human-application-policy',
-  version: 'v1'
-} as const;
+export {
+  challengeBatchApplicationBasisFormatVersion,
+  challengeBatchApplicationPolicy,
+  inheritedChallengeBatchApplicationBasisFormatVersion
+} from './challenge-batch-application-policy';
 
 export const challengeBatchApplicationBlockerCodes = [
   'QUESTION_OWNERSHIP_MISMATCH',
@@ -65,7 +71,7 @@ type Issue = InvestigationOutcome['gaps'][number];
 type Stage = NonNullable<ReturnType<typeof readCaseSnapshot>>['stage'];
 
 export interface ChallengeBatchApplicationBasis {
-  basisFormatVersion: typeof challengeBatchApplicationBasisFormatVersion;
+  basisFormatVersion: ChallengeBatchApplicationBasisFormatVersion;
   applicationPolicyIdentifier: typeof challengeBatchApplicationPolicy.identifier;
   applicationPolicyVersion: typeof challengeBatchApplicationPolicy.version;
   caseId: string;
@@ -92,6 +98,7 @@ export interface ChallengeBatchApplicationBasis {
   analysisContext: ChallengeEffectiveInvestigationAnalysis['analysisContext'] | null;
   projectionBasis: ChallengeEffectiveInvestigationAnalysis['projectionBasis'] | null;
   analysisState: ChallengeConflictApplicationAnalysisState | null;
+  authoritativeBaseline?: AppliedChallengeBatchBaseline;
   firstCyclePartitions: {
     claims: Array<{ claimRef: string; partition: 'BASELINE' | 'SELECTED_CHALLENGE' }>;
     assessments: Array<{
@@ -435,6 +442,10 @@ export function readChallengeBatchApplicationBasisInTransaction(
   if (positiveForChallenge !== null || positiveForEstablishment !== null) {
     blockers.add('POSITIVE_APPLICATION_EXISTS');
   }
+  const authoritativeBaseline = projection?.authoritativeBaseline ?? null;
+  const expectedEstablishmentPolicy = authoritativeBaseline
+    ? challengeBatchEstablishmentPolicyForBaseline(authoritativeBaseline.kind)
+    : null;
   if (
     !snapshot.demo ||
     !question?.demo ||
@@ -444,10 +455,11 @@ export function readChallengeBatchApplicationBasisInTransaction(
     claims.some((claim) => !claim.demo) ||
     assessments.some((assessment) => !assessment.demo) ||
     evidence.some((item) => !item.demo) ||
-    establishment.policyIdentifier !== demoChallengeBatchEstablishmentPolicy.policyIdentifier ||
-    establishment.policyVersion !== demoChallengeBatchEstablishmentPolicy.policyVersion ||
-    establishment.evaluatorKind !== demoChallengeBatchEstablishmentPolicy.evaluatorKind ||
-    establishment.evaluatorIdentifier !== demoChallengeBatchEstablishmentPolicy.evaluatorIdentifier
+    !expectedEstablishmentPolicy ||
+    establishment.policyIdentifier !== expectedEstablishmentPolicy.policyIdentifier ||
+    establishment.policyVersion !== expectedEstablishmentPolicy.policyVersion ||
+    establishment.evaluatorKind !== expectedEstablishmentPolicy.evaluatorKind ||
+    establishment.evaluatorIdentifier !== expectedEstablishmentPolicy.evaluatorIdentifier
   ) {
     blockers.add('NOT_DEMO');
   }
@@ -471,9 +483,12 @@ export function readChallengeBatchApplicationBasisInTransaction(
     : null;
   const includedClaimRefs = new Set(projection?.projectionBasis.claimRefs ?? []);
   const includedAssessmentRefs = new Set(projection?.projectionBasis.assessmentRefs ?? []);
+  const basisFormatVersion = authoritativeBaseline?.kind === 'APPLIED_CHALLENGE_BATCH'
+    ? inheritedChallengeBatchApplicationBasisFormatVersion
+    : challengeBatchApplicationBasisFormatVersion;
 
   const basis: BasisWithoutDigest = {
-    basisFormatVersion: challengeBatchApplicationBasisFormatVersion,
+    basisFormatVersion,
     applicationPolicyIdentifier: challengeBatchApplicationPolicy.identifier,
     applicationPolicyVersion: challengeBatchApplicationPolicy.version,
     caseId,
@@ -513,6 +528,9 @@ export function readChallengeBatchApplicationBasisInTransaction(
       referencedEvidenceRefs: sortedUnique(projection.projectionBasis.referencedEvidenceRefs)
     } : null,
     analysisState: projection ? canonicalChallengeAnalysisState(projection) : null,
+    ...(authoritativeBaseline?.kind === 'APPLIED_CHALLENGE_BATCH'
+      ? { authoritativeBaseline: structuredClone(authoritativeBaseline) }
+      : {}),
     firstCyclePartitions: {
       claims: claims.filter((claim) => includedClaimRefs.has(claim.claimRef)).map((claim) => ({
         claimRef: claim.claimRef,

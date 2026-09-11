@@ -11,6 +11,11 @@ import {
   readCaseSnapshot,
   type LifecycleContext
 } from '../workflow/case-lifecycle';
+import {
+  AuthoritativeChallengeBaselineError,
+  resolveAuthoritativeChallengeBaselineInTransaction,
+  type AuthoritativeChallengeBaseline
+} from './authoritative-challenge-baseline';
 import { demoHumanAssessorIdentifier } from './demo-context';
 import {
   listInvestigationEvidence,
@@ -101,6 +106,7 @@ export type InvestigationChallengeErrorCode =
   | 'QUESTION_NOT_ANSWERED'
   | 'ANSWER_CONTINUITY_UNPROVEN'
   | 'ANSWER_CONTINUITY_AMBIGUOUS'
+  | 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
   | 'STALE_CASE_VERSION'
   | 'STALE_MATERIAL_REVISION'
   | 'LATE_EVIDENCE_REQUIRED'
@@ -147,6 +153,7 @@ export interface CurrentInvestigationChallengeForWrite {
   question: InvestigationQuestion;
   challenge: InvestigationChallenge;
   challengedRevision: AnswerRevision;
+  authoritativeBaseline: AuthoritativeChallengeBaseline;
 }
 
 export type CurrentInvestigationChallengeForRead = CurrentInvestigationChallengeForWrite;
@@ -348,8 +355,20 @@ function resolveAnsweredQuestionRevision(
     (revision) => revision.materialRevision === currentMaterialRevision
   );
   if (currentRows.length === 0) {
+    const attemptedPositiveAnchor = database.select({
+      applicationRef: schema.investigationChallengeBatchApplications.applicationRef
+    }).from(schema.investigationChallengeBatchApplications).where(and(
+      eq(schema.investigationChallengeBatchApplications.caseId, current.caseId),
+      eq(schema.investigationChallengeBatchApplications.questionRef, question.questionRef),
+      eq(
+        schema.investigationChallengeBatchApplications.resultingMaterialRevision,
+        currentMaterialRevision
+      )
+    )).get();
     throw new InvestigationChallengeError(
-      'ANSWER_CONTINUITY_UNPROVEN',
+      attemptedPositiveAnchor
+        ? 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+        : 'ANSWER_CONTINUITY_UNPROVEN',
       'Authoritative history does not contain the current material revision.'
     );
   }
@@ -361,41 +380,6 @@ function resolveAnsweredQuestionRevision(
     );
   }
   const answer = currentRows[0];
-
-  const priorRows = history.filter(
-    (revision) => revision.caseVersion < answer.caseVersion &&
-      revision.materialRevision !== null &&
-      revision.materialRevision !== currentMaterialRevision
-  );
-  const predecessor = priorRows.at(-1);
-  if (!predecessor || predecessor.materialRevision === null) {
-    throw new InvestigationChallengeError(
-      'ANSWER_CONTINUITY_UNPROVEN',
-      'The known batch answer has no preceding authoritative material Question state.'
-    );
-  }
-  const predecessorRows = priorRows.filter(
-    (revision) => revision.materialRevision === predecessor.materialRevision
-  );
-  validateMaterialStateConsistency(predecessorRows, predecessor.snapshot);
-
-  const candidateQuestions = predecessor.snapshot.investigation?.gaps.filter((issue) =>
-    issue.code === 'BATCH_MISSING' && exactRefs(issue.subjectRefs, [question.subjectRef])
-  ) ?? [];
-  if (candidateQuestions.length !== 1) {
-    throw new InvestigationChallengeError(
-      candidateQuestions.length > 1
-        ? 'ANSWER_CONTINUITY_AMBIGUOUS'
-        : 'ANSWER_CONTINUITY_UNPROVEN',
-      'The preceding material state does not identify one authoritative batch Question.'
-    );
-  }
-  if (candidateQuestions[0].id !== question.questionRef) {
-    throw new InvestigationChallengeError(
-      'ANSWER_CONTINUITY_UNPROVEN',
-      'The current batch answer follows a different factual Question.'
-    );
-  }
 
   const rawAnswerRows = database
     .select({ id: schema.caseRevisions.id })
@@ -449,6 +433,7 @@ interface DerivedChallengeContext {
   snapshot: CaseSnapshot | null;
   question: InvestigationQuestion | null;
   challengedRevision: AnswerRevision | null;
+  authoritativeBaseline: AuthoritativeChallengeBaseline | null;
 }
 
 function deriveChallengeContext(
@@ -469,7 +454,8 @@ function deriveChallengeContext(
       },
       snapshot: null,
       question: null,
-      challengedRevision: null
+      challengedRevision: null,
+      authoritativeBaseline: null
     };
   }
 
@@ -488,6 +474,7 @@ function deriveChallengeContext(
   }
 
   let challengedRevision: AnswerRevision | null = null;
+  let authoritativeBaseline: AuthoritativeChallengeBaseline | null = null;
   if (question && reasons.size === 0) {
     try {
       const resolved = resolveAnsweredQuestionRevision(database, question, current);
@@ -495,8 +482,27 @@ function deriveChallengeContext(
         reasons.add('ANSWER_CONTEXT_CHANGED');
       } else {
         challengedRevision = resolved;
+        authoritativeBaseline = resolveAuthoritativeChallengeBaselineInTransaction(database, {
+          caseId: challenge.caseId,
+          questionRef: challenge.questionRef,
+          challengeRef: challenge.challengeRef,
+          challengedRevisionId: challenge.challengedRevisionId,
+          challengedMaterialRevision: challenge.challengedMaterialRevision,
+          openedCaseVersion: challenge.openedCaseVersion,
+          currentCaseVersion: current.caseVersion
+        });
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof AuthoritativeChallengeBaselineError) {
+        throw new InvestigationChallengeError(
+          error.code === 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+            ? 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+            : error.code === 'CHALLENGE_BASELINE_AMBIGUOUS'
+              ? 'ANSWER_CONTINUITY_AMBIGUOUS'
+              : 'ANSWER_CONTINUITY_UNPROVEN',
+          error.message
+        );
+      }
       reasons.add('ANSWER_CONTEXT_CHANGED');
     }
   }
@@ -511,7 +517,8 @@ function deriveChallengeContext(
     },
     snapshot: current,
     question,
-    challengedRevision
+    challengedRevision,
+    authoritativeBaseline
   };
 }
 
@@ -572,7 +579,11 @@ export function resolveCurrentInvestigationChallengeForRead(
       'The selected Challenge does not match the permanent Question or current product.'
     );
   }
-  if (derived.context.contextKind !== 'CURRENT' || !derived.challengedRevision) {
+  if (
+    derived.context.contextKind !== 'CURRENT' ||
+    !derived.challengedRevision ||
+    !derived.authoritativeBaseline
+  ) {
     throw new InvestigationChallengeError(
       'CHALLENGE_NOT_CURRENT',
       'The selected Challenge is no longer current for the authoritative material answer.'
@@ -582,7 +593,8 @@ export function resolveCurrentInvestigationChallengeForRead(
     snapshot: derived.snapshot,
     question: derived.question,
     challenge,
-    challengedRevision: derived.challengedRevision
+    challengedRevision: derived.challengedRevision,
+    authoritativeBaseline: derived.authoritativeBaseline
   };
 }
 
@@ -654,7 +666,8 @@ export function resolveCurrentInvestigationChallengeForWrite(
   if (
     derived.context.contextKind !== 'CURRENT' ||
     !derived.question ||
-    !derived.challengedRevision
+    !derived.challengedRevision ||
+    !derived.authoritativeBaseline
   ) {
     throw new InvestigationChallengeError(
       'CHALLENGE_NOT_CURRENT',
@@ -665,7 +678,8 @@ export function resolveCurrentInvestigationChallengeForWrite(
     snapshot: derived.snapshot,
     question: derived.question,
     challenge,
-    challengedRevision: derived.challengedRevision
+    challengedRevision: derived.challengedRevision,
+    authoritativeBaseline: derived.authoritativeBaseline
   };
 }
 
@@ -754,6 +768,29 @@ export function openInvestigationChallenge(
         'CHALLENGE_ALREADY_EXISTS',
         'This authoritative Question answer already has a re-review Challenge.'
       );
+    }
+    try {
+      resolveAuthoritativeChallengeBaselineInTransaction(transaction, {
+        caseId: parsed.caseId,
+        questionRef: parsed.questionRef,
+        challengeRef: parsed.challengeRef,
+        challengedRevisionId: challengedRevision.id,
+        challengedMaterialRevision: challengedRevision.materialRevision,
+        openedCaseVersion: current.caseVersion,
+        currentCaseVersion: current.caseVersion
+      });
+    } catch (error) {
+      if (error instanceof AuthoritativeChallengeBaselineError) {
+        throw new InvestigationChallengeError(
+          error.code === 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+            ? 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+            : error.code === 'CHALLENGE_BASELINE_AMBIGUOUS'
+              ? 'ANSWER_CONTINUITY_AMBIGUOUS'
+              : 'ANSWER_CONTINUITY_UNPROVEN',
+          error.message
+        );
+      }
+      throw error;
     }
 
     const evidence = listInvestigationEvidence(transaction, parsed.caseId, parsed.questionRef);

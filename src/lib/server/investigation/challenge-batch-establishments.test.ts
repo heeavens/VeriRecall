@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -29,6 +29,7 @@ import {
 } from './assessments';
 import {
   demoChallengeBatchEstablishmentPolicy,
+  demoInheritedChallengeBatchEstablishmentPolicy,
   evaluateCurrentInvestigationChallengeBatchEstablishment,
   evaluateCurrentInvestigationChallengeBatchEstablishmentInTransaction,
   evaluateDemoChallengeBatchEstablishmentPolicy,
@@ -39,8 +40,13 @@ import {
 import {
   challengeBatchApplicationBasisFormatVersion,
   challengeBatchApplicationPolicy,
+  inheritedChallengeBatchApplicationBasisFormatVersion,
   readChallengeBatchApplicationBasis
 } from './challenge-batch-application-basis';
+import {
+  resolveAuthoritativeChallengeBaseline,
+  type AppliedChallengeBatchBaseline
+} from './authoritative-challenge-baseline';
 import {
   applyInvestigationChallengeBatch,
   getInvestigationChallengeBatchApplication,
@@ -50,12 +56,16 @@ import {
   getInvestigationAssessmentChallengeRef,
   getInvestigationClaimChallengeRef
 } from './challenge-artifacts';
-import { openInvestigationChallenge } from './challenges';
+import { getInvestigationChallenge, openInvestigationChallenge } from './challenges';
 import {
   applyInvestigationChallengeConflict,
   InvestigationChallengeConflictApplicationError
 } from './challenge-conflict-applications';
-import { readChallengeConflictApplicationBasis } from './challenge-conflict-basis';
+import {
+  inheritedChallengeConflictApplicationBasisFormatVersion,
+  inheritedChallengeConflictApplicationPolicy,
+  readChallengeConflictApplicationBasis
+} from './challenge-conflict-basis';
 import { recordInvestigationClaim, type InvestigationClaim } from './claims';
 import { readChallengeEffectiveInvestigationAnalysis } from './effective-analysis';
 import {
@@ -588,6 +598,31 @@ function closePositiveChallengeFixture(current: CaseSnapshot): CaseSnapshot {
     createdAt: closed.updatedAt
   }).run();
   return closed;
+}
+
+function advanceOperationally(snapshot: CaseSnapshot): CaseSnapshot {
+  const at = nextDate().toISOString();
+  const advanced = caseSnapshotSchema.parse({
+    ...snapshot,
+    caseVersion: snapshot.caseVersion + 1,
+    updatedAt: at
+  });
+  connection.db.update(schema.caseLifecycle).set({
+    caseVersion: advanced.caseVersion,
+    materialRevision: advanced.materialRevision,
+    snapshotJson: JSON.stringify(advanced),
+    updatedAt: at
+  }).where(eq(schema.caseLifecycle.caseId, advanced.caseId)).run();
+  connection.db.insert(schema.caseRevisions).values({
+    id: randomUUID(),
+    caseId: advanced.caseId,
+    caseVersion: advanced.caseVersion,
+    materialRevision: advanced.materialRevision,
+    snapshotJson: JSON.stringify(advanced),
+    actorId: 'test_fixture',
+    createdAt: at
+  }).run();
+  return advanced;
 }
 
 function resetTestDatabase(): void {
@@ -1279,6 +1314,121 @@ function challengeBatchApplicationInput(
   };
 }
 
+function allQuestionEvidenceRefs(snapshot: CaseSnapshot, questionRef: string): string[] {
+  return listInvestigationEvidence(connection.db, snapshot.caseId, questionRef)
+    .map((evidence) => evidence.evidenceRef)
+    .sort();
+}
+
+function openNextPositiveChallenge(
+  prior: BaseChallengeSeed,
+  knownSnapshot: CaseSnapshot,
+  baselineClaim: InvestigationClaim,
+  evidenceRef: string,
+  lot: string
+): BaseChallengeSeed {
+  const late = recordEvidence(
+    knownSnapshot,
+    prior.questionRef,
+    evidenceRef,
+    'REGULATOR',
+    lot,
+    { at: nextDate() }
+  );
+  const challenge = openInvestigationChallenge(connection.db, {
+    challengeRef: randomUUID(),
+    caseId: knownSnapshot.caseId,
+    questionRef: prior.questionRef,
+    expectedCaseVersion: knownSnapshot.caseVersion,
+    expectedMaterialRevision: knownSnapshot.materialRevision!,
+    triggerEvidenceRefs: [late.evidenceRef],
+    rationale: 'Later Evidence requires another provenance-backed positive cycle.',
+    demo: true
+  }, context, nextDate()).challenge;
+  return {
+    ...prior,
+    knownSnapshot,
+    late,
+    baselineClaim,
+    challengeRef: challenge.challengeRef
+  };
+}
+
+function assertAppliedBaseline(
+  seed: BaseChallengeSeed,
+  applicationRef: string,
+  expectedClaimRefs: string[],
+  expectedAssessmentRefs: string[],
+  expectedEvidenceRefs: string[]
+): AppliedChallengeBatchBaseline {
+  const challenge = getInvestigationChallenge(
+    connection.db,
+    seed.knownSnapshot.caseId,
+    seed.challengeRef
+  );
+  if (!challenge) throw new Error('Expected the later Challenge anchor.');
+  const baseline = resolveAuthoritativeChallengeBaseline(connection.db, {
+    caseId: seed.knownSnapshot.caseId,
+    questionRef: seed.questionRef,
+    challengeRef: seed.challengeRef,
+    challengedRevisionId: challenge.challengedRevisionId,
+    challengedMaterialRevision: challenge.challengedMaterialRevision,
+    openedCaseVersion: challenge.openedCaseVersion,
+    currentCaseVersion: seed.knownSnapshot.caseVersion
+  });
+  expect(baseline).toMatchObject({
+    kind: 'APPLIED_CHALLENGE_BATCH',
+    applicationRef,
+    resultBaselineClaimRefs: expectedClaimRefs,
+    resultBaselineAssessmentRefs: expectedAssessmentRefs,
+    resultBaselineEvidenceRefs: expectedEvidenceRefs
+  });
+  return baseline as AppliedChallengeBatchBaseline;
+}
+
+function applyFirstReplacementForInheritance() {
+  const seed = seedPositiveChallenge({ targetLot: 'MFT25' });
+  recordChallengeAssessment(seed, {
+    verdict: 'REJECTED',
+    targetClaimRef: seed.baselineClaim.claimRef,
+    assessorKind: 'RULE'
+  });
+  const establishment = establishChallengeBatch(seed).establishment;
+  const applicationInput = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+  const applied = applyInvestigationChallengeBatch(
+    connection.db,
+    applicationInput.input,
+    context,
+    nextDate()
+  );
+  return { seed, establishment, applicationInput, applied };
+}
+
+function expectLaterChallengeBaselineFailure(
+  seed: ReturnType<typeof seedPositiveChallenge>,
+  snapshot: CaseSnapshot,
+  code: string
+): void {
+  const late = recordEvidence(
+    snapshot,
+    seed.questionRef,
+    `evidence:challenge-establishment:corruption:${randomUUID()}`,
+    'REGULATOR',
+    'MFT26',
+    { at: nextDate() }
+  );
+  expect(() => openInvestigationChallenge(connection.db, {
+    challengeRef: randomUUID(),
+    caseId: snapshot.caseId,
+    questionRef: seed.questionRef,
+    expectedCaseVersion: snapshot.caseVersion,
+    expectedMaterialRevision: snapshot.materialRevision!,
+    triggerEvidenceRefs: [late.evidenceRef],
+    rationale: 'Corrupt positive provenance must fail closed.',
+    demo: true
+  }, context, nextDate())).toThrow(expect.objectContaining({ code }));
+}
+
 function expectChallengeBatchApplicationError(
   action: () => unknown,
   code: InvestigationChallengeBatchApplicationError['code']
@@ -1295,6 +1445,16 @@ function expectChallengeBatchApplicationError(
 describe('positive Challenge batch application', () => {
   it('derives a stable read-only basis and exposes the exact 16A classification', () => {
     const seed = seedPositiveChallenge();
+    const initialProjection = readChallengeEffectiveInvestigationAnalysis(
+      connection.db,
+      seed.knownSnapshot.caseId,
+      seed.questionRef,
+      seed.challengeRef
+    );
+    expect(initialProjection.authoritativeBaseline).toMatchObject({
+      kind: 'INITIAL_UNASSOCIATED',
+      baselineClaimRefs: [seed.baselineClaim.claimRef]
+    });
     const { establishment } = establishChallengeBatch(seed);
     const before = protectedState(seed.knownSnapshot.caseId);
     const first = readChallengeBatchApplicationBasis(
@@ -1496,6 +1656,503 @@ describe('positive Challenge batch application', () => {
     expect(applied.application.appliedAssessmentRefs).toEqual(basis.appliedAssessmentRefs);
     expect(applied.application.resultBaselineAssessmentRefs)
       .toEqual([seed.support!.assessmentRef]);
+  });
+
+  it('supports provenance-safe CH2 and CH3 positive replacement cycles', () => {
+    const first = seedPositiveChallenge({ targetLot: 'MFT25' });
+    const firstRejection = recordChallengeAssessment(first, {
+      verdict: 'REJECTED',
+      targetClaimRef: first.baselineClaim.claimRef,
+      assessorKind: 'RULE'
+    });
+    const firstEstablishment = establishChallengeBatch(first);
+    const firstApplication = challengeBatchApplicationInput(
+      first,
+      firstEstablishment.establishment.establishmentRef
+    );
+    const appliedFirst = applyInvestigationChallengeBatch(
+      connection.db,
+      firstApplication.input,
+      context,
+      nextDate()
+    );
+    expect(firstEstablishment.establishment.policyVersion).toBe('v1');
+    expect(firstApplication.basis.basisFormatVersion)
+      .toBe(challengeBatchApplicationBasisFormatVersion);
+
+    const operationalFirst = advanceOperationally(appliedFirst.snapshot);
+    const secondBase = openNextPositiveChallenge(
+      first,
+      operationalFirst,
+      first.targetClaim,
+      'evidence:challenge-establishment:cycle-two',
+      'MFT26'
+    );
+    const firstBaseline = assertAppliedBaseline(
+      secondBase,
+      appliedFirst.application.applicationRef,
+      [first.targetClaim.claimRef],
+      [first.support!.assessmentRef],
+      appliedFirst.application.resultBaselineEvidenceRefs
+    );
+    expect(firstBaseline.resultingRevisionId)
+      .toBe(appliedFirst.application.resultingRevisionId);
+    expect(getInvestigationChallenge(
+      connection.db,
+      secondBase.knownSnapshot.caseId,
+      secondBase.challengeRef
+    )?.challengedRevisionId).toBe(appliedFirst.application.resultingRevisionId);
+
+    expect(() => recordChallengeClaim(secondBase, 'MFT26', {
+      supersedesClaimRef: first.targetClaim.claimRef
+    })).toThrow(expect.objectContaining({ code: 'SUPERSESSION_MISMATCH' }));
+    expect(() => recordChallengeAssessment(secondBase, {
+      verdict: 'REJECTED',
+      targetClaimRef: first.baselineClaim.claimRef,
+      evidenceRefs: allQuestionEvidenceRefs(secondBase.knownSnapshot, secondBase.questionRef)
+    })).toThrow(expect.objectContaining({ code: 'CLAIM_CHALLENGE_MISMATCH' }));
+
+    const secondRequest = requestInvestigationEvidence(connection.db, {
+      requestId: randomUUID(),
+      caseId: secondBase.knownSnapshot.caseId,
+      questionRef: secondBase.questionRef,
+      challengeRef: secondBase.challengeRef,
+      expectedCaseVersion: secondBase.knownSnapshot.caseVersion,
+      expectedMaterialRevision: secondBase.knownSnapshot.materialRevision!,
+      requestedEvidence: ['supplier_invoice'],
+      demo: true
+    }, context, nextDate()).request;
+    const secondRequestEvidence = recordEvidence(
+      secondBase.knownSnapshot,
+      secondBase.questionRef,
+      'evidence:challenge-establishment:cycle-two-request',
+      'EXTERNAL_PARTY',
+      'MFT26',
+      { requestId: secondRequest.id, at: nextDate() }
+    );
+    const secondClaim = recordChallengeClaim(secondBase, 'MFT26', {
+      evidenceRefs: [secondBase.internal.evidenceRef, secondRequestEvidence.evidenceRef]
+    });
+    const secondEvidenceRefs = allQuestionEvidenceRefs(
+      secondBase.knownSnapshot,
+      secondBase.questionRef
+    );
+    const secondSupport = recordChallengeAssessment(secondBase, {
+      verdict: 'SUPPORTED',
+      targetClaimRef: secondClaim.claimRef,
+      evidenceRefs: secondEvidenceRefs
+    });
+    expect(() => recordChallengeAssessment(secondBase, {
+      verdict: 'SUPPORTED',
+      targetClaimRef: secondClaim.claimRef,
+      evidenceRefs: secondEvidenceRefs,
+      supersedesAssessmentRef: first.support!.assessmentRef
+    })).toThrow(expect.objectContaining({ code: 'SUPERSESSION_MISMATCH' }));
+    const secondRejection = recordChallengeAssessment(secondBase, {
+      verdict: 'REJECTED',
+      targetClaimRef: first.targetClaim.claimRef,
+      evidenceRefs: secondEvidenceRefs,
+      assessorKind: 'RULE'
+    });
+    const second = {
+      ...secondBase,
+      targetClaim: secondClaim,
+      support: secondSupport
+    };
+    const secondProjection = readChallengeEffectiveInvestigationAnalysis(
+      connection.db,
+      second.knownSnapshot.caseId,
+      second.questionRef,
+      second.challengeRef
+    );
+    expect(secondProjection.authoritativeBaseline).toEqual(firstBaseline);
+    expect(secondProjection.analysis.activeClaims.map((claim) => claim.claimRef).sort())
+      .toEqual([first.targetClaim.claimRef, secondClaim.claimRef].sort());
+    expect(secondProjection.analysis.structuralAssessmentHeads
+      .map((assessment) => assessment.assessmentRef).sort())
+      .toEqual([first.support!.assessmentRef, secondSupport.assessmentRef,
+        secondRejection.assessmentRef].sort());
+    expect(secondProjection.analysis.staleAssessments.map(
+      ({ assessment }) => assessment.assessmentRef
+    )).toContain(first.support!.assessmentRef);
+    expect(secondProjection.analysis.materiallyCurrentAssessmentHeads.map(
+      (assessment) => assessment.assessmentRef
+    )).not.toContain(first.support!.assessmentRef);
+    expect(secondProjection.analysis.activeClaims.map((claim) => claim.claimRef))
+      .not.toContain(first.baselineClaim.claimRef);
+    expect(secondProjection.analysis.structuralAssessmentHeads.map(
+      (assessment) => assessment.assessmentRef
+    )).not.toContain(firstRejection.assessmentRef);
+
+    const secondEstablishment = establishChallengeBatch(second);
+    expect(secondEstablishment.establishment.policyIdentifier)
+      .toBe(demoInheritedChallengeBatchEstablishmentPolicy.policyIdentifier);
+    expect(secondEstablishment.establishment.policyVersion)
+      .toBe(demoInheritedChallengeBatchEstablishmentPolicy.policyVersion);
+    const secondApplication = challengeBatchApplicationInput(
+      second,
+      secondEstablishment.establishment.establishmentRef
+    );
+    expect(secondApplication.basis).toMatchObject({
+      basisFormatVersion: inheritedChallengeBatchApplicationBasisFormatVersion,
+      authoritativeBaseline: {
+        kind: 'APPLIED_CHALLENGE_BATCH',
+        applicationRef: appliedFirst.application.applicationRef
+      },
+      resultBaselineClaimRefs: [secondClaim.claimRef],
+      resultBaselineAssessmentRefs: [secondSupport.assessmentRef]
+    });
+    expect(secondApplication.basis.appliedAssessmentRefs).toEqual([
+      secondRejection.assessmentRef,
+      secondSupport.assessmentRef
+    ].sort());
+    expect(secondApplication.basis.resultBaselineClaimRefs)
+      .not.toContain(first.targetClaim.claimRef);
+    expect(secondApplication.basis.resultBaselineAssessmentRefs)
+      .not.toContain(secondRejection.assessmentRef);
+
+    const appliedSecond = applyInvestigationChallengeBatch(
+      connection.db,
+      secondApplication.input,
+      context,
+      nextDate()
+    );
+    expect(appliedSecond.snapshot.investigation!.scope).toMatchObject({
+      kind: 'BATCH_LOT',
+      lots: ['mft26'],
+      evidenceRefs: secondEvidenceRefs
+    });
+    expect(appliedSecond.snapshot.materialRevision)
+      .toBe(operationalFirst.materialRevision! + 1);
+
+    const thirdBase = openNextPositiveChallenge(
+      secondBase,
+      appliedSecond.snapshot,
+      secondClaim,
+      'evidence:challenge-establishment:cycle-three',
+      'MFT27'
+    );
+    const secondBaseline = assertAppliedBaseline(
+      thirdBase,
+      appliedSecond.application.applicationRef,
+      [secondClaim.claimRef],
+      [secondSupport.assessmentRef],
+      appliedSecond.application.resultBaselineEvidenceRefs
+    );
+    const thirdProjection = readChallengeEffectiveInvestigationAnalysis(
+      connection.db,
+      thirdBase.knownSnapshot.caseId,
+      thirdBase.questionRef,
+      thirdBase.challengeRef
+    );
+    expect(thirdProjection.authoritativeBaseline).toEqual(secondBaseline);
+    expect(thirdProjection.analysis.activeClaims.map((claim) => claim.claimRef))
+      .toEqual([secondClaim.claimRef]);
+    expect(thirdProjection.analysis.structuralAssessmentHeads.map(
+      (assessment) => assessment.assessmentRef
+    )).toEqual([secondSupport.assessmentRef]);
+    expect(thirdProjection.analysis.activeClaims.map((claim) => claim.claimRef))
+      .not.toContain(first.targetClaim.claimRef);
+    expect(thirdProjection.analysis.structuralAssessmentHeads.map(
+      (assessment) => assessment.assessmentRef
+    )).not.toContain(firstRejection.assessmentRef);
+
+    expect(recordInvestigationChallengeBatchEstablishment(connection.db, {
+      ...secondEstablishment.input,
+      expectedCaseVersion: 999,
+      expectedMaterialRevision: 999
+    }, context, nextDate())).toMatchObject({ replayed: true });
+    expect(applyInvestigationChallengeBatch(connection.db, {
+      ...secondApplication.input,
+      expectedCaseVersion: 999,
+      expectedMaterialRevision: 999,
+      expectedApplicationBasisDigest: `sha256:${'0'.repeat(64)}`
+    }, context, nextDate())).toEqual({ ...appliedSecond, replayed: true });
+  });
+
+  it('uses the inherited v2 conflict basis without enabling post-conflict continuation', () => {
+    const first = seedPositiveChallenge({ targetLot: 'MFT25' });
+    recordChallengeAssessment(first, {
+      verdict: 'REJECTED',
+      targetClaimRef: first.baselineClaim.claimRef,
+      assessorKind: 'RULE'
+    });
+    const firstEstablishment = establishChallengeBatch(first).establishment;
+    const firstApplication = challengeBatchApplicationInput(
+      first,
+      firstEstablishment.establishmentRef
+    );
+    const appliedFirst = applyInvestigationChallengeBatch(
+      connection.db,
+      firstApplication.input,
+      context,
+      nextDate()
+    );
+    const second = openNextPositiveChallenge(
+      first,
+      appliedFirst.snapshot,
+      first.targetClaim,
+      'evidence:challenge-conflict:cycle-two',
+      'MFT26'
+    );
+    const competing = recordChallengeClaim(second, 'MFT26');
+    const evidenceRefs = allQuestionEvidenceRefs(second.knownSnapshot, second.questionRef);
+    recordChallengeAssessment(second, {
+      verdict: 'CONTRADICTED',
+      targetClaimRef: null,
+      relatedClaimRefs: [first.targetClaim.claimRef, competing.claimRef],
+      evidenceRefs,
+      assessorKind: 'HUMAN'
+    });
+    const basis = readChallengeConflictApplicationBasis(
+      connection.db,
+      second.knownSnapshot.caseId,
+      second.questionRef,
+      second.challengeRef
+    );
+    expect(basis).toMatchObject({
+      basisFormatVersion: inheritedChallengeConflictApplicationBasisFormatVersion,
+      policyIdentifier: inheritedChallengeConflictApplicationPolicy.identifier,
+      policyVersion: inheritedChallengeConflictApplicationPolicy.version,
+      authoritativeBaseline: {
+        kind: 'APPLIED_CHALLENGE_BATCH',
+        applicationRef: appliedFirst.application.applicationRef
+      },
+      eligibility: { eligible: true }
+    });
+    const input = {
+      applicationRef: randomUUID(),
+      caseId: second.knownSnapshot.caseId,
+      questionRef: second.questionRef,
+      challengeRef: second.challengeRef,
+      expectedCaseVersion: second.knownSnapshot.caseVersion,
+      expectedMaterialRevision: second.knownSnapshot.materialRevision!,
+      expectedApplicationBasisDigest: basis.applicationBasisDigest,
+      rationale: 'Reviewed the inherited-cycle conflict basis.',
+      demo: true as const
+    };
+    const conflicted = applyInvestigationChallengeConflict(
+      connection.db,
+      input,
+      context,
+      nextDate()
+    );
+    expect(conflicted.application).toMatchObject({
+      basisFormatVersion: inheritedChallengeConflictApplicationBasisFormatVersion,
+      policyIdentifier: inheritedChallengeConflictApplicationPolicy.identifier,
+      policyVersion: inheritedChallengeConflictApplicationPolicy.version
+    });
+    expect(conflicted.snapshot.investigation).toMatchObject({
+      knowledgeStatus: 'CONFLICTED',
+      scope: { kind: 'UNRESOLVED', knowledgeStatus: 'CONFLICTED' }
+    });
+    expect(applyInvestigationChallengeConflict(connection.db, {
+      ...input,
+      expectedCaseVersion: 999,
+      expectedMaterialRevision: 999,
+      expectedApplicationBasisDigest: `sha256:${'0'.repeat(64)}`
+    }, context, nextDate())).toEqual({ ...conflicted, replayed: true });
+  });
+
+  it('does not fall back to the initial baseline when positive provenance is corrupt', () => {
+    const first = seedPositiveChallenge({ targetLot: 'MFT25' });
+    recordChallengeAssessment(first, {
+      verdict: 'REJECTED',
+      targetClaimRef: first.baselineClaim.claimRef,
+      assessorKind: 'RULE'
+    });
+    const establishment = establishChallengeBatch(first).establishment;
+    const applicationInput = challengeBatchApplicationInput(
+      first,
+      establishment.establishmentRef
+    );
+    const applied = applyInvestigationChallengeBatch(
+      connection.db,
+      applicationInput.input,
+      context,
+      nextDate()
+    );
+    connection.db.update(schema.investigationChallengeBatchApplications).set({
+      resultBaselineClaimRefsJson: JSON.stringify([randomUUID()])
+    }).where(eq(
+      schema.investigationChallengeBatchApplications.applicationRef,
+      applied.application.applicationRef
+    )).run();
+    const late = recordEvidence(
+      applied.snapshot,
+      first.questionRef,
+      'evidence:challenge-establishment:corrupt-positive',
+      'REGULATOR',
+      'MFT26',
+      { at: nextDate() }
+    );
+    expect(() => openInvestigationChallenge(connection.db, {
+      challengeRef: randomUUID(),
+      caseId: applied.snapshot.caseId,
+      questionRef: first.questionRef,
+      expectedCaseVersion: applied.snapshot.caseVersion,
+      expectedMaterialRevision: applied.snapshot.materialRevision!,
+      triggerEvidenceRefs: [late.evidenceRef],
+      rationale: 'Corrupt positive provenance must not fall back.',
+      demo: true
+    }, context, nextDate())).toThrow(expect.objectContaining({
+      code: 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+    }));
+  });
+
+  it('fails closed when operational revision continuity after a positive result has a gap', () => {
+    const first = seedPositiveChallenge({ targetLot: 'MFT25' });
+    recordChallengeAssessment(first, {
+      verdict: 'REJECTED',
+      targetClaimRef: first.baselineClaim.claimRef,
+      assessorKind: 'RULE'
+    });
+    const establishment = establishChallengeBatch(first).establishment;
+    const applicationInput = challengeBatchApplicationInput(
+      first,
+      establishment.establishmentRef
+    );
+    const applied = applyInvestigationChallengeBatch(
+      connection.db,
+      applicationInput.input,
+      context,
+      nextDate()
+    );
+    const firstOperational = advanceOperationally(applied.snapshot);
+    const secondOperational = advanceOperationally(firstOperational);
+    connection.db.delete(schema.caseRevisions).where(and(
+      eq(schema.caseRevisions.caseId, firstOperational.caseId),
+      eq(schema.caseRevisions.caseVersion, firstOperational.caseVersion)
+    )).run();
+    const late = recordEvidence(
+      secondOperational,
+      first.questionRef,
+      'evidence:challenge-establishment:revision-gap',
+      'REGULATOR',
+      'MFT26',
+      { at: nextDate() }
+    );
+    expect(() => openInvestigationChallenge(connection.db, {
+      challengeRef: randomUUID(),
+      caseId: secondOperational.caseId,
+      questionRef: first.questionRef,
+      expectedCaseVersion: secondOperational.caseVersion,
+      expectedMaterialRevision: secondOperational.materialRevision!,
+      triggerEvidenceRefs: [late.evidenceRef],
+      rationale: 'A missing operational revision must fail closed.',
+      demo: true
+    }, context, nextDate())).toThrow(expect.objectContaining({
+      code: 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+    }));
+  });
+
+  it('fails closed when an operational revision changes the authoritative InvestigationOutcome', () => {
+    const { applied } = applyFirstReplacementForInheritance();
+    const operational = advanceOperationally(applied.snapshot);
+    const divergent = caseSnapshotSchema.parse({
+      ...operational,
+      investigation: {
+        ...operational.investigation!,
+        updatedAt: nextDate().toISOString()
+      }
+    });
+    connection.db.update(schema.caseRevisions).set({
+      snapshotJson: JSON.stringify(divergent)
+    }).where(and(
+      eq(schema.caseRevisions.caseId, operational.caseId),
+      eq(schema.caseRevisions.caseVersion, operational.caseVersion)
+    )).run();
+
+    expect(() => resolveAuthoritativeChallengeBaseline(connection.db, {
+      caseId: operational.caseId,
+      questionRef: applied.application.questionRef,
+      challengeRef: randomUUID(),
+      challengedRevisionId: applied.application.resultingRevisionId,
+      challengedMaterialRevision: applied.application.resultingMaterialRevision,
+      openedCaseVersion: operational.caseVersion,
+      currentCaseVersion: operational.caseVersion
+    })).toThrow(expect.objectContaining({
+      code: 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+    }));
+  });
+
+  it.each([
+    {
+      name: 'applied lot mismatch',
+      change: (application: ReturnType<typeof applyFirstReplacementForInheritance>['applied']['application']) => ({
+        appliedLot: `${application.appliedLot}-corrupt`
+      })
+    },
+    {
+      name: 'missing result-baseline Assessment',
+      change: () => ({ resultBaselineAssessmentRefsJson: JSON.stringify([randomUUID()]) })
+    },
+    {
+      name: 'missing result-baseline Evidence',
+      change: () => ({ resultBaselineEvidenceRefsJson: JSON.stringify(['evidence:missing']) })
+    },
+    {
+      name: 'unsupported basis format',
+      change: () => ({ basisFormatVersion: 'challenge-batch-application-basis/v999' })
+    },
+    {
+      name: 'recorded material version mismatch',
+      change: (application: ReturnType<typeof applyFirstReplacementForInheritance>['applied']['application']) => ({
+        sourceMaterialRevision: application.sourceMaterialRevision + 10,
+        resultingMaterialRevision: application.sourceMaterialRevision + 11
+      })
+    }
+  ])('fails closed for $name without initial-baseline fallback', ({ change }) => {
+    const { seed, applied } = applyFirstReplacementForInheritance();
+    connection.db.update(schema.investigationChallengeBatchApplications).set(
+      change(applied.application)
+    ).where(eq(
+      schema.investigationChallengeBatchApplications.applicationRef,
+      applied.application.applicationRef
+    )).run();
+    expectLaterChallengeBaselineFailure(
+      seed,
+      applied.snapshot,
+      'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+    );
+  });
+
+  it('distinguishes absent positive provenance from corrupt attempted provenance', () => {
+    const { seed, applied } = applyFirstReplacementForInheritance();
+    connection.db.delete(schema.investigationChallengeBatchApplications).where(eq(
+      schema.investigationChallengeBatchApplications.applicationRef,
+      applied.application.applicationRef
+    )).run();
+    expectLaterChallengeBaselineFailure(seed, applied.snapshot, 'ANSWER_CONTINUITY_UNPROVEN');
+
+    resetTestDatabase();
+    const missingRevision = applyFirstReplacementForInheritance();
+    connection.sqlite.pragma('foreign_keys = OFF');
+    connection.db.delete(schema.caseRevisions).where(eq(
+      schema.caseRevisions.id,
+      missingRevision.applied.application.resultingRevisionId
+    )).run();
+    connection.sqlite.pragma('foreign_keys = ON');
+    expectLaterChallengeBaselineFailure(
+      missingRevision.seed,
+      missingRevision.applied.snapshot,
+      'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+    );
+  });
+
+  it('rejects a positive application as its own source Challenge', () => {
+    const { seed, applied } = applyFirstReplacementForInheritance();
+    expect(() => resolveAuthoritativeChallengeBaseline(connection.db, {
+      caseId: seed.knownSnapshot.caseId,
+      questionRef: seed.questionRef,
+      challengeRef: applied.application.challengeRef,
+      challengedRevisionId: applied.application.resultingRevisionId,
+      challengedMaterialRevision: applied.application.resultingMaterialRevision,
+      openedCaseVersion: applied.application.resultingCaseVersion,
+      currentCaseVersion: applied.application.resultingCaseVersion
+    })).toThrow(expect.objectContaining({
+      code: 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+    }));
   });
 
   it('reuses shared material-change semantics to reopen a CLOSED case', () => {

@@ -17,10 +17,10 @@ import {
 import {
   getInvestigationChallenge,
   InvestigationChallengeError,
-  listInvestigationChallenges,
   resolveCurrentInvestigationChallengeForRead,
   type CurrentInvestigationChallengeForRead
 } from './challenges';
+import type { AuthoritativeChallengeBaseline } from './authoritative-challenge-baseline';
 import {
   listInvestigationClaims,
   type InvestigationClaim
@@ -123,6 +123,7 @@ export interface EffectiveInvestigationAnalysis {
 }
 
 export interface ChallengeEffectiveInvestigationAnalysis {
+  authoritativeBaseline: AuthoritativeChallengeBaseline;
   analysisContext: {
     kind: 'OPEN_CHALLENGE';
     challengeRef: string;
@@ -567,94 +568,14 @@ function resolveChallengeForAnalysis(
     if (error.code === 'QUESTION_OWNERSHIP_MISMATCH') {
       throw new EffectiveAnalysisError('QUESTION_OWNERSHIP_MISMATCH', error.message);
     }
+    if (
+      error.code === 'ANSWER_CONTINUITY_UNPROVEN' ||
+      error.code === 'ANSWER_CONTINUITY_AMBIGUOUS' ||
+      error.code === 'CHALLENGE_BASELINE_PROVENANCE_INVALID'
+    ) {
+      throw new EffectiveAnalysisError('CHALLENGE_BASELINE_UNPROVEN', error.message);
+    }
     throw new EffectiveAnalysisError('CHALLENGE_NOT_CURRENT', error.message);
-  }
-}
-
-function hasExactBatchGap(
-  snapshot: CaseSnapshot,
-  questionRef: string,
-  subjectRef: string
-): boolean {
-  const gaps = snapshot.investigation?.gaps.filter((issue) => issue.id === questionRef) ?? [];
-  const conflicts = snapshot.investigation?.conflicts.filter(
-    (issue) => issue.id === questionRef
-  ) ?? [];
-  return gaps.length === 1 &&
-    conflicts.length === 0 &&
-    gaps[0].code === 'BATCH_MISSING' &&
-    gaps[0].subjectRefs.length === 1 &&
-    gaps[0].subjectRefs[0] === subjectRef;
-}
-
-function assertFirstCycleBaseline(
-  database: RecallDatabase,
-  authorization: CurrentInvestigationChallengeForRead,
-  history: ReturnType<typeof getCaseHistory>
-): void {
-  const selected = authorization.challenge;
-  const otherChallenges = listInvestigationChallenges(
-    database,
-    selected.caseId,
-    selected.questionRef
-  ).filter((challenge) => challenge.challengeRef !== selected.challengeRef);
-  if (otherChallenges.some((challenge) =>
-    challenge.openedCaseVersion <= selected.openedCaseVersion ||
-    challenge.createdAt <= selected.createdAt
-  )) {
-    throw new EffectiveAnalysisError(
-      'CHALLENGE_BASELINE_UNPROVEN',
-      'Challenge analysis cannot inherit artifacts from an earlier re-review cycle.'
-    );
-  }
-
-  const originRows = history.filter(
-    (revision) => revision.caseVersion === authorization.question.originCaseVersion
-  );
-  const precedingRows = history.filter((revision) =>
-    revision.caseVersion < authorization.challengedRevision.caseVersion &&
-    revision.materialRevision !== null &&
-    revision.materialRevision !== authorization.challengedRevision.materialRevision
-  );
-  const predecessor = precedingRows.at(-1);
-  if (
-    originRows.length !== 1 ||
-    originRows[0].materialRevision !== authorization.question.originMaterialRevision ||
-    originRows[0].createdAt !== authorization.question.createdAt ||
-    !predecessor ||
-    predecessor.caseVersion < authorization.question.originCaseVersion
-  ) {
-    throw new EffectiveAnalysisError(
-      'CHALLENGE_BASELINE_UNPROVEN',
-      'Authoritative history does not prove the unassociated investigation baseline.'
-    );
-  }
-
-  const baselineRows = history.filter((revision) =>
-    revision.caseVersion >= authorization.question.originCaseVersion &&
-    revision.caseVersion <= predecessor.caseVersion
-  );
-  const expectedRowCount = predecessor.caseVersion -
-    authorization.question.originCaseVersion + 1;
-  if (
-    baselineRows.length !== expectedRowCount ||
-    baselineRows.some((revision, index) =>
-      revision.caseVersion !== authorization.question.originCaseVersion + index ||
-      revision.materialRevision === null ||
-      revision.snapshot.caseId !== authorization.question.caseId ||
-      revision.snapshot.productId !== authorization.question.subjectRef ||
-      revision.snapshot.demo !== authorization.question.demo ||
-      !hasExactBatchGap(
-        revision.snapshot,
-        authorization.question.questionRef,
-        authorization.question.subjectRef
-      )
-    )
-  ) {
-    throw new EffectiveAnalysisError(
-      'CHALLENGE_BASELINE_UNPROVEN',
-      'The registered BATCH_MISSING lineage is not continuous through the pre-answer baseline.'
-    );
   }
 }
 
@@ -767,10 +688,18 @@ function assertIncludedAssessmentClaimBoundaries(
   includedClaimRefs: ReadonlySet<string>,
   claimPartitionByRef: ReadonlyMap<string, ChallengeArtifactPartition>,
   assessmentPartitionByRef: ReadonlyMap<string, ChallengeArtifactPartition>,
-  selectedChallengeRef: string
+  selectedChallengeRef: string,
+  authoritativeBaseline: AuthoritativeChallengeBaseline
 ): void {
+  const inheritedClaimRefs = new Set(authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+    ? authoritativeBaseline.baselineClaimRefs
+    : authoritativeBaseline.resultBaselineClaimRefs);
+  const inheritedAssessmentRefs = new Set(authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+    ? authoritativeBaseline.baselineAssessmentRefs
+    : authoritativeBaseline.resultBaselineAssessmentRefs);
   for (const assessment of assessments) {
     const assessmentPartition = assessmentPartitionByRef.get(assessment.assessmentRef) ?? null;
+    const isInheritedAssessment = inheritedAssessmentRefs.has(assessment.assessmentRef);
     for (const claimRef of rawAssessmentClaimRefs(assessment)) {
       const claimPartition = claimPartitionByRef.get(claimRef);
       if (!includedClaimRefs.has(claimRef) || claimPartition === undefined) {
@@ -779,9 +708,9 @@ function assertIncludedAssessmentClaimBoundaries(
         );
       }
       if (
-        (assessmentPartition === null && claimPartition !== null) ||
+        (isInheritedAssessment && !inheritedClaimRefs.has(claimRef)) ||
         (assessmentPartition === selectedChallengeRef &&
-          claimPartition !== null && claimPartition !== selectedChallengeRef)
+          claimPartition !== selectedChallengeRef && !inheritedClaimRefs.has(claimRef))
       ) {
         throw challengeBoundaryError(
           'An included Assessment crosses its allowed Claim association boundary.'
@@ -837,7 +766,9 @@ function assertEvidenceRequestIntegrity(
 
 function assertArtifactEvidenceIntegrity(
   database: RecallDatabase,
-  artifact: { evidenceRefs: readonly string[] },
+  artifact:
+    | { claimRef: string; evidenceRefs: readonly string[] }
+    | { assessmentRef: string; evidenceRefs: readonly string[] },
   partition: ChallengeArtifactPartition,
   evidenceByRef: ReadonlyMap<string, InvestigationEvidence>,
   authorization: CurrentInvestigationChallengeForRead
@@ -857,10 +788,40 @@ function assertArtifactEvidenceIntegrity(
     return item;
   });
 
-  if (partition === null) {
+  const inheritedEvidenceRefs = new Set(
+    authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+      ? authorization.authoritativeBaseline.baselineEvidenceRefs
+      : authorization.authoritativeBaseline.resultBaselineEvidenceRefs
+  );
+  const inheritedArtifactRefs = authorization.authoritativeBaseline.kind ===
+      'INITIAL_UNASSOCIATED'
+    ? new Set([
+        ...authorization.authoritativeBaseline.baselineClaimRefs,
+        ...authorization.authoritativeBaseline.baselineAssessmentRefs
+      ])
+    : new Set([
+        ...authorization.authoritativeBaseline.resultBaselineClaimRefs,
+        ...authorization.authoritativeBaseline.resultBaselineAssessmentRefs
+      ]);
+  const artifactRef = 'claimRef' in artifact ? artifact.claimRef : artifact.assessmentRef;
+  const isInheritedArtifact = inheritedArtifactRefs.has(artifactRef);
+
+  if (authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED' && partition === null) {
     if (evidence.some((item) => assertEvidenceRequestIntegrity(database, item) !== null)) {
       throw challengeBoundaryError(
         'An unassociated baseline artifact references Challenge-request Evidence.'
+      );
+    }
+    return;
+  }
+
+  if (isInheritedArtifact) {
+    if (evidence.some((item) => {
+      assertEvidenceRequestIntegrity(database, item);
+      return !inheritedEvidenceRefs.has(item.evidenceRef);
+    })) {
+      throw challengeBoundaryError(
+        'An inherited baseline artifact references Evidence outside its positive result baseline.'
       );
     }
     return;
@@ -872,7 +833,7 @@ function assertArtifactEvidenceIntegrity(
   });
   if (
     relevance.includes('OTHER_CHALLENGE') ||
-    !relevance.includes('CHALLENGE_RELEVANT')
+    !relevance.includes('CURRENT_CHALLENGE')
   ) {
     throw challengeBoundaryError(
       'A selected-Challenge artifact has invalid or exclusively cross-Challenge Evidence.'
@@ -897,7 +858,6 @@ export function readChallengeEffectiveInvestigationAnalysisInTransaction(
     challengeRef
   );
   const history = getCaseHistory(database, caseId);
-  assertFirstCycleBaseline(database, authorization, history);
 
   const claims = listInvestigationClaims(database, caseId, questionRef);
   const assessments = listInvestigationAssessments(database, caseId, questionRef);
@@ -937,21 +897,32 @@ export function readChallengeEffectiveInvestigationAnalysisInTransaction(
     (assessment) => assessment.supersedesAssessmentRef
   );
 
+  const inheritedClaimRefs = new Set(
+    authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+      ? authorization.authoritativeBaseline.baselineClaimRefs
+      : authorization.authoritativeBaseline.resultBaselineClaimRefs
+  );
+  const inheritedAssessmentRefs = new Set(
+    authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+      ? authorization.authoritativeBaseline.baselineAssessmentRefs
+      : authorization.authoritativeBaseline.resultBaselineAssessmentRefs
+  );
   const includedClaims = claims.filter((claim) => {
     const partition = claimPartitionByRef.get(claim.claimRef) ?? null;
-    return partition === null || partition === challengeRef;
+    return inheritedClaimRefs.has(claim.claimRef) || partition === challengeRef;
   });
   const includedClaimRefs = new Set(includedClaims.map((claim) => claim.claimRef));
   const includedAssessments = assessments.filter((assessment) => {
     const partition = assessmentPartitionByRef.get(assessment.assessmentRef) ?? null;
-    return partition === null || partition === challengeRef;
+    return inheritedAssessmentRefs.has(assessment.assessmentRef) || partition === challengeRef;
   });
   assertIncludedAssessmentClaimBoundaries(
     includedAssessments,
     includedClaimRefs,
     claimPartitionByRef,
     assessmentPartitionByRef,
-    challengeRef
+    challengeRef,
+    authorization.authoritativeBaseline
   );
 
   const evidence = listInvestigationEvidence(database, caseId, questionRef);
@@ -987,6 +958,7 @@ export function readChallengeEffectiveInvestigationAnalysisInTransaction(
     currentMaterialRevision: authorization.challenge.challengedMaterialRevision
   });
   return {
+    authoritativeBaseline: structuredClone(authorization.authoritativeBaseline),
     analysisContext: {
       kind: 'OPEN_CHALLENGE',
       challengeRef: authorization.challenge.challengeRef,

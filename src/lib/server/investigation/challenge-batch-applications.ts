@@ -6,39 +6,37 @@ import {
   type CaseSnapshot,
   type InvestigationOutcome
 } from '../../contracts/recall';
-import { normalizeBatch } from '../alerts/normalization';
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import {
   applyAuthoritativeInvestigationOutcomeInTransaction,
   readCaseRevisionByCaseVersion,
-  readCaseRevisionById,
   readCaseSnapshot,
   type LifecycleContext,
   type StoredCaseRevision
 } from '../workflow/case-lifecycle';
-import { getInvestigationAssessment } from './assessments';
 import {
-  getInvestigationAssessmentChallengeRef,
-  getInvestigationClaimChallengeRef,
-  getInvestigationEstablishmentChallengeRef
-} from './challenge-artifacts';
-import {
-  challengeBatchApplicationBasisFormatVersion,
-  challengeBatchApplicationPolicy,
   ChallengeBatchApplicationBasisError,
   readChallengeBatchApplicationBasisInTransaction
 } from './challenge-batch-application-basis';
 import {
-  classifyChallengeBatchEstablishmentAssessments,
-  demoChallengeBatchEstablishmentPolicy,
-  getInvestigationChallengeBatchEstablishment
-} from './challenge-batch-establishments';
-import { getInvestigationChallenge } from './challenges';
-import { getInvestigationClaim } from './claims';
+  challengeBatchApplicationCommandPayload,
+  getInvestigationChallengeBatchApplication,
+  InvestigationChallengeBatchApplicationError,
+  readInvestigationChallengeBatchApplicationResult,
+  type InvestigationChallengeBatchApplication,
+  type InvestigationChallengeBatchApplicationErrorCode
+} from './authoritative-challenge-baseline';
 import { demoHumanAssessorIdentifier } from './demo-context';
-import { getInvestigationEvidence } from './evidence-registry';
-import { getInvestigationQuestion } from './questions';
+
+export {
+  getInvestigationChallengeBatchApplication,
+  InvestigationChallengeBatchApplicationError
+} from './authoritative-challenge-baseline';
+export type {
+  InvestigationChallengeBatchApplication,
+  InvestigationChallengeBatchApplicationErrorCode
+} from './authoritative-challenge-baseline';
 
 const opaqueReferenceSchema = z.string().min(1).max(500).refine(
   (value) => value.trim().length > 0,
@@ -46,11 +44,6 @@ const opaqueReferenceSchema = z.string().min(1).max(500).refine(
 );
 const rationaleSchema = z.string().trim().min(1).max(10_000);
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
-const canonicalReferenceArraySchema = z.array(opaqueReferenceSchema).min(1).refine(
-  (values) => new Set(values).size === values.length &&
-    values.every((value, index) => index === 0 || values[index - 1] < value),
-  'Reference arrays must be unique and lexically ordered.'
-);
 
 const applyInvestigationChallengeBatchInputSchema = z.strictObject({
   applicationRef: z.string().uuid(),
@@ -65,80 +58,9 @@ const applyInvestigationChallengeBatchInputSchema = z.strictObject({
   demo: z.literal(true)
 });
 
-const investigationChallengeBatchApplicationSchema = z.strictObject({
-  applicationRef: z.string().uuid(),
-  caseId: z.string().uuid(),
-  questionRef: opaqueReferenceSchema,
-  challengeRef: z.string().uuid(),
-  establishmentRef: z.string().uuid(),
-  claimRef: z.string().uuid(),
-  applicationPolicyIdentifier: z.literal(challengeBatchApplicationPolicy.identifier),
-  applicationPolicyVersion: z.literal(challengeBatchApplicationPolicy.version),
-  basisFormatVersion: z.literal(challengeBatchApplicationBasisFormatVersion),
-  basisDigest: digestSchema,
-  reviewedClaimRefs: canonicalReferenceArraySchema,
-  reviewedAssessmentRefs: canonicalReferenceArraySchema,
-  reviewedEvidenceRefs: canonicalReferenceArraySchema,
-  appliedAssessmentRefs: canonicalReferenceArraySchema,
-  appliedEvidenceRefs: canonicalReferenceArraySchema,
-  appliedLot: opaqueReferenceSchema,
-  resultBaselineClaimRefs: canonicalReferenceArraySchema,
-  resultBaselineAssessmentRefs: canonicalReferenceArraySchema,
-  resultBaselineEvidenceRefs: canonicalReferenceArraySchema,
-  sourceRevisionId: z.string().uuid(),
-  sourceCaseVersion: z.number().int().positive(),
-  sourceMaterialRevision: z.number().int().positive(),
-  resultingRevisionId: z.string().uuid(),
-  resultingCaseVersion: z.number().int().positive(),
-  resultingMaterialRevision: z.number().int().positive(),
-  actorKind: z.literal('HUMAN'),
-  actorIdentifier: z.literal(demoHumanAssessorIdentifier),
-  rationale: rationaleSchema,
-  createdAt: z.string().datetime(),
-  demo: z.literal(true)
-}).superRefine((value, validation) => {
-  if (value.resultingCaseVersion !== value.sourceCaseVersion + 1) {
-    validation.addIssue({ code: 'custom', path: ['resultingCaseVersion'], message: 'Expected exact +1 case version.' });
-  }
-  if (value.resultingMaterialRevision !== value.sourceMaterialRevision + 1) {
-    validation.addIssue({ code: 'custom', path: ['resultingMaterialRevision'], message: 'Expected exact +1 material revision.' });
-  }
-});
-
 export type ApplyInvestigationChallengeBatchInput = z.infer<
   typeof applyInvestigationChallengeBatchInputSchema
 >;
-export type InvestigationChallengeBatchApplication = z.infer<
-  typeof investigationChallengeBatchApplicationSchema
->;
-
-export type InvestigationChallengeBatchApplicationErrorCode =
-  | 'INVALID_INPUT'
-  | 'FORBIDDEN'
-  | 'APPLICATION_NOT_FOUND'
-  | 'APPLICATION_CONFLICT'
-  | 'CHALLENGE_ALREADY_APPLIED'
-  | 'ESTABLISHMENT_ALREADY_APPLIED'
-  | 'CHALLENGE_RESOLUTION_CONFLICT'
-  | 'COMMAND_ID_CONFLICT'
-  | 'VERSIONED_CASE_REQUIRED'
-  | 'STALE_CASE_VERSION'
-  | 'STALE_MATERIAL_REVISION'
-  | 'STALE_APPLICATION_BASIS'
-  | 'APPLICATION_NOT_ELIGIBLE'
-  | 'APPLICATION_PROVENANCE_INVALID'
-  | 'SOURCE_REVISION_UNRESOLVED'
-  | 'RESULT_REVISION_UNRESOLVED';
-
-export class InvestigationChallengeBatchApplicationError extends Error {
-  constructor(
-    public readonly code: InvestigationChallengeBatchApplicationErrorCode,
-    message: string
-  ) {
-    super(message);
-    this.name = 'InvestigationChallengeBatchApplicationError';
-  }
-}
 
 export interface ApplyInvestigationChallengeBatchResult {
   application: InvestigationChallengeBatchApplication;
@@ -152,13 +74,6 @@ function compareText(left: string, right: string): number {
 
 function canonicalReferences(values: readonly string[]): string[] {
   return [...new Set(values)].sort(compareText);
-}
-
-function sameReferences(left: readonly string[], right: readonly string[]): boolean {
-  const canonicalLeft = canonicalReferences(left);
-  const canonicalRight = canonicalReferences(right);
-  return canonicalLeft.length === canonicalRight.length &&
-    canonicalLeft.every((value, index) => value === canonicalRight[index]);
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -176,50 +91,6 @@ function parseInput(input: unknown): ApplyInvestigationChallengeBatchInput {
   return parsed.data;
 }
 
-function hydrateApplication(
-  row: typeof schema.investigationChallengeBatchApplications.$inferSelect
-): InvestigationChallengeBatchApplication {
-  try {
-    return investigationChallengeBatchApplicationSchema.parse({
-      applicationRef: row.applicationRef,
-      caseId: row.caseId,
-      questionRef: row.questionRef,
-      challengeRef: row.challengeRef,
-      establishmentRef: row.establishmentRef,
-      claimRef: row.claimRef,
-      applicationPolicyIdentifier: row.applicationPolicyIdentifier,
-      applicationPolicyVersion: row.applicationPolicyVersion,
-      basisFormatVersion: row.basisFormatVersion,
-      basisDigest: row.basisDigest,
-      reviewedClaimRefs: JSON.parse(row.reviewedClaimRefsJson),
-      reviewedAssessmentRefs: JSON.parse(row.reviewedAssessmentRefsJson),
-      reviewedEvidenceRefs: JSON.parse(row.reviewedEvidenceRefsJson),
-      appliedAssessmentRefs: JSON.parse(row.appliedAssessmentRefsJson),
-      appliedEvidenceRefs: JSON.parse(row.appliedEvidenceRefsJson),
-      appliedLot: row.appliedLot,
-      resultBaselineClaimRefs: JSON.parse(row.resultBaselineClaimRefsJson),
-      resultBaselineAssessmentRefs: JSON.parse(row.resultBaselineAssessmentRefsJson),
-      resultBaselineEvidenceRefs: JSON.parse(row.resultBaselineEvidenceRefsJson),
-      sourceRevisionId: row.sourceRevisionId,
-      sourceCaseVersion: row.sourceCaseVersion,
-      sourceMaterialRevision: row.sourceMaterialRevision,
-      resultingRevisionId: row.resultingRevisionId,
-      resultingCaseVersion: row.resultingCaseVersion,
-      resultingMaterialRevision: row.resultingMaterialRevision,
-      actorKind: row.actorKind,
-      actorIdentifier: row.actorIdentifier,
-      rationale: row.rationale,
-      createdAt: row.createdAt,
-      demo: row.demo
-    });
-  } catch {
-    throw new InvestigationChallengeBatchApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Stored Challenge batch application provenance is malformed.'
-    );
-  }
-}
-
 function immutableSemanticsMatch(
   row: typeof schema.investigationChallengeBatchApplications.$inferSelect,
   input: ApplyInvestigationChallengeBatchInput
@@ -231,299 +102,6 @@ function immutableSemanticsMatch(
     row.establishmentRef === input.establishmentRef &&
     row.rationale === input.rationale &&
     row.demo === input.demo;
-}
-
-function internalCommandPayload(
-  application: Pick<
-    InvestigationChallengeBatchApplication,
-    | 'applicationRef'
-    | 'caseId'
-    | 'questionRef'
-    | 'challengeRef'
-    | 'establishmentRef'
-    | 'basisDigest'
-    | 'sourceCaseVersion'
-    | 'sourceMaterialRevision'
-  >
-): string {
-  return JSON.stringify({
-    operation: 'APPLY_INVESTIGATION_CHALLENGE_BATCH',
-    applicationRef: application.applicationRef,
-    caseId: application.caseId,
-    questionRef: application.questionRef,
-    challengeRef: application.challengeRef,
-    establishmentRef: application.establishmentRef,
-    applicationBasisDigest: application.basisDigest,
-    sourceCaseVersion: application.sourceCaseVersion,
-    sourceMaterialRevision: application.sourceMaterialRevision
-  });
-}
-
-function readRevision(
-  database: RecallDatabase,
-  application: InvestigationChallengeBatchApplication,
-  kind: 'source' | 'result'
-): StoredCaseRevision {
-  const revisionId = kind === 'source' ? application.sourceRevisionId : application.resultingRevisionId;
-  let revision: StoredCaseRevision | null;
-  try {
-    revision = readCaseRevisionById(database, application.caseId, revisionId);
-  } catch {
-    revision = null;
-  }
-  if (!revision) {
-    throw new InvestigationChallengeBatchApplicationError(
-      kind === 'source' ? 'SOURCE_REVISION_UNRESOLVED' : 'RESULT_REVISION_UNRESOLVED',
-      `The exact ${kind} authoritative case revision cannot be resolved.`
-    );
-  }
-  const caseVersion = kind === 'source'
-    ? application.sourceCaseVersion
-    : application.resultingCaseVersion;
-  const materialRevision = kind === 'source'
-    ? application.sourceMaterialRevision
-    : application.resultingMaterialRevision;
-  if (revision.caseVersion !== caseVersion || revision.materialRevision !== materialRevision) {
-    throw new InvestigationChallengeBatchApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      `Stored Challenge batch ${kind} revision lineage is inconsistent.`
-    );
-  }
-  return revision;
-}
-
-function assertReferencedArtifacts(
-  database: RecallDatabase,
-  application: InvestigationChallengeBatchApplication
-): void {
-  for (const claimRef of application.reviewedClaimRefs) {
-    const claim = getInvestigationClaim(database, application.caseId, claimRef);
-    if (!claim || claim.questionRef !== application.questionRef) {
-      throw new InvestigationChallengeBatchApplicationError(
-        'APPLICATION_PROVENANCE_INVALID',
-        'A reviewed Challenge Claim is missing or has invalid ownership.'
-      );
-    }
-  }
-  for (const assessmentRef of application.reviewedAssessmentRefs) {
-    const assessment = getInvestigationAssessment(database, application.caseId, assessmentRef);
-    if (!assessment || assessment.questionRef !== application.questionRef) {
-      throw new InvestigationChallengeBatchApplicationError(
-        'APPLICATION_PROVENANCE_INVALID',
-        'A reviewed Challenge Assessment is missing or has invalid ownership.'
-      );
-    }
-  }
-  for (const evidenceRef of application.reviewedEvidenceRefs) {
-    const evidence = getInvestigationEvidence(database, application.caseId, evidenceRef);
-    if (!evidence || evidence.questionRef !== application.questionRef) {
-      throw new InvestigationChallengeBatchApplicationError(
-        'APPLICATION_PROVENANCE_INVALID',
-        'Reviewed Challenge Evidence is missing or has invalid ownership.'
-      );
-    }
-  }
-}
-
-function validateApplicationProvenance(
-  database: RecallDatabase,
-  application: InvestigationChallengeBatchApplication
-): CaseSnapshot {
-  const question = getInvestigationQuestion(database, application.caseId, application.questionRef);
-  const challenge = getInvestigationChallenge(database, application.caseId, application.challengeRef);
-  const establishment = getInvestigationChallengeBatchEstablishment(
-    database,
-    application.caseId,
-    application.establishmentRef
-  );
-  const claim = getInvestigationClaim(database, application.caseId, application.claimRef);
-  const claimChallengeRef = claim
-    ? getInvestigationClaimChallengeRef(database, claim.claimRef)
-    : null;
-  const establishmentChallengeRef = getInvestigationEstablishmentChallengeRef(
-    database,
-    application.establishmentRef
-  );
-  if (
-    !question || !challenge || !establishment || !claim ||
-    question.questionType !== 'AFFECTED_BATCH_LOT' ||
-    question.subjectRef !== claim.subjectRef ||
-    challenge.questionRef !== application.questionRef ||
-    establishment.questionRef !== application.questionRef ||
-    establishment.claimRef !== application.claimRef ||
-    establishmentChallengeRef !== application.challengeRef ||
-    claimChallengeRef !== application.challengeRef ||
-    establishment.policyIdentifier !== demoChallengeBatchEstablishmentPolicy.policyIdentifier ||
-    establishment.policyVersion !== demoChallengeBatchEstablishmentPolicy.policyVersion ||
-    establishment.evaluatorKind !== demoChallengeBatchEstablishmentPolicy.evaluatorKind ||
-    establishment.evaluatorIdentifier !== demoChallengeBatchEstablishmentPolicy.evaluatorIdentifier ||
-    normalizeBatch(claim.value.lot) !== application.appliedLot ||
-    !sameReferences(establishment.basisClaimRefs, application.reviewedClaimRefs) ||
-    !sameReferences(establishment.basisAssessmentRefs, application.reviewedAssessmentRefs) ||
-    !sameReferences(establishment.basisEvidenceRefs, application.reviewedEvidenceRefs) ||
-    !sameReferences(application.appliedEvidenceRefs, application.reviewedEvidenceRefs) ||
-    !sameReferences(application.resultBaselineEvidenceRefs, application.reviewedEvidenceRefs) ||
-    !sameReferences(application.resultBaselineClaimRefs, [application.claimRef]) ||
-    !application.reviewedClaimRefs.includes(application.claimRef)
-  ) {
-    throw new InvestigationChallengeBatchApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Stored Challenge, Establishment, Claim, or Evidence provenance is inconsistent.'
-    );
-  }
-
-  assertReferencedArtifacts(database, application);
-  const reviewedClaims = application.reviewedClaimRefs.map((claimRef) =>
-    getInvestigationClaim(database, application.caseId, claimRef)
-  );
-  const reviewedAssessments = application.reviewedAssessmentRefs.map((assessmentRef) =>
-    getInvestigationAssessment(database, application.caseId, assessmentRef)
-  );
-  if (
-    reviewedClaims.some((item) => !item || item.claimType !== 'AFFECTED_BATCH_LOT' ||
-      ![null, application.challengeRef].includes(
-        getInvestigationClaimChallengeRef(database, item.claimRef)
-      )) ||
-    reviewedAssessments.some((item) => !item)
-  ) {
-    throw new InvestigationChallengeBatchApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Reviewed Challenge artifact ownership is inconsistent.'
-    );
-  }
-  const assessmentIsCurrentAtSource = (basisCaseVersion: number): boolean => {
-    try {
-      return readCaseRevisionByCaseVersion(
-        database,
-        application.caseId,
-        basisCaseVersion
-      )?.materialRevision === application.sourceMaterialRevision;
-    } catch {
-      return false;
-    }
-  };
-  const validReviewedClaims = reviewedClaims.filter(
-    (item): item is NonNullable<typeof item> => item !== null
-  );
-  const validReviewedAssessments = reviewedAssessments.filter(
-    (item): item is NonNullable<typeof item> => item !== null
-  );
-  const classification = classifyChallengeBatchEstablishmentAssessments({
-    activeClaims: validReviewedClaims,
-    structuralAssessmentHeads: validReviewedAssessments,
-    materiallyCurrentAssessmentRefs: new Set(validReviewedAssessments.filter((item) =>
-      assessmentIsCurrentAtSource(item.basisCaseVersion) &&
-      [
-        ...(item.targetClaimRef === null ? [] : [item.targetClaimRef]),
-        ...item.relatedClaimRefs
-      ].every((claimRef) => application.reviewedClaimRefs.includes(claimRef))
-    ).map((item) => item.assessmentRef)),
-    assessmentChallengeRefs: new Map(validReviewedAssessments.map((item) => [
-      item.assessmentRef,
-      getInvestigationAssessmentChallengeRef(database, item.assessmentRef)
-    ])),
-    challengeRef: application.challengeRef,
-    targetClaimRef: application.claimRef,
-    targetLot: application.appliedLot,
-    completeEvidenceRefs: application.reviewedEvidenceRefs
-  });
-  if (
-    classification.divergentClaimRefsWithoutTrustedRejection.length > 0 ||
-    classification.qualifyingTargetSupportAssessmentRefs.length === 0 ||
-    !sameReferences(
-      application.resultBaselineAssessmentRefs,
-      classification.qualifyingTargetSupportAssessmentRefs
-    ) ||
-    !sameReferences(
-      application.appliedAssessmentRefs,
-      [
-        ...classification.qualifyingTargetSupportAssessmentRefs,
-        ...classification.reliedUponRejectionAssessmentRefs
-      ]
-    )
-  ) {
-    throw new InvestigationChallengeBatchApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Applied and result-baseline Assessment provenance does not match the 16A policy.'
-    );
-  }
-
-  const conflict = database.select({
-    applicationRef: schema.investigationChallengeConflictApplications.applicationRef
-  }).from(schema.investigationChallengeConflictApplications).where(eq(
-    schema.investigationChallengeConflictApplications.challengeRef,
-    application.challengeRef
-  )).get();
-  if (conflict) {
-    throw new InvestigationChallengeBatchApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Positive and conflict applications coexist for one Challenge.'
-    );
-  }
-
-  const source = readRevision(database, application, 'source');
-  const result = readRevision(database, application, 'result');
-  let challenged: StoredCaseRevision | null;
-  try {
-    challenged = readCaseRevisionById(
-      database,
-      application.caseId,
-      challenge.challengedRevisionId
-    );
-  } catch {
-    challenged = null;
-  }
-  const command = database.select().from(schema.caseCommands).where(and(
-    eq(schema.caseCommands.caseId, application.caseId),
-    eq(schema.caseCommands.commandId, application.applicationRef)
-  )).get();
-  const sourceInvestigation = source.snapshot.investigation;
-  const resultInvestigation = result.snapshot.investigation;
-  if (
-    !challenged || !command || !sourceInvestigation || !resultInvestigation ||
-    source.snapshot.productId !== question.subjectRef ||
-    result.snapshot.productId !== question.subjectRef ||
-    challenge.challengedMaterialRevision !== application.sourceMaterialRevision ||
-    establishment.basisMaterialRevision !== application.sourceMaterialRevision ||
-    challenged.materialRevision !== application.sourceMaterialRevision ||
-    !sameValue(challenged.snapshot.investigation, sourceInvestigation) ||
-    command.appliedCaseVersion !== application.resultingCaseVersion ||
-    command.payloadJson !== internalCommandPayload(application) ||
-    sourceInvestigation.knowledgeStatus !== 'KNOWN' ||
-    sourceInvestigation.identity.knowledgeStatus !== 'KNOWN' ||
-    sourceInvestigation.identity.conclusion !== 'MATCH' ||
-    sourceInvestigation.scope.kind !== 'BATCH_LOT' ||
-    sourceInvestigation.scope.knowledgeStatus !== 'KNOWN' ||
-    sourceInvestigation.scope.lots.length !== 1 ||
-    normalizeBatch(sourceInvestigation.scope.lots[0]).length === 0 ||
-    sourceInvestigation.gaps.length !== 0 || sourceInvestigation.conflicts.length !== 0 ||
-    resultInvestigation.knowledgeStatus !== 'KNOWN' ||
-    resultInvestigation.scope.kind !== 'BATCH_LOT' ||
-    resultInvestigation.scope.knowledgeStatus !== 'KNOWN' ||
-    resultInvestigation.scope.lots.length !== 1 ||
-    resultInvestigation.scope.lots[0] !== application.appliedLot ||
-    !sameValue(resultInvestigation.identity, sourceInvestigation.identity) ||
-    !sameReferences(resultInvestigation.scope.evidenceRefs, application.appliedEvidenceRefs) ||
-    !sameReferences(resultInvestigation.scope.decisionRefs, [application.applicationRef]) ||
-    !sameReferences(resultInvestigation.evidenceRefs, canonicalReferences([
-      ...sourceInvestigation.evidenceRefs,
-      ...sourceInvestigation.identity.evidenceRefs,
-      ...application.appliedEvidenceRefs
-    ])) ||
-    !sameReferences(resultInvestigation.decisionRefs, canonicalReferences([
-      ...sourceInvestigation.decisionRefs,
-      ...sourceInvestigation.identity.decisionRefs,
-      application.applicationRef
-    ])) ||
-    !resultInvestigation.decisionRefs.includes(application.applicationRef) ||
-    resultInvestigation.gaps.length !== 0 || resultInvestigation.conflicts.length !== 0
-  ) {
-    throw new InvestigationChallengeBatchApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Stored Challenge batch execution or authoritative result is inconsistent.'
-    );
-  }
-  return result.snapshot;
 }
 
 function deriveChallengeBatchOutcome(
@@ -581,21 +159,6 @@ function deriveChallengeBatchOutcome(
   });
 }
 
-export function getInvestigationChallengeBatchApplication(
-  database: RecallDatabase,
-  caseId: string,
-  applicationRef: string
-): InvestigationChallengeBatchApplication | null {
-  const row = database.select().from(schema.investigationChallengeBatchApplications).where(and(
-    eq(schema.investigationChallengeBatchApplications.caseId, caseId),
-    eq(schema.investigationChallengeBatchApplications.applicationRef, applicationRef)
-  )).get();
-  if (!row) return null;
-  const application = hydrateApplication(row);
-  validateApplicationProvenance(database, application);
-  return application;
-}
-
 export function applyInvestigationChallengeBatch(
   database: RecallDatabase,
   input: unknown,
@@ -620,8 +183,18 @@ export function applyInvestigationChallengeBatch(
           'This application reference already identifies different immutable semantics.'
         );
       }
-      const application = hydrateApplication(existing);
-      return { application, replayed: true, snapshot: validateApplicationProvenance(transaction, application) };
+      const historical = readInvestigationChallengeBatchApplicationResult(
+        transaction,
+        parsed.caseId,
+        parsed.applicationRef
+      );
+      if (!historical) {
+        throw new InvestigationChallengeBatchApplicationError(
+          'APPLICATION_PROVENANCE_INVALID',
+          'The historical Challenge batch application could not be reloaded.'
+        );
+      }
+      return { application: historical.application, replayed: true, snapshot: historical.snapshot };
     }
 
     const challengeApplication = transaction.select({
@@ -782,7 +355,7 @@ export function applyInvestigationChallengeBatch(
       outcome,
       alertId: caseRecord.alertId,
       commandId: parsed.applicationRef,
-      commandPayloadJson: internalCommandPayload(command),
+      commandPayloadJson: challengeBatchApplicationCommandPayload(command),
       updatedAt,
       eventType: current.stage === 'CLOSED'
         ? 'case_reopened'

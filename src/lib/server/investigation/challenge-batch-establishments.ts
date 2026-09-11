@@ -9,9 +9,9 @@ import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { readCaseSnapshot, type LifecycleContext } from '../workflow/case-lifecycle';
 import {
-  demoHumanAssessorIdentifier,
-  type InvestigationAssessment
-} from './assessments';
+  AuthoritativeChallengeBaselineError,
+  resolveAuthoritativeChallengeBaselineInTransaction
+} from './authoritative-challenge-baseline';
 import {
   getInvestigationAssessmentChallengeRef,
   getInvestigationClaimChallengeRef,
@@ -21,6 +21,13 @@ import {
   InvestigationChallengeError,
   resolveCurrentInvestigationChallengeForWrite
 } from './challenges';
+import {
+  challengeBatchEstablishmentPolicyForBaseline,
+  classifyChallengeBatchEstablishmentAssessments,
+  demoChallengeBatchEstablishmentPolicy,
+  demoInheritedChallengeBatchEstablishmentPolicy,
+  isSupportedChallengeBatchEstablishmentPolicy,
+} from './challenge-batch-establishment-policy';
 import type { InvestigationClaim } from './claims';
 import {
   EffectiveAnalysisError,
@@ -38,12 +45,12 @@ import {
   type InvestigationEvidence
 } from './evidence-registry';
 
-export const demoChallengeBatchEstablishmentPolicy = {
-  policyIdentifier: 'demo-challenge-batch-establishment',
-  policyVersion: 'v1',
-  evaluatorKind: 'RULE',
-  evaluatorIdentifier: 'demo-challenge-batch-establishment-policy-engine'
-} as const;
+export {
+  classifyChallengeBatchEstablishmentAssessments,
+  demoChallengeBatchEstablishmentPolicy,
+  demoInheritedChallengeBatchEstablishmentPolicy
+} from './challenge-batch-establishment-policy';
+export type { ChallengeBatchAssessmentClassification } from './challenge-batch-establishment-policy';
 
 export type DemoChallengeBatchEstablishmentBlockerCode =
   | 'CONTEXT_MISMATCH'
@@ -236,90 +243,6 @@ function sortedCurrentBlockers(
   );
 }
 
-function isTrustedRejection(assessment: InvestigationAssessment): boolean {
-  return assessment.assessorKind === 'RULE' ||
-    (assessment.assessorKind === 'HUMAN' &&
-      assessment.assessorIdentifier === demoHumanAssessorIdentifier);
-}
-
-export interface ChallengeBatchAssessmentClassification {
-  structuralTargetSupportAssessmentRefs: string[];
-  targetSupportAssessmentRefs: string[];
-  qualifyingTargetSupportAssessmentRefs: string[];
-  reliedUponRejectionAssessmentRefs: string[];
-  divergentClaimRefsWithoutTrustedRejection: string[];
-}
-
-/** Shared v1 assessment categorization for live policy and immutable provenance validation. */
-export function classifyChallengeBatchEstablishmentAssessments(input: {
-  activeClaims: readonly InvestigationClaim[];
-  structuralAssessmentHeads: readonly InvestigationAssessment[];
-  materiallyCurrentAssessmentRefs: ReadonlySet<string>;
-  assessmentChallengeRefs: ReadonlyMap<string, string | null>;
-  challengeRef: string;
-  targetClaimRef: string;
-  targetLot: string;
-  completeEvidenceRefs: readonly string[];
-}): ChallengeBatchAssessmentClassification {
-  const structuralTargetSupports = input.structuralAssessmentHeads.filter((assessment) =>
-    assessment.verdict === 'SUPPORTED' &&
-    assessment.targetClaimRef === input.targetClaimRef &&
-    assessment.assessorKind === 'HUMAN' &&
-    assessment.assessorIdentifier === demoHumanAssessorIdentifier &&
-    input.assessmentChallengeRefs.get(assessment.assessmentRef) === input.challengeRef
-  );
-  const currentTargetSupports = structuralTargetSupports.filter((assessment) =>
-    input.materiallyCurrentAssessmentRefs.has(assessment.assessmentRef)
-  );
-  const qualifyingTargetSupports = currentTargetSupports.filter((assessment) =>
-    sameRefs(assessment.evidenceRefs, input.completeEvidenceRefs)
-  );
-  const materiallyCurrentByRef = new Map(
-    input.structuralAssessmentHeads.filter((assessment) =>
-      input.materiallyCurrentAssessmentRefs.has(assessment.assessmentRef)
-    ).map((assessment) => [assessment.assessmentRef, assessment])
-  );
-  const reliedUponRejections: string[] = [];
-  const divergentWithoutRejection: string[] = [];
-  if (input.targetLot.length > 0) {
-    for (const alternative of input.activeClaims) {
-      if (
-        alternative.claimRef === input.targetClaimRef ||
-        normalizeBatch(alternative.value.lot) === input.targetLot
-      ) {
-        continue;
-      }
-      const trustedRejections = input.structuralAssessmentHeads.filter((assessment) =>
-        assessment.targetClaimRef === alternative.claimRef &&
-        assessment.verdict === 'REJECTED' &&
-        materiallyCurrentByRef.has(assessment.assessmentRef) &&
-        input.assessmentChallengeRefs.get(assessment.assessmentRef) === input.challengeRef &&
-        isTrustedRejection(assessment)
-      );
-      if (trustedRejections.length === 0) {
-        divergentWithoutRejection.push(alternative.claimRef);
-      } else {
-        reliedUponRejections.push(...trustedRejections.map((assessment) =>
-          assessment.assessmentRef
-        ));
-      }
-    }
-  }
-  return {
-    structuralTargetSupportAssessmentRefs: canonicalRefs(
-      structuralTargetSupports.map((assessment) => assessment.assessmentRef)
-    ),
-    targetSupportAssessmentRefs: canonicalRefs(
-      currentTargetSupports.map((assessment) => assessment.assessmentRef)
-    ),
-    qualifyingTargetSupportAssessmentRefs: canonicalRefs(
-      qualifyingTargetSupports.map((assessment) => assessment.assessmentRef)
-    ),
-    reliedUponRejectionAssessmentRefs: canonicalRefs(reliedUponRejections),
-    divergentClaimRefsWithoutTrustedRejection: canonicalRefs(divergentWithoutRejection)
-  };
-}
-
 export function evaluateDemoChallengeBatchEstablishmentPolicy(
   input: EvaluateDemoChallengeBatchEstablishmentPolicyInput
 ): DemoChallengeBatchEstablishmentPolicyEvaluation {
@@ -366,7 +289,9 @@ export function evaluateDemoChallengeBatchEstablishmentPolicy(
   if (
     authoritativeLot !== null &&
     !analysis.activeClaims.some((claim) =>
-      input.claimChallengeRefs.get(claim.claimRef) === null &&
+      (projection.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+        ? input.claimChallengeRefs.get(claim.claimRef) === null
+        : projection.authoritativeBaseline.resultBaselineClaimRefs.includes(claim.claimRef)) &&
       normalizeBatch(claim.value.lot) === authoritativeLot
     )
   ) {
@@ -597,11 +522,7 @@ export function getInvestigationChallengeBatchEstablishment(
   if (!establishment) return null;
   const challengeRef = getInvestigationEstablishmentChallengeRef(database, establishmentRef);
   if (challengeRef === null) return null;
-  const challenge = database.select({
-    caseId: schema.investigationChallenges.caseId,
-    questionRef: schema.investigationChallenges.questionRef,
-    demo: schema.investigationChallenges.demo
-  }).from(schema.investigationChallenges).where(eq(
+  const challenge = database.select().from(schema.investigationChallenges).where(eq(
     schema.investigationChallenges.challengeRef,
     challengeRef
   )).get();
@@ -615,6 +536,29 @@ export function getInvestigationChallengeBatchEstablishment(
       'CHALLENGE_ASSOCIATION_REQUIRED',
       'The Establishment Challenge association has invalid ownership.'
     );
+  }
+  if (establishment.policyVersion === demoInheritedChallengeBatchEstablishmentPolicy.policyVersion) {
+    try {
+      const baseline = resolveAuthoritativeChallengeBaselineInTransaction(database, {
+        caseId: establishment.caseId,
+        questionRef: establishment.questionRef,
+        challengeRef,
+        challengedRevisionId: challenge.challengedRevisionId,
+        challengedMaterialRevision: challenge.challengedMaterialRevision,
+        openedCaseVersion: challenge.openedCaseVersion,
+        currentCaseVersion: establishment.basisCaseVersion
+      });
+      if (baseline.kind !== 'APPLIED_CHALLENGE_BATCH') {
+        throw new Error('Inherited Establishment resolved the wrong baseline kind.');
+      }
+    } catch (error) {
+      throw new InvestigationChallengeBatchEstablishmentError(
+        'CHALLENGE_ASSOCIATION_REQUIRED',
+        error instanceof AuthoritativeChallengeBaselineError
+          ? error.message
+          : 'The inherited Establishment baseline provenance is invalid.'
+      );
+    }
   }
   return establishment;
 }
@@ -685,14 +629,15 @@ export function recordInvestigationChallengeBatchEstablishment(
       throw error;
     }
 
-    const policy = evaluateDemoChallengeBatchEstablishmentPolicy(loadPolicyInput(
+    const policyInput = loadPolicyInput(
       transaction,
       authorization.snapshot,
       parsed.caseId,
       parsed.questionRef,
       parsed.challengeRef,
       parsed.claimRef
-    ));
+    );
+    const policy = evaluateDemoChallengeBatchEstablishmentPolicy(policyInput);
     if (!policy.eligible) {
       throw new InvestigationChallengeBatchEstablishmentError(
         'POLICY_NOT_SATISFIED',
@@ -712,19 +657,22 @@ export function recordInvestigationChallengeBatchEstablishment(
       );
     }
 
+    const selectedPolicy = challengeBatchEstablishmentPolicyForBaseline(
+      policyInput.projection.authoritativeBaseline.kind
+    );
     const createdAt = now.toISOString();
     transaction.insert(schema.investigationEstablishments).values({
       establishmentRef: parsed.establishmentRef,
       caseId: parsed.caseId,
       questionRef: parsed.questionRef,
       claimRef: parsed.claimRef,
-      policyIdentifier: demoChallengeBatchEstablishmentPolicy.policyIdentifier,
-      policyVersion: demoChallengeBatchEstablishmentPolicy.policyVersion,
+      policyIdentifier: selectedPolicy.policyIdentifier,
+      policyVersion: selectedPolicy.policyVersion,
       basisClaimRefsJson: JSON.stringify(policy.basis.claimRefs),
       basisAssessmentRefsJson: JSON.stringify(policy.basis.assessmentRefs),
       basisEvidenceRefsJson: JSON.stringify(policy.basis.evidenceRefs),
-      evaluatorKind: demoChallengeBatchEstablishmentPolicy.evaluatorKind,
-      evaluatorIdentifier: demoChallengeBatchEstablishmentPolicy.evaluatorIdentifier,
+      evaluatorKind: selectedPolicy.evaluatorKind,
+      evaluatorIdentifier: selectedPolicy.evaluatorIdentifier,
       basisCaseVersion: authorization.snapshot.caseVersion,
       basisMaterialRevision: authorization.snapshot.materialRevision!,
       createdAt,
@@ -740,7 +688,7 @@ export function recordInvestigationChallengeBatchEstablishment(
       alertId: caseRecord.alertId,
       eventType: 'investigation_establishment_recorded',
       actorType: 'agent',
-      actorName: demoChallengeBatchEstablishmentPolicy.evaluatorIdentifier,
+      actorName: selectedPolicy.evaluatorIdentifier,
       summary: 'Recorded deterministic non-authoritative Challenge batch policy success.',
       metadataJson: JSON.stringify({
         establishmentRef: parsed.establishmentRef,
@@ -748,7 +696,14 @@ export function recordInvestigationChallengeBatchEstablishment(
         questionRef: parsed.questionRef,
         challengeRef: parsed.challengeRef,
         claimRef: parsed.claimRef,
-        ...demoChallengeBatchEstablishmentPolicy,
+        ...selectedPolicy,
+        ...(policyInput.projection.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+          ? {
+              authoritativeBaseline: structuredClone(
+                policyInput.projection.authoritativeBaseline
+              )
+            }
+          : {}),
         basisClaimRefs: policy.basis.claimRefs,
         basisAssessmentRefs: policy.basis.assessmentRefs,
         basisEvidenceRefs: policy.basis.evidenceRefs,
@@ -838,10 +793,7 @@ export function evaluateCurrentInvestigationChallengeBatchEstablishmentInTransac
   }
   const currentBlockers = new Set<CurrentChallengeBatchEstablishmentBlockerCode>();
   if (
-    establishment.policyIdentifier !== demoChallengeBatchEstablishmentPolicy.policyIdentifier ||
-    establishment.policyVersion !== demoChallengeBatchEstablishmentPolicy.policyVersion ||
-    establishment.evaluatorKind !== demoChallengeBatchEstablishmentPolicy.evaluatorKind ||
-    establishment.evaluatorIdentifier !== demoChallengeBatchEstablishmentPolicy.evaluatorIdentifier
+    !isSupportedChallengeBatchEstablishmentPolicy(establishment)
   ) {
     currentBlockers.add('POLICY_UNSUPPORTED');
   }
@@ -889,6 +841,17 @@ export function evaluateCurrentInvestigationChallengeBatchEstablishmentInTransac
   }
 
   const policy = evaluateDemoChallengeBatchEstablishmentPolicy(policyInput);
+  const expectedPolicy = challengeBatchEstablishmentPolicyForBaseline(
+    policyInput.projection.authoritativeBaseline.kind
+  );
+  if (
+    establishment.policyIdentifier !== expectedPolicy.policyIdentifier ||
+    establishment.policyVersion !== expectedPolicy.policyVersion ||
+    establishment.evaluatorKind !== expectedPolicy.evaluatorKind ||
+    establishment.evaluatorIdentifier !== expectedPolicy.evaluatorIdentifier
+  ) {
+    currentBlockers.add('POLICY_UNSUPPORTED');
+  }
   for (const blocker of policy.blockerCodes) currentBlockers.add(blocker);
   if (!sameRefs(establishment.basisClaimRefs, policy.basis.claimRefs)) {
     currentBlockers.add('CLAIM_BASIS_CHANGED');

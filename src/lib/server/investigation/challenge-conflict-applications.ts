@@ -19,8 +19,14 @@ import {
 import {
   challengeConflictApplicationBasisFormatVersion,
   challengeConflictApplicationPolicy,
+  inheritedChallengeConflictApplicationBasisFormatVersion,
+  inheritedChallengeConflictApplicationPolicy,
   readChallengeConflictApplicationBasisInTransaction
 } from './challenge-conflict-basis';
+import {
+  AuthoritativeChallengeBaselineError,
+  resolveAuthoritativeChallengeBaselineInTransaction
+} from './authoritative-challenge-baseline';
 import { getInvestigationChallenge } from './challenges';
 import { demoHumanAssessorIdentifier } from './demo-context';
 import { getInvestigationQuestion } from './questions';
@@ -55,8 +61,14 @@ const investigationChallengeConflictApplicationSchema = z.strictObject({
   questionRef: opaqueReferenceSchema,
   challengeRef: z.string().uuid(),
   policyIdentifier: z.literal(challengeConflictApplicationPolicy.identifier),
-  policyVersion: z.literal(challengeConflictApplicationPolicy.version),
-  basisFormatVersion: z.literal(challengeConflictApplicationBasisFormatVersion),
+  policyVersion: z.union([
+    z.literal(challengeConflictApplicationPolicy.version),
+    z.literal(inheritedChallengeConflictApplicationPolicy.version)
+  ]),
+  basisFormatVersion: z.union([
+    z.literal(challengeConflictApplicationBasisFormatVersion),
+    z.literal(inheritedChallengeConflictApplicationBasisFormatVersion)
+  ]),
   basisDigest: digestSchema,
   reviewedClaimRefs: canonicalReferenceArraySchema,
   reviewedAssessmentRefs: canonicalReferenceArraySchema,
@@ -76,6 +88,18 @@ const investigationChallengeConflictApplicationSchema = z.strictObject({
   createdAt: z.string().datetime(),
   demo: z.literal(true)
 }).superRefine((value, validation) => {
+  const validVersionPair =
+    (value.basisFormatVersion === challengeConflictApplicationBasisFormatVersion &&
+      value.policyVersion === challengeConflictApplicationPolicy.version) ||
+    (value.basisFormatVersion === inheritedChallengeConflictApplicationBasisFormatVersion &&
+      value.policyVersion === inheritedChallengeConflictApplicationPolicy.version);
+  if (!validVersionPair) {
+    validation.addIssue({
+      code: 'custom',
+      path: ['basisFormatVersion'],
+      message: 'Conflict basis and policy versions must be an exact supported pair.'
+    });
+  }
   if (value.resultingCaseVersion !== value.sourceCaseVersion + 1) {
     validation.addIssue({
       code: 'custom',
@@ -309,6 +333,38 @@ function validateApplicationProvenance(
     throw new InvestigationChallengeConflictApplicationError(
       'APPLICATION_PROVENANCE_INVALID',
       'Stored Challenge application Question or Challenge ownership is inconsistent.'
+    );
+  }
+  let authoritativeBaseline;
+  try {
+    authoritativeBaseline = resolveAuthoritativeChallengeBaselineInTransaction(database, {
+      caseId: application.caseId,
+      questionRef: application.questionRef,
+      challengeRef: application.challengeRef,
+      challengedRevisionId: challenge.challengedRevisionId,
+      challengedMaterialRevision: challenge.challengedMaterialRevision,
+      openedCaseVersion: challenge.openedCaseVersion,
+      currentCaseVersion: application.sourceCaseVersion
+    });
+  } catch (error) {
+    if (error instanceof AuthoritativeChallengeBaselineError) {
+      throw new InvestigationChallengeConflictApplicationError(
+        'APPLICATION_PROVENANCE_INVALID',
+        error.message
+      );
+    }
+    throw error;
+  }
+  const expectedV1 = authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED' &&
+    application.basisFormatVersion === challengeConflictApplicationBasisFormatVersion &&
+    application.policyVersion === challengeConflictApplicationPolicy.version;
+  const expectedV2 = authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH' &&
+    application.basisFormatVersion === inheritedChallengeConflictApplicationBasisFormatVersion &&
+    application.policyVersion === inheritedChallengeConflictApplicationPolicy.version;
+  if (!expectedV1 && !expectedV2) {
+    throw new InvestigationChallengeConflictApplicationError(
+      'APPLICATION_PROVENANCE_INVALID',
+      'Stored conflict basis version does not match its authoritative Challenge baseline.'
     );
   }
   const positiveApplication = database.select({

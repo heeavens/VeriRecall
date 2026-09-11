@@ -14,12 +14,19 @@ import {
   type TargetedAssessmentState
 } from './effective-analysis';
 import { listInvestigationEvidence } from './evidence-registry';
+import type { AppliedChallengeBatchBaseline } from './authoritative-challenge-baseline';
 
 export const challengeConflictApplicationBasisFormatVersion =
   'challenge-conflict-application-basis/v1' as const;
 export const challengeConflictApplicationPolicy = {
   identifier: 'demo-challenge-conflict-application-policy',
   version: 'v1'
+} as const;
+export const inheritedChallengeConflictApplicationBasisFormatVersion =
+  'challenge-conflict-application-basis/v2' as const;
+export const inheritedChallengeConflictApplicationPolicy = {
+  identifier: 'demo-challenge-conflict-application-policy',
+  version: 'v2'
 } as const;
 
 export const challengeConflictApplicationBlockerCodes = [
@@ -70,9 +77,13 @@ export interface ChallengeConflictApplicationAnalysisState {
 }
 
 export interface ChallengeConflictApplicationBasis {
-  basisFormatVersion: typeof challengeConflictApplicationBasisFormatVersion;
+  basisFormatVersion:
+    | typeof challengeConflictApplicationBasisFormatVersion
+    | typeof inheritedChallengeConflictApplicationBasisFormatVersion;
   policyIdentifier: typeof challengeConflictApplicationPolicy.identifier;
-  policyVersion: typeof challengeConflictApplicationPolicy.version;
+  policyVersion:
+    | typeof challengeConflictApplicationPolicy.version
+    | typeof inheritedChallengeConflictApplicationPolicy.version;
   caseId: string;
   questionRef: string;
   productId: string;
@@ -80,6 +91,7 @@ export interface ChallengeConflictApplicationBasis {
   projectionBasis: ChallengeEffectiveInvestigationAnalysis['projectionBasis'];
   completeEvidenceRefs: string[];
   analysisState: ChallengeConflictApplicationAnalysisState;
+  authoritativeBaseline?: AppliedChallengeBatchBaseline;
   eligibility: {
     eligible: boolean;
     blockerCodes: ChallengeConflictApplicationBlockerCode[];
@@ -232,6 +244,11 @@ function deriveConflictPolicy(
     analysis.activeClaims.map((claim) => [claim.claimRef, claim])
   );
   let candidateBasis: ChallengeConflictApplicationQualifyingConflict | null = null;
+  const baselineClaimRefsForProjection = new Set(
+    projection.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+      ? projection.authoritativeBaseline.baselineClaimRefs
+      : projection.authoritativeBaseline.resultBaselineClaimRefs
+  );
 
   if (candidateGroup) {
     const assessment = assessmentByRef.get(candidateGroup.assessmentRef);
@@ -264,7 +281,7 @@ function deriveConflictPolicy(
           continue;
         }
         const partition = getInvestigationClaimChallengeRef(database, claimRef);
-        if (partition === null) baselineClaimRefs.push(claimRef);
+        if (baselineClaimRefsForProjection.has(claimRef)) baselineClaimRefs.push(claimRef);
         if (partition === projection.analysisContext.challengeRef) {
           challengeClaimRefs.push(claimRef);
         }
@@ -327,10 +344,18 @@ export function readChallengeConflictApplicationBasisInTransaction(
   );
   const analysisState = canonicalChallengeAnalysisState(projection);
   const policy = deriveConflictPolicy(database, projection, completeEvidenceRefs);
+  const inheritedBaseline = projection.authoritativeBaseline.kind ===
+      'APPLIED_CHALLENGE_BATCH'
+    ? projection.authoritativeBaseline
+    : null;
   const basis: BasisWithoutDigest = {
-    basisFormatVersion: challengeConflictApplicationBasisFormatVersion,
+    basisFormatVersion: inheritedBaseline
+      ? inheritedChallengeConflictApplicationBasisFormatVersion
+      : challengeConflictApplicationBasisFormatVersion,
     policyIdentifier: challengeConflictApplicationPolicy.identifier,
-    policyVersion: challengeConflictApplicationPolicy.version,
+    policyVersion: inheritedBaseline
+      ? inheritedChallengeConflictApplicationPolicy.version
+      : challengeConflictApplicationPolicy.version,
     caseId: projection.analysis.caseId,
     questionRef: projection.analysis.questionRef,
     productId: projection.analysis.productId,
@@ -344,6 +369,9 @@ export function readChallengeConflictApplicationBasisInTransaction(
     },
     completeEvidenceRefs,
     analysisState,
+    ...(inheritedBaseline
+      ? { authoritativeBaseline: structuredClone(inheritedBaseline) }
+      : {}),
     eligibility: policy.eligibility,
     qualifyingConflict: policy.qualifyingConflict
   };

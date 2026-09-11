@@ -321,7 +321,7 @@ function validateChallengeEvidenceBasis(
       'Challenge claims cannot use Evidence exclusively associated with another Challenge.'
     );
   }
-  if (!relevance.includes('CHALLENGE_RELEVANT')) {
+  if (!relevance.includes('CURRENT_CHALLENGE')) {
     throw new InvestigationClaimError(
       'CHALLENGE_EVIDENCE_REQUIRED',
       'A Challenge claim requires at least one Evidence item relevant to that Challenge.'

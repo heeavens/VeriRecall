@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -219,6 +219,26 @@ export function readCaseRevisionByCaseVersion(
   if (rows.length === 0) return null;
   if (rows.length !== 1) throw new Error('Stored case revision version is ambiguous.');
   return hydrateCaseRevision(rows[0]);
+}
+
+/** Read one case's exact ordered revision interval without timestamp inference. */
+export function readCaseRevisionRange(
+  database: RecallDatabase,
+  caseId: string,
+  firstCaseVersion: number,
+  lastCaseVersion: number
+): StoredCaseRevision[] {
+  if (
+    !Number.isInteger(firstCaseVersion) || firstCaseVersion < 1 ||
+    !Number.isInteger(lastCaseVersion) || lastCaseVersion < firstCaseVersion
+  ) {
+    throw new Error('Invalid case revision range.');
+  }
+  return database.select().from(schema.caseRevisions).where(and(
+    eq(schema.caseRevisions.caseId, caseId),
+    gte(schema.caseRevisions.caseVersion, firstCaseVersion),
+    lte(schema.caseRevisions.caseVersion, lastCaseVersion)
+  )).orderBy(asc(schema.caseRevisions.caseVersion)).all().map(hydrateCaseRevision);
 }
 
 export function getCaseHistory(database: RecallDatabase, caseId: string) {

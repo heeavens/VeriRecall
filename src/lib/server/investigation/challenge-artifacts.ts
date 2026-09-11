@@ -6,11 +6,13 @@ import type { CurrentInvestigationChallengeForWrite } from './challenges';
 
 export type ChallengeArtifactPartition = string | null;
 export type ChallengeEvidenceRelevance =
-  | 'CHALLENGE_RELEVANT'
-  | 'BASELINE'
+  | 'CURRENT_CHALLENGE'
+  | 'INITIAL_BASELINE'
+  | 'INHERITED_BASELINE'
   | 'OTHER_CHALLENGE';
 
 export interface ChallengeEvidenceRecord {
+  evidenceRef: string;
   caseId: string;
   questionRef: string;
   evidenceRequestId: string | null;
@@ -82,9 +84,18 @@ export function classifyEvidenceForInvestigationChallenge(
       evidence.evidenceRequestId
     );
     if (requestChallengeRef !== null) {
-      return requestChallengeRef === authorization.challenge.challengeRef
-        ? 'CHALLENGE_RELEVANT'
-        : 'OTHER_CHALLENGE';
+      if (requestChallengeRef === authorization.challenge.challengeRef) {
+        return 'CURRENT_CHALLENGE';
+      }
+      if (
+        authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH' &&
+        authorization.authoritativeBaseline.resultBaselineEvidenceRefs.includes(
+          evidence.evidenceRef
+        )
+      ) {
+        return 'INHERITED_BASELINE';
+      }
+      return 'OTHER_CHALLENGE';
     }
   }
 
@@ -93,6 +104,12 @@ export function classifyEvidenceForInvestigationChallenge(
   return Number.isFinite(receivedAt) &&
     Number.isFinite(challengedAt) &&
     receivedAt > challengedAt
-    ? 'CHALLENGE_RELEVANT'
-    : 'BASELINE';
+    ? 'CURRENT_CHALLENGE'
+    : authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
+      ? 'INITIAL_BASELINE'
+      : authorization.authoritativeBaseline.resultBaselineEvidenceRefs.includes(
+          evidence.evidenceRef
+        )
+        ? 'INHERITED_BASELINE'
+        : 'OTHER_CHALLENGE';
 }
