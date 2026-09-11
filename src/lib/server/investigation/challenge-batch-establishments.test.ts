@@ -37,10 +37,25 @@ import {
   recordInvestigationChallengeBatchEstablishment
 } from './challenge-batch-establishments';
 import {
+  challengeBatchApplicationBasisFormatVersion,
+  challengeBatchApplicationPolicy,
+  readChallengeBatchApplicationBasis
+} from './challenge-batch-application-basis';
+import {
+  applyInvestigationChallengeBatch,
+  getInvestigationChallengeBatchApplication,
+  InvestigationChallengeBatchApplicationError
+} from './challenge-batch-applications';
+import {
   getInvestigationAssessmentChallengeRef,
   getInvestigationClaimChallengeRef
 } from './challenge-artifacts';
 import { openInvestigationChallenge } from './challenges';
+import {
+  applyInvestigationChallengeConflict,
+  InvestigationChallengeConflictApplicationError
+} from './challenge-conflict-applications';
+import { readChallengeConflictApplicationBasis } from './challenge-conflict-basis';
 import { recordInvestigationClaim, type InvestigationClaim } from './claims';
 import { readChallengeEffectiveInvestigationAnalysis } from './effective-analysis';
 import {
@@ -432,6 +447,12 @@ function protectedState(caseId: string) {
       .where(eq(schema.caseRevisions.caseId, caseId)).all(),
     commands: connection.db.select().from(schema.caseCommands)
       .where(eq(schema.caseCommands.caseId, caseId)).all(),
+    positiveApplications: connection.db.select()
+      .from(schema.investigationChallengeBatchApplications)
+      .where(eq(schema.investigationChallengeBatchApplications.caseId, caseId)).all(),
+    conflictApplications: connection.db.select()
+      .from(schema.investigationChallengeConflictApplications)
+      .where(eq(schema.investigationChallengeConflictApplications.caseId, caseId)).all(),
     decisions: snapshot?.decisions,
     tasks: snapshot?.tasks,
     exposure: snapshot?.exposure,
@@ -484,6 +505,89 @@ function advanceMaterially(snapshot: CaseSnapshot): CaseSnapshot {
     createdAt: at
   }).run();
   return advanced;
+}
+
+function closePositiveChallengeFixture(current: CaseSnapshot): CaseSnapshot {
+  if (!current.investigation || current.materialRevision === null) {
+    throw new Error('Expected known Challenge investigation state.');
+  }
+  const closedAt = nextDate().toISOString();
+  const knownZero = {
+    value: 0,
+    unit: 'ITEM' as const,
+    knowledgeStatus: 'KNOWN' as const,
+    sources: [{
+      sourceRef: 'demo:positive-challenge:closed-source',
+      sourceType: 'DERIVED' as const,
+      asOf: closedAt,
+      demo: true
+    }],
+    asOf: closedAt
+  };
+  const decision = (type: 'CONFIRM_IDENTITY' | 'CONFIRM_SCOPE' | 'CLOSE_CASE') => ({
+    id: randomUUID(),
+    type,
+    status: 'APPROVED' as const,
+    subjectRef: type === 'CLOSE_CASE' ? current.caseId : current.productId,
+    basisCaseVersion: current.caseVersion + 1,
+    basisMaterialRevision: current.materialRevision!,
+    coverage: current.investigation!.scope,
+    evidenceRefs: current.investigation!.evidenceRefs,
+    uncertaintyRefs: [],
+    conflictRefs: [],
+    consequence: 'Trusted demo operator reviewed the known scope.',
+    rationale: 'Closed positive-Challenge fixture.',
+    actorId: demoHumanAssessorIdentifier,
+    actorRole: 'CASE_MANAGER' as const,
+    decidedAt: closedAt,
+    demo: true
+  });
+  const closeDecision = decision('CLOSE_CASE');
+  const closed = caseSnapshotSchema.parse({
+    ...current,
+    caseVersion: current.caseVersion + 1,
+    stage: 'CLOSED',
+    updatedAt: closedAt,
+    exposure: {
+      status: 'CALCULATED',
+      basisMaterialRevision: current.materialRevision,
+      calculatedAt: closedAt,
+      received: knownZero,
+      warehouse: knownZero,
+      inTransit: knownZero,
+      retailer: knownZero,
+      sold: knownZero,
+      unaccounted: knownZero,
+      contained: knownZero,
+      gaps: [],
+      conflicts: []
+    },
+    tasks: [],
+    uncertainties: [],
+    conflicts: [],
+    attentionItems: [],
+    pendingDecisions: [],
+    decisions: [decision('CONFIRM_IDENTITY'), decision('CONFIRM_SCOPE'), closeDecision],
+    closure: { status: 'CLOSED', blockers: [], decisionRef: closeDecision.id }
+  });
+  connection.db.update(schema.cases).set({ status: 'closed', closedAt })
+    .where(eq(schema.cases.id, current.caseId)).run();
+  connection.db.update(schema.caseLifecycle).set({
+    caseVersion: closed.caseVersion,
+    materialRevision: closed.materialRevision,
+    snapshotJson: JSON.stringify(closed),
+    updatedAt: closed.updatedAt
+  }).where(eq(schema.caseLifecycle.caseId, closed.caseId)).run();
+  connection.db.insert(schema.caseRevisions).values({
+    id: randomUUID(),
+    caseId: closed.caseId,
+    caseVersion: closed.caseVersion,
+    materialRevision: closed.materialRevision,
+    snapshotJson: JSON.stringify(closed),
+    actorId: 'test_fixture',
+    createdAt: closed.updatedAt
+  }).run();
+  return closed;
 }
 
 function resetTestDatabase(): void {
@@ -1128,6 +1232,600 @@ describe('Challenge batch Establishment policy', () => {
       expect(existing.db.select().from(schema.alerts).all()).toEqual(alertsBefore);
       expect(existing.db.select().from(schema.matches).all()).toEqual(matchesBefore);
       expect(existing.db.select().from(schema.investigationChallengeEstablishments).all())
+        .toEqual([]);
+      expect(existing.sqlite.pragma('foreign_key_check')).toEqual([]);
+    } finally {
+      existing.sqlite.close();
+    }
+  });
+});
+
+function establishChallengeBatch(seed: ReturnType<typeof seedPositiveChallenge>) {
+  const input = recordInput(seed);
+  const establishment = recordInvestigationChallengeBatchEstablishment(
+    connection.db,
+    input,
+    context,
+    nextDate()
+  ).establishment;
+  return { input, establishment };
+}
+
+function challengeBatchApplicationInput(
+  seed: ReturnType<typeof seedPositiveChallenge>,
+  establishmentRef: string
+) {
+  const basis = readChallengeBatchApplicationBasis(
+    connection.db,
+    seed.knownSnapshot.caseId,
+    seed.questionRef,
+    seed.challengeRef,
+    establishmentRef
+  );
+  return {
+    basis,
+    input: {
+      applicationRef: randomUUID(),
+      caseId: seed.knownSnapshot.caseId,
+      questionRef: seed.questionRef,
+      challengeRef: seed.challengeRef,
+      establishmentRef,
+      expectedCaseVersion: seed.knownSnapshot.caseVersion,
+      expectedMaterialRevision: seed.knownSnapshot.materialRevision!,
+      expectedApplicationBasisDigest: basis.applicationBasisDigest,
+      rationale: 'Reviewed the exact current positive Challenge application basis.',
+      demo: true as const
+    }
+  };
+}
+
+function expectChallengeBatchApplicationError(
+  action: () => unknown,
+  code: InvestigationChallengeBatchApplicationError['code']
+): void {
+  try {
+    action();
+    throw new Error(`Expected ${code}.`);
+  } catch (error) {
+    expect(error).toBeInstanceOf(InvestigationChallengeBatchApplicationError);
+    expect((error as InvestigationChallengeBatchApplicationError).code).toBe(code);
+  }
+}
+
+describe('positive Challenge batch application', () => {
+  it('derives a stable read-only basis and exposes the exact 16A classification', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const before = protectedState(seed.knownSnapshot.caseId);
+    const first = readChallengeBatchApplicationBasis(
+      connection.db,
+      seed.knownSnapshot.caseId,
+      seed.questionRef,
+      seed.challengeRef,
+      establishment.establishmentRef
+    );
+    const second = readChallengeBatchApplicationBasis(
+      connection.db,
+      seed.knownSnapshot.caseId,
+      seed.questionRef,
+      seed.challengeRef,
+      establishment.establishmentRef
+    );
+
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({
+      basisFormatVersion: challengeBatchApplicationBasisFormatVersion,
+      applicationPolicyIdentifier: challengeBatchApplicationPolicy.identifier,
+      applicationPolicyVersion: challengeBatchApplicationPolicy.version,
+      challengeRef: seed.challengeRef,
+      establishmentRef: establishment.establishmentRef,
+      claimRef: seed.targetClaim.claimRef,
+      resolutionKind: 'REAFFIRM',
+      targetNormalizedLot: 'mft24',
+      eligibility: { eligible: true, blockerCodes: [] }
+    });
+    expect(first.currentEvaluation.qualifyingTargetSupportAssessmentRefs)
+      .toEqual([seed.support!.assessmentRef]);
+    expect(first.currentEvaluation.reliedUponRejectionAssessmentRefs).toEqual([]);
+    expect(first.currentEvaluation.basis).toEqual({
+      claimRefs: establishment.basisClaimRefs,
+      assessmentRefs: establishment.basisAssessmentRefs,
+      evidenceRefs: establishment.basisEvidenceRefs
+    });
+    expect(first.reviewedClaimRefs).toEqual(establishment.basisClaimRefs);
+    expect(first.reviewedAssessmentRefs).toEqual(establishment.basisAssessmentRefs);
+    expect(first.reviewedEvidenceRefs).toEqual(completeEvidenceRefs(seed));
+    expect(first.resultBaselineClaimRefs).toEqual([seed.targetClaim.claimRef]);
+    expect(first.resultBaselineAssessmentRefs).toEqual([seed.support!.assessmentRef]);
+    expect(first.applicationBasisDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(evaluateCurrentInvestigationChallengeBatchEstablishment(
+      connection.db,
+      seed.knownSnapshot.caseId,
+      establishment.establishmentRef
+    )).toMatchObject({
+      qualifyingTargetSupportAssessmentRefs: [seed.support!.assessmentRef],
+      reliedUponRejectionAssessmentRefs: []
+    });
+    expect(protectedState(seed.knownSnapshot.caseId)).toEqual(before);
+  });
+
+  it('changes the reviewed digest for Claim and Assessment drift without lifecycle versions', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const original = readChallengeBatchApplicationBasis(
+      connection.db,
+      seed.knownSnapshot.caseId,
+      seed.questionRef,
+      seed.challengeRef,
+      establishment.establishmentRef
+    );
+    recordChallengeClaim(seed, 'MFT24', { claimRef: randomUUID() });
+    const claimDrift = readChallengeBatchApplicationBasis(
+      connection.db,
+      seed.knownSnapshot.caseId,
+      seed.questionRef,
+      seed.challengeRef,
+      establishment.establishmentRef
+    );
+    expect(claimDrift.currentCaseVersion).toBe(original.currentCaseVersion);
+    expect(claimDrift.currentMaterialRevision).toBe(original.currentMaterialRevision);
+    expect(claimDrift.applicationBasisDigest).not.toBe(original.applicationBasisDigest);
+
+    resetTestDatabase();
+    const assessmentSeed = seedPositiveChallenge();
+    const recorded = establishChallengeBatch(assessmentSeed).establishment;
+    const beforeAssessment = readChallengeBatchApplicationBasis(
+      connection.db,
+      assessmentSeed.knownSnapshot.caseId,
+      assessmentSeed.questionRef,
+      assessmentSeed.challengeRef,
+      recorded.establishmentRef
+    );
+    recordChallengeAssessment(assessmentSeed, {
+      verdict: 'SUPPORTED',
+      targetClaimRef: assessmentSeed.targetClaim.claimRef,
+      assessorKind: 'RULE'
+    });
+    const assessmentDrift = readChallengeBatchApplicationBasis(
+      connection.db,
+      assessmentSeed.knownSnapshot.caseId,
+      assessmentSeed.questionRef,
+      assessmentSeed.challengeRef,
+      recorded.establishmentRef
+    );
+    expect(assessmentDrift.currentCaseVersion).toBe(beforeAssessment.currentCaseVersion);
+    expect(assessmentDrift.currentMaterialRevision).toBe(beforeAssessment.currentMaterialRevision);
+    expect(assessmentDrift.applicationBasisDigest).not.toBe(
+      beforeAssessment.applicationBasisDigest
+    );
+  });
+
+  it('applies a same-lot reaffirmation as exact +1 material authority and replays historically', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const { basis, input } = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+    const beforeRevisions = connection.db.select().from(schema.caseRevisions).all().length;
+    const beforeCommands = connection.db.select().from(schema.caseCommands).all().length;
+    const beforeAudit = connection.db.select().from(schema.auditEvents).all().length;
+    const applied = applyInvestigationChallengeBatch(
+      connection.db,
+      input,
+      context,
+      nextDate()
+    );
+
+    expect(applied.replayed).toBe(false);
+    expect(applied.snapshot.caseVersion).toBe(seed.knownSnapshot.caseVersion + 1);
+    expect(applied.snapshot.materialRevision).toBe(seed.knownSnapshot.materialRevision! + 1);
+    expect(applied.snapshot.investigation).toMatchObject({
+      knowledgeStatus: 'KNOWN',
+      scope: {
+        kind: 'BATCH_LOT',
+        lots: ['mft24'],
+        knowledgeStatus: 'KNOWN',
+        evidenceRefs: basis.appliedEvidenceRefs,
+        decisionRefs: [input.applicationRef]
+      },
+      gaps: [],
+      conflicts: []
+    });
+    expect(applied.snapshot.investigation!.identity)
+      .toEqual(seed.knownSnapshot.investigation!.identity);
+    expect(applied.snapshot.decisions.some(
+      (decision) => decision.id === input.applicationRef
+    )).toBe(false);
+    expect(applied.application).toMatchObject({
+      claimRef: seed.targetClaim.claimRef,
+      appliedLot: 'mft24',
+      actorKind: 'HUMAN',
+      actorIdentifier: demoHumanAssessorIdentifier,
+      reviewedClaimRefs: basis.reviewedClaimRefs,
+      appliedAssessmentRefs: basis.appliedAssessmentRefs,
+      resultBaselineClaimRefs: [seed.targetClaim.claimRef],
+      resultBaselineAssessmentRefs: [seed.support!.assessmentRef]
+    });
+    expect(applied.application.resultingCaseVersion)
+      .toBe(applied.application.sourceCaseVersion + 1);
+    expect(applied.application.resultingMaterialRevision)
+      .toBe(applied.application.sourceMaterialRevision + 1);
+
+    const replay = applyInvestigationChallengeBatch(connection.db, {
+      ...input,
+      expectedCaseVersion: 999,
+      expectedMaterialRevision: 999,
+      expectedApplicationBasisDigest: `sha256:${'0'.repeat(64)}`
+    }, context, nextDate());
+    expect(replay).toEqual({ ...applied, replayed: true });
+    expect(getInvestigationChallengeBatchApplication(
+      connection.db,
+      input.caseId,
+      input.applicationRef
+    )).toEqual(applied.application);
+    expect(connection.db.select().from(schema.investigationChallengeBatchApplications).all())
+      .toHaveLength(1);
+    expect(connection.db.select().from(schema.caseRevisions).all().length).toBe(beforeRevisions + 1);
+    expect(connection.db.select().from(schema.caseCommands).all().length).toBe(beforeCommands + 1);
+    expect(connection.db.select().from(schema.auditEvents).all().length).toBe(beforeAudit + 1);
+  });
+
+  it('replaces the lot while separating reviewed rejection justification from result baseline', () => {
+    const seed = seedPositiveChallenge({ targetLot: 'MFT25' });
+    const rejection = recordChallengeAssessment(seed, {
+      verdict: 'REJECTED',
+      targetClaimRef: seed.baselineClaim.claimRef,
+      assessorKind: 'RULE'
+    });
+    const { establishment } = establishChallengeBatch(seed);
+    const { basis, input } = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+    expect(basis.resolutionKind).toBe('REPLACE');
+    expect(basis.appliedAssessmentRefs).toEqual([
+      rejection.assessmentRef,
+      seed.support!.assessmentRef
+    ].sort());
+    expect(basis.resultBaselineClaimRefs).toEqual([seed.targetClaim.claimRef]);
+    expect(basis.resultBaselineAssessmentRefs).toEqual([seed.support!.assessmentRef]);
+    expect(basis.resultBaselineClaimRefs).not.toContain(seed.baselineClaim.claimRef);
+    expect(basis.resultBaselineAssessmentRefs).not.toContain(rejection.assessmentRef);
+
+    const applied = applyInvestigationChallengeBatch(connection.db, input, context, nextDate());
+    expect(applied.snapshot.investigation!.scope).toMatchObject({
+      kind: 'BATCH_LOT',
+      lots: ['mft25'],
+      evidenceRefs: completeEvidenceRefs(seed)
+    });
+    expect(applied.application.appliedAssessmentRefs).toEqual(basis.appliedAssessmentRefs);
+    expect(applied.application.resultBaselineAssessmentRefs)
+      .toEqual([seed.support!.assessmentRef]);
+  });
+
+  it('reuses shared material-change semantics to reopen a CLOSED case', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const closed = closePositiveChallengeFixture(seed.knownSnapshot);
+    const basis = readChallengeBatchApplicationBasis(
+      connection.db,
+      closed.caseId,
+      seed.questionRef,
+      seed.challengeRef,
+      establishment.establishmentRef
+    );
+    expect(basis.eligibility.eligible).toBe(true);
+    const applied = applyInvestigationChallengeBatch(connection.db, {
+      applicationRef: randomUUID(),
+      caseId: closed.caseId,
+      questionRef: seed.questionRef,
+      challengeRef: seed.challengeRef,
+      establishmentRef: establishment.establishmentRef,
+      expectedCaseVersion: closed.caseVersion,
+      expectedMaterialRevision: closed.materialRevision!,
+      expectedApplicationBasisDigest: basis.applicationBasisDigest,
+      rationale: 'Reviewed the current closed-case reaffirmation basis.',
+      demo: true
+    }, context, nextDate());
+    expect(applied.snapshot).toMatchObject({
+      caseVersion: closed.caseVersion + 1,
+      materialRevision: closed.materialRevision! + 1,
+      stage: 'INVESTIGATING',
+      exposure: { status: 'NOT_CALCULATED' },
+      closure: { status: 'NOT_READY' }
+    });
+    expect(connection.db.select().from(schema.cases).where(eq(
+      schema.cases.id,
+      closed.caseId
+    )).get()).toMatchObject({ status: 'open', closedAt: null });
+    expect(connection.db.select().from(schema.auditEvents).where(eq(
+      schema.auditEvents.eventType,
+      'case_reopened'
+    )).all()).toHaveLength(1);
+  });
+
+  it('rejects strict caller authority, stale freshness, and exact digest drift', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const { input } = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+    expectChallengeBatchApplicationError(
+      () => applyInvestigationChallengeBatch(connection.db, { ...input, lot: 'MFT99' }, context),
+      'INVALID_INPUT'
+    );
+    expectChallengeBatchApplicationError(
+      () => applyInvestigationChallengeBatch(connection.db, input, { mode: 'disabled' }),
+      'FORBIDDEN'
+    );
+    expectChallengeBatchApplicationError(
+      () => applyInvestigationChallengeBatch(connection.db, {
+        ...input,
+        expectedCaseVersion: input.expectedCaseVersion + 1
+      }, context),
+      'STALE_CASE_VERSION'
+    );
+    recordEvidence(
+      seed.knownSnapshot,
+      seed.questionRef,
+      'evidence:challenge-application:drift',
+      'EXTERNAL_PARTY',
+      'MFT24'
+    );
+    expectChallengeBatchApplicationError(
+      () => applyInvestigationChallengeBatch(connection.db, input, context),
+      'STALE_APPLICATION_BASIS'
+    );
+  });
+
+  it('enforces positive replay/collisions and reciprocal conflict exclusivity', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const { input } = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+    applyInvestigationChallengeBatch(connection.db, input, context, nextDate());
+    expectChallengeBatchApplicationError(
+      () => applyInvestigationChallengeBatch(connection.db, {
+        ...input,
+        rationale: 'Different immutable human semantics.'
+      }, context),
+      'APPLICATION_CONFLICT'
+    );
+    expectChallengeBatchApplicationError(
+      () => applyInvestigationChallengeBatch(connection.db, {
+        ...input,
+        applicationRef: randomUUID()
+      }, context),
+      'CHALLENGE_ALREADY_APPLIED'
+    );
+
+    try {
+      applyInvestigationChallengeConflict(connection.db, {
+        applicationRef: randomUUID(),
+        caseId: seed.knownSnapshot.caseId,
+        questionRef: seed.questionRef,
+        challengeRef: seed.challengeRef,
+        expectedCaseVersion: seed.knownSnapshot.caseVersion,
+        expectedMaterialRevision: seed.knownSnapshot.materialRevision!,
+        expectedApplicationBasisDigest: `sha256:${'0'.repeat(64)}`,
+        rationale: 'Attempted competing conflict resolution.',
+        demo: true
+      }, context);
+      throw new Error('Expected reciprocal conflict exclusion.');
+    } catch (error) {
+      expect(error).toBeInstanceOf(InvestigationChallengeConflictApplicationError);
+      expect((error as InvestigationChallengeConflictApplicationError).code)
+        .toBe('CHALLENGE_RESOLUTION_CONFLICT');
+    }
+  });
+
+  it('rejects a positive application when the same Challenge already has conflict authority', () => {
+    const seed = seedPositiveChallenge({ targetLot: 'MFT25' });
+    const rejection = recordChallengeAssessment(seed, {
+      verdict: 'REJECTED',
+      targetClaimRef: seed.baselineClaim.claimRef,
+      assessorKind: 'RULE'
+    });
+    const { establishment } = establishChallengeBatch(seed);
+    recordChallengeAssessment(seed, {
+      verdict: 'SUPPORTED',
+      targetClaimRef: seed.baselineClaim.claimRef,
+      assessorKind: 'HUMAN',
+      supersedesAssessmentRef: rejection.assessmentRef
+    });
+    recordChallengeAssessment(seed, {
+      verdict: 'CONTRADICTED',
+      targetClaimRef: null,
+      relatedClaimRefs: [seed.baselineClaim.claimRef, seed.targetClaim.claimRef],
+      assessorKind: 'HUMAN'
+    });
+    const conflictBasis = readChallengeConflictApplicationBasis(
+      connection.db,
+      seed.knownSnapshot.caseId,
+      seed.questionRef,
+      seed.challengeRef
+    );
+    expect(conflictBasis.eligibility.eligible).toBe(true);
+    const conflictInput = {
+      applicationRef: randomUUID(),
+      caseId: seed.knownSnapshot.caseId,
+      questionRef: seed.questionRef,
+      challengeRef: seed.challengeRef,
+      expectedCaseVersion: seed.knownSnapshot.caseVersion,
+      expectedMaterialRevision: seed.knownSnapshot.materialRevision!,
+      expectedApplicationBasisDigest: conflictBasis.applicationBasisDigest,
+      rationale: 'Reviewed the exact competing conflict basis.',
+      demo: true as const
+    };
+    const conflict = applyInvestigationChallengeConflict(
+      connection.db,
+      conflictInput,
+      context,
+      nextDate()
+    );
+    expect(conflict.replayed).toBe(false);
+    expect(applyInvestigationChallengeConflict(
+      connection.db,
+      { ...conflictInput, expectedCaseVersion: 999 },
+      context,
+      nextDate()
+    )).toEqual({ ...conflict, replayed: true });
+
+    const positiveInput = {
+      applicationRef: randomUUID(),
+      caseId: seed.knownSnapshot.caseId,
+      questionRef: seed.questionRef,
+      challengeRef: seed.challengeRef,
+      establishmentRef: establishment.establishmentRef,
+      expectedCaseVersion: seed.knownSnapshot.caseVersion,
+      expectedMaterialRevision: seed.knownSnapshot.materialRevision!,
+      expectedApplicationBasisDigest: `sha256:${'0'.repeat(64)}`,
+      rationale: 'Attempted competing positive resolution.',
+      demo: true as const
+    };
+    expectChallengeBatchApplicationError(
+      () => applyInvestigationChallengeBatch(connection.db, positiveInput, context),
+      'CHALLENGE_RESOLUTION_CONFLICT'
+    );
+  });
+
+  it('rolls back all lifecycle writes when positive provenance insertion fails', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const { input } = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+    const before = protectedState(seed.knownSnapshot.caseId);
+    const auditBefore = connection.db.select().from(schema.auditEvents).all();
+    connection.sqlite.exec(`
+      create trigger force_positive_challenge_application_failure
+      before insert on investigation_challenge_batch_applications
+      begin
+        select raise(abort, 'forced positive application failure');
+      end;
+    `);
+    expect(() => applyInvestigationChallengeBatch(connection.db, input, context, nextDate()))
+      .toThrow('forced positive application failure');
+    expect(protectedState(seed.knownSnapshot.caseId)).toEqual(before);
+    expect(connection.db.select().from(schema.auditEvents).all()).toEqual(auditBefore);
+    expect(connection.db.select().from(schema.investigationChallengeBatchApplications).all())
+      .toEqual([]);
+  });
+
+  it('leaves no application or lifecycle side effect when case revision persistence fails', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const { input } = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+    const before = protectedState(seed.knownSnapshot.caseId);
+    const auditBefore = connection.db.select().from(schema.auditEvents).all();
+    connection.sqlite.exec(`
+      create trigger force_positive_challenge_revision_failure
+      before insert on case_revisions
+      begin
+        select raise(abort, 'forced positive revision failure');
+      end;
+    `);
+    expect(() => applyInvestigationChallengeBatch(connection.db, input, context, nextDate()))
+      .toThrow('forced positive revision failure');
+    expect(protectedState(seed.knownSnapshot.caseId)).toEqual(before);
+    expect(connection.db.select().from(schema.auditEvents).all()).toEqual(auditBefore);
+    expect(connection.db.select().from(schema.investigationChallengeBatchApplications).all())
+      .toEqual([]);
+  });
+
+  it('enforces restrictive parents, persists after reopen, and resets before parents', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const { input } = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+    applyInvestigationChallengeBatch(connection.db, input, context, nextDate());
+    expect(() => connection.db.delete(schema.investigationChallengeEstablishments).where(eq(
+      schema.investigationChallengeEstablishments.establishmentRef,
+      establishment.establishmentRef
+    )).run()).toThrow();
+    const path = connection.sqlite.name;
+    connection.sqlite.close();
+    connection = createDatabaseConnection(path);
+    expect(getInvestigationChallengeBatchApplication(
+      connection.db,
+      input.caseId,
+      input.applicationRef
+    )).not.toBeNull();
+    expect(connection.sqlite.pragma('foreign_key_check')).toEqual([]);
+    expect(() => clearDemoData(connection.db)).not.toThrow();
+    expect(connection.db.select().from(schema.investigationChallengeBatchApplications).all())
+      .toEqual([]);
+    expect(() => seedDemoData(connection.db, fixtures)).not.toThrow();
+  });
+
+  it('fails closed when immutable JSON or HUMAN/demo database invariants are corrupted', () => {
+    const seed = seedPositiveChallenge();
+    const { establishment } = establishChallengeBatch(seed);
+    const { input } = challengeBatchApplicationInput(seed, establishment.establishmentRef);
+    applyInvestigationChallengeBatch(connection.db, input, context, nextDate());
+    expect(() => connection.db.update(schema.investigationChallengeBatchApplications).set({
+      demo: false
+    }).where(eq(
+      schema.investigationChallengeBatchApplications.applicationRef,
+      input.applicationRef
+    )).run()).toThrow();
+    expect(() => connection.sqlite.prepare(
+      'update investigation_challenge_batch_applications set actor_kind = ? where application_ref = ?'
+    ).run('AI', input.applicationRef)).toThrow();
+    expect(() => connection.sqlite.prepare(
+      `update investigation_challenge_batch_applications
+       set resulting_material_revision = source_material_revision + 2
+       where application_ref = ?`
+    ).run(input.applicationRef)).toThrow();
+    expect(() => connection.sqlite.prepare(
+      'update investigation_challenge_batch_applications set basis_digest = ? where application_ref = ?'
+    ).run(`sha256:${'A'.repeat(64)}`, input.applicationRef)).toThrow();
+    connection.db.update(schema.investigationChallengeBatchApplications).set({
+      reviewedClaimRefsJson: JSON.stringify([
+        seed.targetClaim.claimRef,
+        seed.baselineClaim.claimRef
+      ].sort().reverse())
+    }).where(eq(
+      schema.investigationChallengeBatchApplications.applicationRef,
+      input.applicationRef
+    )).run();
+    expectChallengeBatchApplicationError(
+      () => getInvestigationChallengeBatchApplication(
+        connection.db,
+        input.caseId,
+        input.applicationRef
+      ),
+      'APPLICATION_PROVENANCE_INVALID'
+    );
+  });
+
+  it('upgrades populated 0014 state additively and reruns migration safely', () => {
+    const preApplicationFolder = join(directory, 'pre-positive-application-migrations');
+    mkdirSync(join(preApplicationFolder, 'meta'), { recursive: true });
+    for (const file of [
+      '0000_initial.sql',
+      '0001_last_living_lightning.sql',
+      '0002_case_lifecycle.sql',
+      '0003_traceability_exposure.sql',
+      '0004_last_thunderbolt.sql',
+      '0005_majestic_centennial.sql',
+      '0006_cynical_rictor.sql',
+      '0007_calm_captain_cross.sql',
+      '0008_warm_zarek.sql',
+      '0009_glamorous_celestials.sql',
+      '0010_lying_hellcat.sql',
+      '0011_confused_hannibal_king.sql',
+      '0012_stiff_squadron_supreme.sql',
+      '0013_tricky_amazoness.sql',
+      '0014_sour_firelord.sql'
+    ]) cpSync(join('drizzle', file), join(preApplicationFolder, file));
+    const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
+    journal.entries = journal.entries.slice(0, 15);
+    writeFileSync(join(preApplicationFolder, 'meta/_journal.json'), JSON.stringify(journal));
+
+    const existing = createDatabaseConnection(join(directory, 'populated-0014.db'));
+    try {
+      migrate(existing.db, { migrationsFolder: preApplicationFolder });
+      seedDemoData(existing.db, fixtures);
+      expect(existing.sqlite.prepare(
+        "select name from sqlite_master where type = 'table' and name = ?"
+      ).get('investigation_challenge_batch_applications')).toBeUndefined();
+      const productsBefore = existing.db.select().from(schema.products).all();
+      const alertsBefore = existing.db.select().from(schema.alerts).all();
+      migrate(existing.db, { migrationsFolder: resolve('drizzle') });
+      migrate(existing.db, { migrationsFolder: resolve('drizzle') });
+      expect(existing.db.select().from(schema.products).all()).toEqual(productsBefore);
+      expect(existing.db.select().from(schema.alerts).all()).toEqual(alertsBefore);
+      expect(existing.db.select().from(schema.investigationChallengeBatchApplications).all())
         .toEqual([]);
       expect(existing.sqlite.pragma('foreign_key_check')).toEqual([]);
     } finally {

@@ -105,6 +105,7 @@ export type InvestigationChallengeConflictApplicationErrorCode =
   | 'APPLICATION_NOT_FOUND'
   | 'APPLICATION_CONFLICT'
   | 'CHALLENGE_ALREADY_APPLIED'
+  | 'CHALLENGE_RESOLUTION_CONFLICT'
   | 'COMMAND_ID_CONFLICT'
   | 'VERSIONED_CASE_REQUIRED'
   | 'STALE_CASE_VERSION'
@@ -310,6 +311,18 @@ function validateApplicationProvenance(
       'Stored Challenge application Question or Challenge ownership is inconsistent.'
     );
   }
+  const positiveApplication = database.select({
+    applicationRef: schema.investigationChallengeBatchApplications.applicationRef
+  }).from(schema.investigationChallengeBatchApplications).where(eq(
+    schema.investigationChallengeBatchApplications.challengeRef,
+    application.challengeRef
+  )).get();
+  if (positiveApplication) {
+    throw new InvestigationChallengeConflictApplicationError(
+      'APPLICATION_PROVENANCE_INVALID',
+      'Positive and conflict applications coexist for one Challenge.'
+    );
+  }
   const source = readRevision(database, application, 'source');
   const result = readRevision(database, application, 'result');
   const command = database.select().from(schema.caseCommands).where(and(
@@ -489,6 +502,18 @@ export function applyInvestigationChallengeConflict(
       throw new InvestigationChallengeConflictApplicationError(
         'CHALLENGE_ALREADY_APPLIED',
         'This investigation Challenge already produced an authoritative conflict application.'
+      );
+    }
+    const positiveApplication = transaction.select({
+      applicationRef: schema.investigationChallengeBatchApplications.applicationRef
+    }).from(schema.investigationChallengeBatchApplications).where(eq(
+      schema.investigationChallengeBatchApplications.challengeRef,
+      parsed.challengeRef
+    )).get();
+    if (positiveApplication) {
+      throw new InvestigationChallengeConflictApplicationError(
+        'CHALLENGE_RESOLUTION_CONFLICT',
+        'This Challenge already has an authoritative positive batch application.'
       );
     }
     const commandCollision = transaction.select({ id: schema.caseCommands.id })

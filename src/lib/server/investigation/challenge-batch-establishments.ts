@@ -21,6 +21,7 @@ import {
   InvestigationChallengeError,
   resolveCurrentInvestigationChallengeForWrite
 } from './challenges';
+import type { InvestigationClaim } from './claims';
 import {
   EffectiveAnalysisError,
   readChallengeEffectiveInvestigationAnalysisInTransaction,
@@ -112,6 +113,7 @@ export interface DemoChallengeBatchEstablishmentPolicyEvaluation {
   basis: DemoChallengeBatchEstablishmentBasis;
   targetLot: string | null;
   targetSupportAssessmentRefs: string[];
+  qualifyingTargetSupportAssessmentRefs: string[];
   reliedUponRejectionAssessmentRefs: string[];
 }
 
@@ -199,6 +201,8 @@ export interface CurrentInvestigationChallengeBatchEstablishmentEvaluation {
   blockerCodes: CurrentChallengeBatchEstablishmentBlockerCode[];
   currentBasis: DemoChallengeBatchEstablishmentBasis | null;
   targetLot: string | null;
+  qualifyingTargetSupportAssessmentRefs: string[];
+  reliedUponRejectionAssessmentRefs: string[];
 }
 
 function compareText(left: string, right: string): number {
@@ -236,6 +240,84 @@ function isTrustedRejection(assessment: InvestigationAssessment): boolean {
   return assessment.assessorKind === 'RULE' ||
     (assessment.assessorKind === 'HUMAN' &&
       assessment.assessorIdentifier === demoHumanAssessorIdentifier);
+}
+
+export interface ChallengeBatchAssessmentClassification {
+  structuralTargetSupportAssessmentRefs: string[];
+  targetSupportAssessmentRefs: string[];
+  qualifyingTargetSupportAssessmentRefs: string[];
+  reliedUponRejectionAssessmentRefs: string[];
+  divergentClaimRefsWithoutTrustedRejection: string[];
+}
+
+/** Shared v1 assessment categorization for live policy and immutable provenance validation. */
+export function classifyChallengeBatchEstablishmentAssessments(input: {
+  activeClaims: readonly InvestigationClaim[];
+  structuralAssessmentHeads: readonly InvestigationAssessment[];
+  materiallyCurrentAssessmentRefs: ReadonlySet<string>;
+  assessmentChallengeRefs: ReadonlyMap<string, string | null>;
+  challengeRef: string;
+  targetClaimRef: string;
+  targetLot: string;
+  completeEvidenceRefs: readonly string[];
+}): ChallengeBatchAssessmentClassification {
+  const structuralTargetSupports = input.structuralAssessmentHeads.filter((assessment) =>
+    assessment.verdict === 'SUPPORTED' &&
+    assessment.targetClaimRef === input.targetClaimRef &&
+    assessment.assessorKind === 'HUMAN' &&
+    assessment.assessorIdentifier === demoHumanAssessorIdentifier &&
+    input.assessmentChallengeRefs.get(assessment.assessmentRef) === input.challengeRef
+  );
+  const currentTargetSupports = structuralTargetSupports.filter((assessment) =>
+    input.materiallyCurrentAssessmentRefs.has(assessment.assessmentRef)
+  );
+  const qualifyingTargetSupports = currentTargetSupports.filter((assessment) =>
+    sameRefs(assessment.evidenceRefs, input.completeEvidenceRefs)
+  );
+  const materiallyCurrentByRef = new Map(
+    input.structuralAssessmentHeads.filter((assessment) =>
+      input.materiallyCurrentAssessmentRefs.has(assessment.assessmentRef)
+    ).map((assessment) => [assessment.assessmentRef, assessment])
+  );
+  const reliedUponRejections: string[] = [];
+  const divergentWithoutRejection: string[] = [];
+  if (input.targetLot.length > 0) {
+    for (const alternative of input.activeClaims) {
+      if (
+        alternative.claimRef === input.targetClaimRef ||
+        normalizeBatch(alternative.value.lot) === input.targetLot
+      ) {
+        continue;
+      }
+      const trustedRejections = input.structuralAssessmentHeads.filter((assessment) =>
+        assessment.targetClaimRef === alternative.claimRef &&
+        assessment.verdict === 'REJECTED' &&
+        materiallyCurrentByRef.has(assessment.assessmentRef) &&
+        input.assessmentChallengeRefs.get(assessment.assessmentRef) === input.challengeRef &&
+        isTrustedRejection(assessment)
+      );
+      if (trustedRejections.length === 0) {
+        divergentWithoutRejection.push(alternative.claimRef);
+      } else {
+        reliedUponRejections.push(...trustedRejections.map((assessment) =>
+          assessment.assessmentRef
+        ));
+      }
+    }
+  }
+  return {
+    structuralTargetSupportAssessmentRefs: canonicalRefs(
+      structuralTargetSupports.map((assessment) => assessment.assessmentRef)
+    ),
+    targetSupportAssessmentRefs: canonicalRefs(
+      currentTargetSupports.map((assessment) => assessment.assessmentRef)
+    ),
+    qualifyingTargetSupportAssessmentRefs: canonicalRefs(
+      qualifyingTargetSupports.map((assessment) => assessment.assessmentRef)
+    ),
+    reliedUponRejectionAssessmentRefs: canonicalRefs(reliedUponRejections),
+    divergentClaimRefsWithoutTrustedRejection: canonicalRefs(divergentWithoutRejection)
+  };
 }
 
 export function evaluateDemoChallengeBatchEstablishmentPolicy(
@@ -324,26 +406,24 @@ export function evaluateDemoChallengeBatchEstablishmentPolicy(
     blockers.add(blocker);
   }
 
-  const structuralTargetSupports = analysis.structuralAssessmentHeads.filter((assessment) =>
-    assessment.verdict === 'SUPPORTED' &&
-    assessment.targetClaimRef === targetClaimRef &&
-    assessment.assessorKind === 'HUMAN' &&
-    assessment.assessorIdentifier === demoHumanAssessorIdentifier &&
-    input.assessmentChallengeRefs.get(assessment.assessmentRef) === analysisContext.challengeRef
-  );
   const materiallyCurrentRefs = new Set(
     analysis.materiallyCurrentAssessmentHeads.map((assessment) => assessment.assessmentRef)
   );
-  const currentTargetSupports = structuralTargetSupports.filter((assessment) =>
-    materiallyCurrentRefs.has(assessment.assessmentRef)
-  );
-  if (structuralTargetSupports.length === 0) {
+  const assessmentClassification = classifyChallengeBatchEstablishmentAssessments({
+    activeClaims: analysis.activeClaims,
+    structuralAssessmentHeads: analysis.structuralAssessmentHeads,
+    materiallyCurrentAssessmentRefs: materiallyCurrentRefs,
+    assessmentChallengeRefs: input.assessmentChallengeRefs,
+    challengeRef: analysisContext.challengeRef,
+    targetClaimRef,
+    targetLot,
+    completeEvidenceRefs: basis.evidenceRefs
+  });
+  if (assessmentClassification.structuralTargetSupportAssessmentRefs.length === 0) {
     blockers.add('HUMAN_SUPPORT_MISSING');
-  } else if (currentTargetSupports.length === 0) {
+  } else if (assessmentClassification.targetSupportAssessmentRefs.length === 0) {
     blockers.add('HUMAN_SUPPORT_NOT_CURRENT');
-  } else if (!currentTargetSupports.some((assessment) =>
-    sameRefs(assessment.evidenceRefs, basis.evidenceRefs)
-  )) {
+  } else if (assessmentClassification.qualifyingTargetSupportAssessmentRefs.length === 0) {
     blockers.add('HUMAN_SUPPORT_INCOMPLETE');
   }
 
@@ -363,36 +443,8 @@ export function evaluateDemoChallengeBatchEstablishmentPolicy(
   }
   if (analysis.activeContradictions.length > 0) blockers.add('ACTIVE_CONTRADICTION');
 
-  const materiallyCurrentByRef = new Map(
-    analysis.materiallyCurrentAssessmentHeads.map((assessment) => [
-      assessment.assessmentRef,
-      assessment
-    ])
-  );
-  const reliedUponRejections: string[] = [];
-  if (target && targetLot.length > 0) {
-    for (const alternative of analysis.activeClaims) {
-      if (
-        alternative.claimRef === target.claimRef ||
-        normalizeBatch(alternative.value.lot) === targetLot
-      ) {
-        continue;
-      }
-      const state = analysis.targetedAssessments.find(
-        (item) => item.claimRef === alternative.claimRef
-      );
-      const trustedRejections = (state?.rejectedAssessmentRefs ?? []).filter((ref) => {
-        const assessment = materiallyCurrentByRef.get(ref);
-        return assessment !== undefined &&
-          input.assessmentChallengeRefs.get(ref) === analysisContext.challengeRef &&
-          isTrustedRejection(assessment);
-      });
-      if (trustedRejections.length === 0) {
-        blockers.add('DIVERGENT_ACTIVE_CLAIM_NOT_REJECTED');
-      } else {
-        reliedUponRejections.push(...trustedRejections);
-      }
-    }
+  if (assessmentClassification.divergentClaimRefsWithoutTrustedRejection.length > 0) {
+    blockers.add('DIVERGENT_ACTIVE_CLAIM_NOT_REJECTED');
   }
 
   if (analysis.ambiguities.length > 0) blockers.add('ANALYSIS_AMBIGUOUS');
@@ -411,10 +463,11 @@ export function evaluateDemoChallengeBatchEstablishmentPolicy(
     blockerCodes,
     basis,
     targetLot: targetLot.length > 0 ? targetLot : null,
-    targetSupportAssessmentRefs: canonicalRefs(
-      currentTargetSupports.map((assessment) => assessment.assessmentRef)
-    ),
-    reliedUponRejectionAssessmentRefs: canonicalRefs(reliedUponRejections)
+    targetSupportAssessmentRefs: assessmentClassification.targetSupportAssessmentRefs,
+    qualifyingTargetSupportAssessmentRefs:
+      assessmentClassification.qualifyingTargetSupportAssessmentRefs,
+    reliedUponRejectionAssessmentRefs:
+      assessmentClassification.reliedUponRejectionAssessmentRefs
   };
 }
 
@@ -731,7 +784,9 @@ function currentEvaluationWithoutAnalysis(
     currentlyEligible: false,
     blockerCodes: sortedCurrentBlockers(blockerCodes),
     currentBasis: null,
-    targetLot: null
+    targetLot: null,
+    qualifyingTargetSupportAssessmentRefs: [],
+    reliedUponRejectionAssessmentRefs: []
   };
 }
 
@@ -851,6 +906,8 @@ export function evaluateCurrentInvestigationChallengeBatchEstablishmentInTransac
     currentlyEligible: currentBlockers.size === 0,
     blockerCodes: sortedCurrentBlockers(currentBlockers),
     currentBasis: policy.basis,
-    targetLot: policy.targetLot
+    targetLot: policy.targetLot,
+    qualifyingTargetSupportAssessmentRefs: policy.qualifyingTargetSupportAssessmentRefs,
+    reliedUponRejectionAssessmentRefs: policy.reliedUponRejectionAssessmentRefs
   };
 }

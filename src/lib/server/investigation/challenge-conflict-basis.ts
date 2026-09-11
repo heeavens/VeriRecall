@@ -140,7 +140,7 @@ function canonicalAmbiguities(values: readonly AnalysisAmbiguity[]): AnalysisAmb
   );
 }
 
-function canonicalAnalysisState(
+export function canonicalChallengeAnalysisState(
   projection: ChallengeEffectiveInvestigationAnalysis
 ): ChallengeConflictApplicationAnalysisState {
   const analysis = projection.analysis;
@@ -325,7 +325,7 @@ export function readChallengeConflictApplicationBasisInTransaction(
     listInvestigationEvidence(database, caseId, questionRef)
       .map((evidence) => evidence.evidenceRef)
   );
-  const analysisState = canonicalAnalysisState(projection);
+  const analysisState = canonicalChallengeAnalysisState(projection);
   const policy = deriveConflictPolicy(database, projection, completeEvidenceRefs);
   const basis: BasisWithoutDigest = {
     basisFormatVersion: challengeConflictApplicationBasisFormatVersion,
