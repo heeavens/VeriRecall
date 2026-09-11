@@ -94,6 +94,7 @@ export function clearDemoData(database: RecallDatabase): void {
   database.transaction((transaction) => {
     transaction.delete(schema.investigationEstablishedBatchApplications).run();
     transaction.delete(schema.investigationChallengeConflictApplications).run();
+    transaction.delete(schema.investigationChallengeEstablishments).run();
     transaction.delete(schema.investigationChallengeAssessments).run();
     transaction.delete(schema.investigationChallengeClaims).run();
     transaction.delete(schema.investigationChallengeRequests).run();
@@ -122,6 +123,7 @@ export function replaceWithDemoData(database: RecallDatabase, fixtures: DemoFixt
   database.transaction((transaction) => {
     transaction.delete(schema.investigationEstablishedBatchApplications).run();
     transaction.delete(schema.investigationChallengeConflictApplications).run();
+    transaction.delete(schema.investigationChallengeEstablishments).run();
     transaction.delete(schema.investigationChallengeAssessments).run();
     transaction.delete(schema.investigationChallengeClaims).run();
     transaction.delete(schema.investigationChallengeRequests).run();

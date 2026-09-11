@@ -50,6 +50,20 @@ export function getInvestigationAssessmentChallengeRef(
     .get()?.challengeRef ?? null;
 }
 
+export function getInvestigationEstablishmentChallengeRef(
+  database: RecallDatabase,
+  establishmentRef: string
+): ChallengeArtifactPartition {
+  return database
+    .select({ challengeRef: schema.investigationChallengeEstablishments.challengeRef })
+    .from(schema.investigationChallengeEstablishments)
+    .where(eq(
+      schema.investigationChallengeEstablishments.establishmentRef,
+      establishmentRef
+    ))
+    .get()?.challengeRef ?? null;
+}
+
 export function classifyEvidenceForInvestigationChallenge(
   database: RecallDatabase,
   evidence: ChallengeEvidenceRecord,

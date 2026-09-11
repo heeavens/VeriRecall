@@ -723,6 +723,21 @@ export const investigationChallengeAssessments = sqliteTable(
   ]
 );
 
+export const investigationChallengeEstablishments = sqliteTable(
+  'investigation_challenge_establishments',
+  {
+    establishmentRef: text('establishment_ref')
+      .primaryKey()
+      .references(() => investigationEstablishments.establishmentRef),
+    challengeRef: text('challenge_ref')
+      .notNull()
+      .references(() => investigationChallenges.challengeRef)
+  },
+  (table) => [
+    index('investigation_challenge_establishments_challenge_idx').on(table.challengeRef)
+  ]
+);
+
 export const investigationChallengeConflictApplications = sqliteTable(
   'investigation_challenge_conflict_applications',
   {

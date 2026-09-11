@@ -64,6 +64,7 @@ describe('Stage 1 database', () => {
         'investigation_challenge_requests',
         'investigation_challenge_claims',
         'investigation_challenge_assessments',
+        'investigation_challenge_establishments',
         'investigation_challenge_conflict_applications',
         'investigation_established_batch_applications',
         'traceability_records'
@@ -99,6 +100,7 @@ describe('Stage 1 database', () => {
         'investigation_challenge_requests_challenge_idx',
         'investigation_challenge_claims_challenge_idx',
         'investigation_challenge_assessments_challenge_idx',
+        'investigation_challenge_establishments_challenge_idx',
         'investigation_challenge_conflict_applications_challenge_unique',
         'investigation_challenge_conflict_applications_result_revision_unique',
         'investigation_challenge_conflict_applications_case_question_created_idx',
@@ -349,6 +351,18 @@ describe('Stage 1 database', () => {
       expect.arrayContaining([
         expect.objectContaining({
           from: 'assessment_ref', table: 'investigation_assessments', on_delete: 'NO ACTION'
+        }),
+        expect.objectContaining({
+          from: 'challenge_ref', table: 'investigation_challenges', on_delete: 'NO ACTION'
+        })
+      ])
+    );
+    expect(challengeAssociationForeignKeys('investigation_challenge_establishments')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: 'establishment_ref',
+          table: 'investigation_establishments',
+          on_delete: 'NO ACTION'
         }),
         expect.objectContaining({
           from: 'challenge_ref', table: 'investigation_challenges', on_delete: 'NO ACTION'

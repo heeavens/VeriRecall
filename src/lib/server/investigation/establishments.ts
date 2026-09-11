@@ -56,6 +56,12 @@ export type DemoBatchEstablishmentBlockerCode =
   | 'INCOMPATIBLE_SUPPORTED_CLAIM'
   | 'ANALYSIS_AMBIGUOUS';
 
+export type DemoBatchSourceDiversityBlockerCode =
+  | 'INSUFFICIENT_STRUCTURED_EVIDENCE'
+  | 'SOURCE_IDENTIFIER_DIVERSITY_MISSING'
+  | 'INTEGRITY_HASH_DIVERSITY_MISSING'
+  | 'SOURCE_CLASS_COMBINATION_MISSING';
+
 export interface DemoBatchEstablishmentBasis {
   claimRefs: string[];
   assessmentRefs: string[];
@@ -124,6 +130,34 @@ function addBlocker(
   blockers.add(blocker);
 }
 
+/**
+ * Shared deterministic demo source-diversity rule. It evaluates provenance signals only;
+ * callers remain responsible for Question ownership, completeness, and trust policy.
+ */
+export function evaluateDemoBatchSourceDiversity(
+  evidence: readonly InvestigationEvidence[]
+): DemoBatchSourceDiversityBlockerCode[] {
+  const blockers: DemoBatchSourceDiversityBlockerCode[] = [];
+  const structuredEvidence = evidence.filter((item) => item.contentKind === 'STRUCTURED');
+  if (structuredEvidence.length < 2) {
+    blockers.push('INSUFFICIENT_STRUCTURED_EVIDENCE');
+  }
+  if (new Set(structuredEvidence.map((item) => item.sourceIdentifier)).size < 2) {
+    blockers.push('SOURCE_IDENTIFIER_DIVERSITY_MISSING');
+  }
+  if (new Set(structuredEvidence.map((item) => item.integrityHash)).size < 2) {
+    blockers.push('INTEGRITY_HASH_DIVERSITY_MISSING');
+  }
+  const sourceKinds = new Set(structuredEvidence.map((item) => item.sourceKind));
+  if (
+    !sourceKinds.has('INTERNAL') ||
+    (!sourceKinds.has('EXTERNAL_PARTY') && !sourceKinds.has('REGULATOR'))
+  ) {
+    blockers.push('SOURCE_CLASS_COMBINATION_MISSING');
+  }
+  return blockers;
+}
+
 export function evaluateDemoBatchEstablishmentPolicy(
   input: EvaluateDemoBatchEstablishmentPolicyInput
 ): DemoBatchEstablishmentPolicyEvaluation {
@@ -185,24 +219,11 @@ export function evaluateDemoBatchEstablishmentPolicy(
   if (targetEvidence.some((item) => item === undefined)) {
     addBlocker(blockers, 'EVIDENCE_CORPUS_INCOMPLETE');
   }
-  const structuredTargetEvidence = targetEvidence.filter(
-    (item): item is InvestigationEvidence => item?.contentKind === 'STRUCTURED'
+  const completeTargetEvidence = targetEvidence.filter(
+    (item): item is InvestigationEvidence => item !== undefined
   );
-  if (structuredTargetEvidence.length < 2) {
-    addBlocker(blockers, 'INSUFFICIENT_STRUCTURED_EVIDENCE');
-  }
-  if (new Set(structuredTargetEvidence.map((item) => item.sourceIdentifier)).size < 2) {
-    addBlocker(blockers, 'SOURCE_IDENTIFIER_DIVERSITY_MISSING');
-  }
-  if (new Set(structuredTargetEvidence.map((item) => item.integrityHash)).size < 2) {
-    addBlocker(blockers, 'INTEGRITY_HASH_DIVERSITY_MISSING');
-  }
-  const sourceKinds = new Set(structuredTargetEvidence.map((item) => item.sourceKind));
-  if (
-    !sourceKinds.has('INTERNAL') ||
-    (!sourceKinds.has('EXTERNAL_PARTY') && !sourceKinds.has('REGULATOR'))
-  ) {
-    addBlocker(blockers, 'SOURCE_CLASS_COMBINATION_MISSING');
+  for (const blocker of evaluateDemoBatchSourceDiversity(completeTargetEvidence)) {
+    addBlocker(blockers, blocker);
   }
 
   const structuralHumanReviews = analysis.structuralAssessmentHeads.filter((assessment) =>
