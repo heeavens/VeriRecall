@@ -1,0 +1,4984 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "c51b3dee-8896-457a-bed5-727ffaa97d58",
+  "prevId": "809431ae-1b4e-4490-bf07-e149b96698e5",
+  "tables": {
+    "action_drafts": {
+      "name": "action_drafts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recipient": {
+          "name": "recipient",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "approved_by": {
+          "name": "approved_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "approved_at": {
+          "name": "approved_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "action_drafts_case_id_cases_id_fk": {
+          "name": "action_drafts_case_id_cases_id_fk",
+          "tableFrom": "action_drafts",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "action_drafts_type_check": {
+          "name": "action_drafts_type_check",
+          "value": "\"action_drafts\".\"type\" in ('block_sale', 'notify_supplier', 'notify_customers')"
+        },
+        "action_drafts_status_check": {
+          "name": "action_drafts_status_check",
+          "value": "\"action_drafts\".\"status\" in ('draft', 'approved', 'simulated_sent', 'not_available')"
+        }
+      }
+    },
+    "alert_field_assertions": {
+      "name": "alert_field_assertions",
+      "columns": {
+        "assertion_ref": {
+          "name": "assertion_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_observation_ref": {
+          "name": "source_observation_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "field_kind": {
+          "name": "field_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_value": {
+          "name": "raw_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_value": {
+          "name": "normalized_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "origin_kind": {
+          "name": "origin_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_locator": {
+          "name": "source_locator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "producer_identifier": {
+          "name": "producer_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "producer_version": {
+          "name": "producer_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model_identifier": {
+          "name": "model_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "basis_assertion_refs_json": {
+          "name": "basis_assertion_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "supporting_evidence_refs_json": {
+          "name": "supporting_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "human_actor_identifier": {
+          "name": "human_actor_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "semantic_digest": {
+          "name": "semantic_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "alert_field_assertions_semantic_digest_unique": {
+          "name": "alert_field_assertions_semantic_digest_unique",
+          "columns": [
+            "semantic_digest"
+          ],
+          "isUnique": true
+        },
+        "alert_field_assertions_alert_observation_idx": {
+          "name": "alert_field_assertions_alert_observation_idx",
+          "columns": [
+            "alert_id",
+            "source_observation_ref"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "alert_field_assertions_alert_id_alerts_id_fk": {
+          "name": "alert_field_assertions_alert_id_alerts_id_fk",
+          "tableFrom": "alert_field_assertions",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "alert_field_assertions_source_observation_ref_alert_source_observations_observation_ref_fk": {
+          "name": "alert_field_assertions_source_observation_ref_alert_source_observations_observation_ref_fk",
+          "tableFrom": "alert_field_assertions",
+          "tableTo": "alert_source_observations",
+          "columnsFrom": [
+            "source_observation_ref"
+          ],
+          "columnsTo": [
+            "observation_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "alert_field_assertions_field_kind_check": {
+          "name": "alert_field_assertions_field_kind_check",
+          "value": "\"alert_field_assertions\".\"field_kind\" in ('PRODUCT_NAME', 'BRAND', 'EAN_GTIN', 'BATCH_LOT', 'CATEGORY')"
+        },
+        "alert_field_assertions_origin_kind_check": {
+          "name": "alert_field_assertions_origin_kind_check",
+          "value": "\"alert_field_assertions\".\"origin_kind\" in ('SOURCE_ASSERTED', 'DETERMINISTIC_DERIVED', 'AI_PROPOSAL', 'HUMAN_CONFIRMED', 'LEGACY_UNVERIFIED')"
+        },
+        "alert_field_assertions_value_check": {
+          "name": "alert_field_assertions_value_check",
+          "value": "length(trim(\"alert_field_assertions\".\"raw_value\")) > 0 and length(trim(\"alert_field_assertions\".\"normalized_value\")) > 0"
+        },
+        "alert_field_assertions_producer_check": {
+          "name": "alert_field_assertions_producer_check",
+          "value": "length(trim(\"alert_field_assertions\".\"producer_identifier\")) > 0\n          and length(trim(\"alert_field_assertions\".\"producer_version\")) > 0"
+        },
+        "alert_field_assertions_origin_metadata_check": {
+          "name": "alert_field_assertions_origin_metadata_check",
+          "value": "(\"alert_field_assertions\".\"origin_kind\" = 'SOURCE_ASSERTED'\n            and \"alert_field_assertions\".\"source_locator\" is not null\n            and \"alert_field_assertions\".\"model_identifier\" is null\n            and \"alert_field_assertions\".\"human_actor_identifier\" is null)\n          or (\"alert_field_assertions\".\"origin_kind\" = 'DETERMINISTIC_DERIVED'\n            and (\"alert_field_assertions\".\"source_locator\" is not null or \"alert_field_assertions\".\"basis_assertion_refs_json\" <> '[]')\n            and \"alert_field_assertions\".\"model_identifier\" is null\n            and \"alert_field_assertions\".\"human_actor_identifier\" is null)\n          or (\"alert_field_assertions\".\"origin_kind\" = 'AI_PROPOSAL'\n            and \"alert_field_assertions\".\"model_identifier\" is not null\n            and \"alert_field_assertions\".\"human_actor_identifier\" is null)\n          or (\"alert_field_assertions\".\"origin_kind\" = 'HUMAN_CONFIRMED'\n            and \"alert_field_assertions\".\"model_identifier\" is null\n            and \"alert_field_assertions\".\"human_actor_identifier\" is not null\n            and \"alert_field_assertions\".\"rationale\" is not null\n            and \"alert_field_assertions\".\"supporting_evidence_refs_json\" <> '[]')\n          or (\"alert_field_assertions\".\"origin_kind\" = 'LEGACY_UNVERIFIED'\n            and \"alert_field_assertions\".\"model_identifier\" is null\n            and \"alert_field_assertions\".\"human_actor_identifier\" is null)"
+        },
+        "alert_field_assertions_semantic_digest_check": {
+          "name": "alert_field_assertions_semantic_digest_check",
+          "value": "length(\"alert_field_assertions\".\"semantic_digest\") = 71\n          and substr(\"alert_field_assertions\".\"semantic_digest\", 1, 7) = 'sha256:'\n          and substr(\"alert_field_assertions\".\"semantic_digest\", 8) not glob '*[^0-9a-f]*'"
+        },
+        "alert_field_assertions_demo_check": {
+          "name": "alert_field_assertions_demo_check",
+          "value": "\"alert_field_assertions\".\"demo\" in (0, 1)"
+        }
+      }
+    },
+    "alert_match_bases": {
+      "name": "alert_match_bases",
+      "columns": {
+        "match_id": {
+          "name": "match_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_observation_ref": {
+          "name": "source_observation_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "catalogue_product_snapshot_json": {
+          "name": "catalogue_product_snapshot_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "matching_policy_identifier": {
+          "name": "matching_policy_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "matching_policy_version": {
+          "name": "matching_policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "discovery_assertion_refs_json": {
+          "name": "discovery_assertion_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "authoritative_identity_assertion_refs_json": {
+          "name": "authoritative_identity_assertion_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "authoritative_scope_assertion_refs_json": {
+          "name": "authoritative_scope_assertion_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "explanation_origin": {
+          "name": "explanation_origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "explanation_generator_identifier": {
+          "name": "explanation_generator_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "explanation_generator_version": {
+          "name": "explanation_generator_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "explanation_model_identifier": {
+          "name": "explanation_model_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "basis_digest": {
+          "name": "basis_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "alert_match_bases_alert_observation_idx": {
+          "name": "alert_match_bases_alert_observation_idx",
+          "columns": [
+            "alert_id",
+            "source_observation_ref"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "alert_match_bases_match_id_matches_id_fk": {
+          "name": "alert_match_bases_match_id_matches_id_fk",
+          "tableFrom": "alert_match_bases",
+          "tableTo": "matches",
+          "columnsFrom": [
+            "match_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "alert_match_bases_alert_id_alerts_id_fk": {
+          "name": "alert_match_bases_alert_id_alerts_id_fk",
+          "tableFrom": "alert_match_bases",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "alert_match_bases_source_observation_ref_alert_source_observations_observation_ref_fk": {
+          "name": "alert_match_bases_source_observation_ref_alert_source_observations_observation_ref_fk",
+          "tableFrom": "alert_match_bases",
+          "tableTo": "alert_source_observations",
+          "columnsFrom": [
+            "source_observation_ref"
+          ],
+          "columnsTo": [
+            "observation_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "alert_match_bases_catalogue_snapshot_check": {
+          "name": "alert_match_bases_catalogue_snapshot_check",
+          "value": "json_valid(\"alert_match_bases\".\"catalogue_product_snapshot_json\")"
+        },
+        "alert_match_bases_policy_check": {
+          "name": "alert_match_bases_policy_check",
+          "value": "length(trim(\"alert_match_bases\".\"matching_policy_identifier\")) > 0\n          and length(trim(\"alert_match_bases\".\"matching_policy_version\")) > 0"
+        },
+        "alert_match_bases_explanation_origin_check": {
+          "name": "alert_match_bases_explanation_origin_check",
+          "value": "\"alert_match_bases\".\"explanation_origin\" in ('DETERMINISTIC', 'AI_GENERATED')"
+        },
+        "alert_match_bases_explanation_metadata_check": {
+          "name": "alert_match_bases_explanation_metadata_check",
+          "value": "length(trim(\"alert_match_bases\".\"explanation_generator_identifier\")) > 0\n          and length(trim(\"alert_match_bases\".\"explanation_generator_version\")) > 0\n          and ((\"alert_match_bases\".\"explanation_origin\" = 'DETERMINISTIC' and \"alert_match_bases\".\"explanation_model_identifier\" is null)\n            or (\"alert_match_bases\".\"explanation_origin\" = 'AI_GENERATED' and \"alert_match_bases\".\"explanation_model_identifier\" is not null))"
+        },
+        "alert_match_bases_digest_check": {
+          "name": "alert_match_bases_digest_check",
+          "value": "length(\"alert_match_bases\".\"basis_digest\") = 71\n          and substr(\"alert_match_bases\".\"basis_digest\", 1, 7) = 'sha256:'\n          and substr(\"alert_match_bases\".\"basis_digest\", 8) not glob '*[^0-9a-f]*'"
+        },
+        "alert_match_bases_demo_check": {
+          "name": "alert_match_bases_demo_check",
+          "value": "\"alert_match_bases\".\"demo\" in (0, 1)"
+        }
+      }
+    },
+    "alert_source_observations": {
+      "name": "alert_source_observations",
+      "columns": {
+        "observation_ref": {
+          "name": "observation_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "record_kind": {
+          "name": "record_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_reference": {
+          "name": "source_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_version_identifier": {
+          "name": "source_version_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "predecessor_observation_ref": {
+          "name": "predecessor_observation_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "payload_format": {
+          "name": "payload_format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_payload": {
+          "name": "raw_payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_sha256": {
+          "name": "content_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_updated_at": {
+          "name": "source_updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "alert_source_observations_source_version_unique": {
+          "name": "alert_source_observations_source_version_unique",
+          "columns": [
+            "source",
+            "source_reference",
+            "source_version_identifier"
+          ],
+          "isUnique": true
+        },
+        "alert_source_observations_source_content_unique": {
+          "name": "alert_source_observations_source_content_unique",
+          "columns": [
+            "source",
+            "source_reference",
+            "content_sha256"
+          ],
+          "isUnique": true
+        },
+        "alert_source_observations_predecessor_unique": {
+          "name": "alert_source_observations_predecessor_unique",
+          "columns": [
+            "predecessor_observation_ref"
+          ],
+          "isUnique": true
+        },
+        "alert_source_observations_alert_idx": {
+          "name": "alert_source_observations_alert_idx",
+          "columns": [
+            "alert_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "alert_source_observations_alert_id_alerts_id_fk": {
+          "name": "alert_source_observations_alert_id_alerts_id_fk",
+          "tableFrom": "alert_source_observations",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "alert_source_observations_predecessor_observation_ref_alert_source_observations_observation_ref_fk": {
+          "name": "alert_source_observations_predecessor_observation_ref_alert_source_observations_observation_ref_fk",
+          "tableFrom": "alert_source_observations",
+          "tableTo": "alert_source_observations",
+          "columnsFrom": [
+            "predecessor_observation_ref"
+          ],
+          "columnsTo": [
+            "observation_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "alert_source_observations_record_kind_check": {
+          "name": "alert_source_observations_record_kind_check",
+          "value": "\"alert_source_observations\".\"record_kind\" in ('RAW_SOURCE', 'LEGACY_SNAPSHOT')"
+        },
+        "alert_source_observations_source_check": {
+          "name": "alert_source_observations_source_check",
+          "value": "\"alert_source_observations\".\"source\" in ('safety_gate', 'rasff')"
+        },
+        "alert_source_observations_nonblank_check": {
+          "name": "alert_source_observations_nonblank_check",
+          "value": "length(trim(\"alert_source_observations\".\"provider\")) > 0\n          and length(trim(\"alert_source_observations\".\"source_reference\")) > 0\n          and length(trim(\"alert_source_observations\".\"source_url\")) > 0\n          and length(trim(\"alert_source_observations\".\"source_version_identifier\")) > 0\n          and length(trim(\"alert_source_observations\".\"payload_format\")) > 0"
+        },
+        "alert_source_observations_payload_size_check": {
+          "name": "alert_source_observations_payload_size_check",
+          "value": "length(\"alert_source_observations\".\"raw_payload\") between 1 and 262144"
+        },
+        "alert_source_observations_content_sha256_check": {
+          "name": "alert_source_observations_content_sha256_check",
+          "value": "length(\"alert_source_observations\".\"content_sha256\") = 64\n          and \"alert_source_observations\".\"content_sha256\" not glob '*[^0-9a-f]*'"
+        },
+        "alert_source_observations_not_self_parent_check": {
+          "name": "alert_source_observations_not_self_parent_check",
+          "value": "\"alert_source_observations\".\"predecessor_observation_ref\" is null\n          or \"alert_source_observations\".\"predecessor_observation_ref\" <> \"alert_source_observations\".\"observation_ref\""
+        },
+        "alert_source_observations_demo_check": {
+          "name": "alert_source_observations_demo_check",
+          "value": "\"alert_source_observations\".\"demo\" in (0, 1)"
+        }
+      }
+    },
+    "alerts": {
+      "name": "alerts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_reference": {
+          "name": "source_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "risk": {
+          "name": "risk",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "image_url": {
+          "name": "image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "brand": {
+          "name": "brand",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "product_name": {
+          "name": "product_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ean": {
+          "name": "ean",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_json": {
+          "name": "raw_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "alerts_source_reference_unique": {
+          "name": "alerts_source_reference_unique",
+          "columns": [
+            "source",
+            "source_reference"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "alerts_source_check": {
+          "name": "alerts_source_check",
+          "value": "\"alerts\".\"source\" in ('safety_gate', 'rasff')"
+        },
+        "alerts_status_check": {
+          "name": "alerts_status_check",
+          "value": "\"alerts\".\"status\" in ('matched', 'needs_review', 'not_relevant')"
+        }
+      }
+    },
+    "audit_events": {
+      "name": "audit_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_type": {
+          "name": "actor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_name": {
+          "name": "actor_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "metadata_json": {
+          "name": "metadata_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "audit_events_case_id_idx": {
+          "name": "audit_events_case_id_idx",
+          "columns": [
+            "case_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "audit_events_case_id_cases_id_fk": {
+          "name": "audit_events_case_id_cases_id_fk",
+          "tableFrom": "audit_events",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "audit_events_alert_id_alerts_id_fk": {
+          "name": "audit_events_alert_id_alerts_id_fk",
+          "tableFrom": "audit_events",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "case_commands": {
+      "name": "case_commands",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "command_id": {
+          "name": "command_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_case_version": {
+          "name": "applied_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "case_commands_key_unique": {
+          "name": "case_commands_key_unique",
+          "columns": [
+            "case_id",
+            "command_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "case_commands_case_id_case_lifecycle_case_id_fk": {
+          "name": "case_commands_case_id_case_lifecycle_case_id_fk",
+          "tableFrom": "case_commands",
+          "tableTo": "case_lifecycle",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "case_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "case_items": {
+      "name": "case_items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stock_quantity": {
+          "name": "stock_quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "case_items_case_product_batch_unique": {
+          "name": "case_items_case_product_batch_unique",
+          "columns": [
+            "case_id",
+            "product_id",
+            "batch"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "case_items_case_id_cases_id_fk": {
+          "name": "case_items_case_id_cases_id_fk",
+          "tableFrom": "case_items",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "case_items_product_id_products_id_fk": {
+          "name": "case_items_product_id_products_id_fk",
+          "tableFrom": "case_items",
+          "tableTo": "products",
+          "columnsFrom": [
+            "product_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "case_items_stock_quantity_check": {
+          "name": "case_items_stock_quantity_check",
+          "value": "\"case_items\".\"stock_quantity\" >= 0"
+        }
+      }
+    },
+    "case_lifecycle": {
+      "name": "case_lifecycle",
+      "columns": {
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_version": {
+          "name": "case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "material_revision": {
+          "name": "material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "snapshot_json": {
+          "name": "snapshot_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "case_lifecycle_case_id_cases_id_fk": {
+          "name": "case_lifecycle_case_id_cases_id_fk",
+          "tableFrom": "case_lifecycle",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "case_lifecycle_product_id_products_id_fk": {
+          "name": "case_lifecycle_product_id_products_id_fk",
+          "tableFrom": "case_lifecycle",
+          "tableTo": "products",
+          "columnsFrom": [
+            "product_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "case_lifecycle_version_check": {
+          "name": "case_lifecycle_version_check",
+          "value": "\"case_lifecycle\".\"case_version\" > 0"
+        },
+        "case_lifecycle_revision_check": {
+          "name": "case_lifecycle_revision_check",
+          "value": "\"case_lifecycle\".\"material_revision\" is null or \"case_lifecycle\".\"material_revision\" > 0"
+        }
+      }
+    },
+    "case_revisions": {
+      "name": "case_revisions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_version": {
+          "name": "case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "material_revision": {
+          "name": "material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "snapshot_json": {
+          "name": "snapshot_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "case_revisions_version_unique": {
+          "name": "case_revisions_version_unique",
+          "columns": [
+            "case_id",
+            "case_version"
+          ],
+          "isUnique": true
+        },
+        "case_revisions_material_idx": {
+          "name": "case_revisions_material_idx",
+          "columns": [
+            "case_id",
+            "material_revision"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "case_revisions_case_id_case_lifecycle_case_id_fk": {
+          "name": "case_revisions_case_id_case_lifecycle_case_id_fk",
+          "tableFrom": "case_revisions",
+          "tableTo": "case_lifecycle",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "case_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "case_tasks": {
+      "name": "case_tasks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completed_by": {
+          "name": "completed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "case_tasks_case_type_unique": {
+          "name": "case_tasks_case_type_unique",
+          "columns": [
+            "case_id",
+            "type"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "case_tasks_case_id_cases_id_fk": {
+          "name": "case_tasks_case_id_cases_id_fk",
+          "tableFrom": "case_tasks",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "case_tasks_type_check": {
+          "name": "case_tasks_type_check",
+          "value": "\"case_tasks\".\"type\" in ('block_sale', 'notify_supplier', 'notify_customers')"
+        },
+        "case_tasks_status_check": {
+          "name": "case_tasks_status_check",
+          "value": "\"case_tasks\".\"status\" in ('pending', 'completed', 'not_available')"
+        }
+      }
+    },
+    "cases": {
+      "name": "cases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_number": {
+          "name": "case_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "severity": {
+          "name": "severity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opened_at": {
+          "name": "opened_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "cases_case_number_unique": {
+          "name": "cases_case_number_unique",
+          "columns": [
+            "case_number"
+          ],
+          "isUnique": true
+        },
+        "cases_alert_id_unique": {
+          "name": "cases_alert_id_unique",
+          "columns": [
+            "alert_id"
+          ],
+          "isUnique": true
+        },
+        "cases_status_idx": {
+          "name": "cases_status_idx",
+          "columns": [
+            "status"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "cases_alert_id_alerts_id_fk": {
+          "name": "cases_alert_id_alerts_id_fk",
+          "tableFrom": "cases",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "cases_status_check": {
+          "name": "cases_status_check",
+          "value": "\"cases\".\"status\" in ('open', 'contained', 'closed')"
+        }
+      }
+    },
+    "customers": {
+      "name": "customers",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "customers_external_id_unique": {
+          "name": "customers_external_id_unique",
+          "columns": [
+            "external_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "evidence_requests": {
+      "name": "evidence_requests",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "match_id": {
+          "name": "match_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "requested_evidence": {
+          "name": "requested_evidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recipient": {
+          "name": "recipient",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "evidence_requests_case_question_created_idx": {
+          "name": "evidence_requests_case_question_created_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "evidence_requests_match_id_matches_id_fk": {
+          "name": "evidence_requests_match_id_matches_id_fk",
+          "tableFrom": "evidence_requests",
+          "tableTo": "matches",
+          "columnsFrom": [
+            "match_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "evidence_requests_case_id_cases_id_fk": {
+          "name": "evidence_requests_case_id_cases_id_fk",
+          "tableFrom": "evidence_requests",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "evidence_requests_versioned_question_check": {
+          "name": "evidence_requests_versioned_question_check",
+          "value": "(\"evidence_requests\".\"case_id\" is null and \"evidence_requests\".\"question_ref\" is null)\n        or (\"evidence_requests\".\"case_id\" is not null and \"evidence_requests\".\"question_ref\" is not null)"
+        }
+      }
+    },
+    "investigation_assessments": {
+      "name": "investigation_assessments",
+      "columns": {
+        "assessment_ref": {
+          "name": "assessment_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_claim_ref": {
+          "name": "target_claim_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "verdict": {
+          "name": "verdict",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "evidence_refs_json": {
+          "name": "evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "related_claim_refs_json": {
+          "name": "related_claim_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assessor_kind": {
+          "name": "assessor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assessor_identifier": {
+          "name": "assessor_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rule_identifier": {
+          "name": "rule_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rule_version": {
+          "name": "rule_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_case_version": {
+          "name": "basis_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "supersedes_assessment_ref": {
+          "name": "supersedes_assessment_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_assessments_case_question_created_idx": {
+          "name": "investigation_assessments_case_question_created_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_assessments_case_id_cases_id_fk": {
+          "name": "investigation_assessments_case_id_cases_id_fk",
+          "tableFrom": "investigation_assessments",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_assessments_target_claim_ref_investigation_claims_claim_ref_fk": {
+          "name": "investigation_assessments_target_claim_ref_investigation_claims_claim_ref_fk",
+          "tableFrom": "investigation_assessments",
+          "tableTo": "investigation_claims",
+          "columnsFrom": [
+            "target_claim_ref"
+          ],
+          "columnsTo": [
+            "claim_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_assessments_supersedes_assessment_ref_investigation_assessments_assessment_ref_fk": {
+          "name": "investigation_assessments_supersedes_assessment_ref_investigation_assessments_assessment_ref_fk",
+          "tableFrom": "investigation_assessments",
+          "tableTo": "investigation_assessments",
+          "columnsFrom": [
+            "supersedes_assessment_ref"
+          ],
+          "columnsTo": [
+            "assessment_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_assessments_verdict_check": {
+          "name": "investigation_assessments_verdict_check",
+          "value": "\"investigation_assessments\".\"verdict\" in ('SUPPORTED', 'INSUFFICIENT', 'REJECTED', 'CONTRADICTED')"
+        },
+        "investigation_assessments_assessor_kind_check": {
+          "name": "investigation_assessments_assessor_kind_check",
+          "value": "\"investigation_assessments\".\"assessor_kind\" in ('RULE', 'HUMAN', 'AI')"
+        },
+        "investigation_assessments_rule_pair_check": {
+          "name": "investigation_assessments_rule_pair_check",
+          "value": "(\"investigation_assessments\".\"rule_identifier\" is null and \"investigation_assessments\".\"rule_version\" is null)\n          or (\"investigation_assessments\".\"rule_identifier\" is not null and \"investigation_assessments\".\"rule_version\" is not null)"
+        },
+        "investigation_assessments_rule_required_check": {
+          "name": "investigation_assessments_rule_required_check",
+          "value": "\"investigation_assessments\".\"assessor_kind\" = 'HUMAN'\n          or (\"investigation_assessments\".\"rule_identifier\" is not null and \"investigation_assessments\".\"rule_version\" is not null)"
+        },
+        "investigation_assessments_target_check": {
+          "name": "investigation_assessments_target_check",
+          "value": "(\"investigation_assessments\".\"verdict\" in ('SUPPORTED', 'REJECTED') and \"investigation_assessments\".\"target_claim_ref\" is not null)\n          or (\"investigation_assessments\".\"verdict\" = 'INSUFFICIENT')\n          or (\"investigation_assessments\".\"verdict\" = 'CONTRADICTED' and \"investigation_assessments\".\"target_claim_ref\" is null)"
+        },
+        "investigation_assessments_assessor_identifier_check": {
+          "name": "investigation_assessments_assessor_identifier_check",
+          "value": "length(trim(\"investigation_assessments\".\"assessor_identifier\")) > 0"
+        },
+        "investigation_assessments_rationale_check": {
+          "name": "investigation_assessments_rationale_check",
+          "value": "length(trim(\"investigation_assessments\".\"rationale\")) > 0"
+        },
+        "investigation_assessments_basis_case_version_check": {
+          "name": "investigation_assessments_basis_case_version_check",
+          "value": "\"investigation_assessments\".\"basis_case_version\" > 0"
+        },
+        "investigation_assessments_demo_check": {
+          "name": "investigation_assessments_demo_check",
+          "value": "\"investigation_assessments\".\"demo\" in (0, 1)"
+        }
+      }
+    },
+    "investigation_challenge_assessments": {
+      "name": "investigation_challenge_assessments",
+      "columns": {
+        "assessment_ref": {
+          "name": "assessment_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_ref": {
+          "name": "challenge_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_challenge_assessments_challenge_idx": {
+          "name": "investigation_challenge_assessments_challenge_idx",
+          "columns": [
+            "challenge_ref"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_challenge_assessments_assessment_ref_investigation_assessments_assessment_ref_fk": {
+          "name": "investigation_challenge_assessments_assessment_ref_investigation_assessments_assessment_ref_fk",
+          "tableFrom": "investigation_challenge_assessments",
+          "tableTo": "investigation_assessments",
+          "columnsFrom": [
+            "assessment_ref"
+          ],
+          "columnsTo": [
+            "assessment_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_assessments_challenge_ref_investigation_challenges_challenge_ref_fk": {
+          "name": "investigation_challenge_assessments_challenge_ref_investigation_challenges_challenge_ref_fk",
+          "tableFrom": "investigation_challenge_assessments",
+          "tableTo": "investigation_challenges",
+          "columnsFrom": [
+            "challenge_ref"
+          ],
+          "columnsTo": [
+            "challenge_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "investigation_challenge_batch_applications": {
+      "name": "investigation_challenge_batch_applications",
+      "columns": {
+        "application_ref": {
+          "name": "application_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_ref": {
+          "name": "challenge_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "establishment_ref": {
+          "name": "establishment_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "claim_ref": {
+          "name": "claim_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_policy_identifier": {
+          "name": "application_policy_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_policy_version": {
+          "name": "application_policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_format_version": {
+          "name": "basis_format_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_digest": {
+          "name": "basis_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewed_claim_refs_json": {
+          "name": "reviewed_claim_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewed_assessment_refs_json": {
+          "name": "reviewed_assessment_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewed_evidence_refs_json": {
+          "name": "reviewed_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_assessment_refs_json": {
+          "name": "applied_assessment_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_evidence_refs_json": {
+          "name": "applied_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_lot": {
+          "name": "applied_lot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result_baseline_claim_refs_json": {
+          "name": "result_baseline_claim_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result_baseline_assessment_refs_json": {
+          "name": "result_baseline_assessment_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result_baseline_evidence_refs_json": {
+          "name": "result_baseline_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_revision_id": {
+          "name": "source_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_case_version": {
+          "name": "source_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_material_revision": {
+          "name": "source_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_revision_id": {
+          "name": "resulting_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_case_version": {
+          "name": "resulting_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_material_revision": {
+          "name": "resulting_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_kind": {
+          "name": "actor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_identifier": {
+          "name": "actor_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_challenge_batch_applications_challenge_unique": {
+          "name": "investigation_challenge_batch_applications_challenge_unique",
+          "columns": [
+            "challenge_ref"
+          ],
+          "isUnique": true
+        },
+        "investigation_challenge_batch_applications_establishment_unique": {
+          "name": "investigation_challenge_batch_applications_establishment_unique",
+          "columns": [
+            "establishment_ref"
+          ],
+          "isUnique": true
+        },
+        "investigation_challenge_batch_applications_result_revision_unique": {
+          "name": "investigation_challenge_batch_applications_result_revision_unique",
+          "columns": [
+            "resulting_revision_id"
+          ],
+          "isUnique": true
+        },
+        "investigation_challenge_batch_applications_case_question_created_idx": {
+          "name": "investigation_challenge_batch_applications_case_question_created_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_challenge_batch_applications_case_id_cases_id_fk": {
+          "name": "investigation_challenge_batch_applications_case_id_cases_id_fk",
+          "tableFrom": "investigation_challenge_batch_applications",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_batch_applications_question_ref_investigation_questions_question_ref_fk": {
+          "name": "investigation_challenge_batch_applications_question_ref_investigation_questions_question_ref_fk",
+          "tableFrom": "investigation_challenge_batch_applications",
+          "tableTo": "investigation_questions",
+          "columnsFrom": [
+            "question_ref"
+          ],
+          "columnsTo": [
+            "question_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_batch_applications_challenge_ref_investigation_challenges_challenge_ref_fk": {
+          "name": "investigation_challenge_batch_applications_challenge_ref_investigation_challenges_challenge_ref_fk",
+          "tableFrom": "investigation_challenge_batch_applications",
+          "tableTo": "investigation_challenges",
+          "columnsFrom": [
+            "challenge_ref"
+          ],
+          "columnsTo": [
+            "challenge_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_batch_applications_establishment_ref_investigation_challenge_establishments_establishment_ref_fk": {
+          "name": "investigation_challenge_batch_applications_establishment_ref_investigation_challenge_establishments_establishment_ref_fk",
+          "tableFrom": "investigation_challenge_batch_applications",
+          "tableTo": "investigation_challenge_establishments",
+          "columnsFrom": [
+            "establishment_ref"
+          ],
+          "columnsTo": [
+            "establishment_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_batch_applications_claim_ref_investigation_claims_claim_ref_fk": {
+          "name": "investigation_challenge_batch_applications_claim_ref_investigation_claims_claim_ref_fk",
+          "tableFrom": "investigation_challenge_batch_applications",
+          "tableTo": "investigation_claims",
+          "columnsFrom": [
+            "claim_ref"
+          ],
+          "columnsTo": [
+            "claim_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_batch_applications_source_revision_id_case_revisions_id_fk": {
+          "name": "investigation_challenge_batch_applications_source_revision_id_case_revisions_id_fk",
+          "tableFrom": "investigation_challenge_batch_applications",
+          "tableTo": "case_revisions",
+          "columnsFrom": [
+            "source_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_batch_applications_resulting_revision_id_case_revisions_id_fk": {
+          "name": "investigation_challenge_batch_applications_resulting_revision_id_case_revisions_id_fk",
+          "tableFrom": "investigation_challenge_batch_applications",
+          "tableTo": "case_revisions",
+          "columnsFrom": [
+            "resulting_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_challenge_batch_applications_source_case_version_check": {
+          "name": "investigation_challenge_batch_applications_source_case_version_check",
+          "value": "\"investigation_challenge_batch_applications\".\"source_case_version\" > 0"
+        },
+        "investigation_challenge_batch_applications_source_material_revision_check": {
+          "name": "investigation_challenge_batch_applications_source_material_revision_check",
+          "value": "\"investigation_challenge_batch_applications\".\"source_material_revision\" > 0"
+        },
+        "investigation_challenge_batch_applications_resulting_case_version_check": {
+          "name": "investigation_challenge_batch_applications_resulting_case_version_check",
+          "value": "\"investigation_challenge_batch_applications\".\"resulting_case_version\" > 0"
+        },
+        "investigation_challenge_batch_applications_resulting_material_revision_check": {
+          "name": "investigation_challenge_batch_applications_resulting_material_revision_check",
+          "value": "\"investigation_challenge_batch_applications\".\"resulting_material_revision\" > 0"
+        },
+        "investigation_challenge_batch_applications_case_version_step_check": {
+          "name": "investigation_challenge_batch_applications_case_version_step_check",
+          "value": "\"investigation_challenge_batch_applications\".\"resulting_case_version\" = \"investigation_challenge_batch_applications\".\"source_case_version\" + 1"
+        },
+        "investigation_challenge_batch_applications_material_revision_step_check": {
+          "name": "investigation_challenge_batch_applications_material_revision_step_check",
+          "value": "\"investigation_challenge_batch_applications\".\"resulting_material_revision\" = \"investigation_challenge_batch_applications\".\"source_material_revision\" + 1"
+        },
+        "investigation_challenge_batch_applications_actor_kind_check": {
+          "name": "investigation_challenge_batch_applications_actor_kind_check",
+          "value": "\"investigation_challenge_batch_applications\".\"actor_kind\" = 'HUMAN'"
+        },
+        "investigation_challenge_batch_applications_actor_identifier_check": {
+          "name": "investigation_challenge_batch_applications_actor_identifier_check",
+          "value": "length(trim(\"investigation_challenge_batch_applications\".\"actor_identifier\")) > 0"
+        },
+        "investigation_challenge_batch_applications_rationale_check": {
+          "name": "investigation_challenge_batch_applications_rationale_check",
+          "value": "length(trim(\"investigation_challenge_batch_applications\".\"rationale\")) > 0"
+        },
+        "investigation_challenge_batch_applications_policy_identifier_check": {
+          "name": "investigation_challenge_batch_applications_policy_identifier_check",
+          "value": "length(trim(\"investigation_challenge_batch_applications\".\"application_policy_identifier\")) > 0"
+        },
+        "investigation_challenge_batch_applications_policy_version_check": {
+          "name": "investigation_challenge_batch_applications_policy_version_check",
+          "value": "length(trim(\"investigation_challenge_batch_applications\".\"application_policy_version\")) > 0"
+        },
+        "investigation_challenge_batch_applications_basis_format_version_check": {
+          "name": "investigation_challenge_batch_applications_basis_format_version_check",
+          "value": "length(trim(\"investigation_challenge_batch_applications\".\"basis_format_version\")) > 0"
+        },
+        "investigation_challenge_batch_applications_basis_digest_check": {
+          "name": "investigation_challenge_batch_applications_basis_digest_check",
+          "value": "length(\"investigation_challenge_batch_applications\".\"basis_digest\") = 71\n          and substr(\"investigation_challenge_batch_applications\".\"basis_digest\", 1, 7) = 'sha256:'\n          and substr(\"investigation_challenge_batch_applications\".\"basis_digest\", 8) not glob '*[^0-9a-f]*'"
+        },
+        "investigation_challenge_batch_applications_applied_lot_check": {
+          "name": "investigation_challenge_batch_applications_applied_lot_check",
+          "value": "length(trim(\"investigation_challenge_batch_applications\".\"applied_lot\")) > 0"
+        },
+        "investigation_challenge_batch_applications_demo_check": {
+          "name": "investigation_challenge_batch_applications_demo_check",
+          "value": "\"investigation_challenge_batch_applications\".\"demo\" = 1"
+        }
+      }
+    },
+    "investigation_challenge_claims": {
+      "name": "investigation_challenge_claims",
+      "columns": {
+        "claim_ref": {
+          "name": "claim_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_ref": {
+          "name": "challenge_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_challenge_claims_challenge_idx": {
+          "name": "investigation_challenge_claims_challenge_idx",
+          "columns": [
+            "challenge_ref"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_challenge_claims_claim_ref_investigation_claims_claim_ref_fk": {
+          "name": "investigation_challenge_claims_claim_ref_investigation_claims_claim_ref_fk",
+          "tableFrom": "investigation_challenge_claims",
+          "tableTo": "investigation_claims",
+          "columnsFrom": [
+            "claim_ref"
+          ],
+          "columnsTo": [
+            "claim_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_claims_challenge_ref_investigation_challenges_challenge_ref_fk": {
+          "name": "investigation_challenge_claims_challenge_ref_investigation_challenges_challenge_ref_fk",
+          "tableFrom": "investigation_challenge_claims",
+          "tableTo": "investigation_challenges",
+          "columnsFrom": [
+            "challenge_ref"
+          ],
+          "columnsTo": [
+            "challenge_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "investigation_challenge_conflict_applications": {
+      "name": "investigation_challenge_conflict_applications",
+      "columns": {
+        "application_ref": {
+          "name": "application_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_ref": {
+          "name": "challenge_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_identifier": {
+          "name": "policy_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_format_version": {
+          "name": "basis_format_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_digest": {
+          "name": "basis_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewed_claim_refs_json": {
+          "name": "reviewed_claim_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewed_assessment_refs_json": {
+          "name": "reviewed_assessment_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "complete_evidence_refs_json": {
+          "name": "complete_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_claim_refs_json": {
+          "name": "applied_claim_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_assessment_refs_json": {
+          "name": "applied_assessment_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_evidence_refs_json": {
+          "name": "applied_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_revision_id": {
+          "name": "source_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_case_version": {
+          "name": "source_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_material_revision": {
+          "name": "source_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_revision_id": {
+          "name": "resulting_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_case_version": {
+          "name": "resulting_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_material_revision": {
+          "name": "resulting_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_kind": {
+          "name": "actor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_identifier": {
+          "name": "actor_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_challenge_conflict_applications_challenge_unique": {
+          "name": "investigation_challenge_conflict_applications_challenge_unique",
+          "columns": [
+            "challenge_ref"
+          ],
+          "isUnique": true
+        },
+        "investigation_challenge_conflict_applications_result_revision_unique": {
+          "name": "investigation_challenge_conflict_applications_result_revision_unique",
+          "columns": [
+            "resulting_revision_id"
+          ],
+          "isUnique": true
+        },
+        "investigation_challenge_conflict_applications_case_question_created_idx": {
+          "name": "investigation_challenge_conflict_applications_case_question_created_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_challenge_conflict_applications_case_id_cases_id_fk": {
+          "name": "investigation_challenge_conflict_applications_case_id_cases_id_fk",
+          "tableFrom": "investigation_challenge_conflict_applications",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_conflict_applications_question_ref_investigation_questions_question_ref_fk": {
+          "name": "investigation_challenge_conflict_applications_question_ref_investigation_questions_question_ref_fk",
+          "tableFrom": "investigation_challenge_conflict_applications",
+          "tableTo": "investigation_questions",
+          "columnsFrom": [
+            "question_ref"
+          ],
+          "columnsTo": [
+            "question_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_conflict_applications_challenge_ref_investigation_challenges_challenge_ref_fk": {
+          "name": "investigation_challenge_conflict_applications_challenge_ref_investigation_challenges_challenge_ref_fk",
+          "tableFrom": "investigation_challenge_conflict_applications",
+          "tableTo": "investigation_challenges",
+          "columnsFrom": [
+            "challenge_ref"
+          ],
+          "columnsTo": [
+            "challenge_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_conflict_applications_source_revision_id_case_revisions_id_fk": {
+          "name": "investigation_challenge_conflict_applications_source_revision_id_case_revisions_id_fk",
+          "tableFrom": "investigation_challenge_conflict_applications",
+          "tableTo": "case_revisions",
+          "columnsFrom": [
+            "source_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_conflict_applications_resulting_revision_id_case_revisions_id_fk": {
+          "name": "investigation_challenge_conflict_applications_resulting_revision_id_case_revisions_id_fk",
+          "tableFrom": "investigation_challenge_conflict_applications",
+          "tableTo": "case_revisions",
+          "columnsFrom": [
+            "resulting_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_challenge_conflict_applications_source_case_version_check": {
+          "name": "investigation_challenge_conflict_applications_source_case_version_check",
+          "value": "\"investigation_challenge_conflict_applications\".\"source_case_version\" > 0"
+        },
+        "investigation_challenge_conflict_applications_source_material_revision_check": {
+          "name": "investigation_challenge_conflict_applications_source_material_revision_check",
+          "value": "\"investigation_challenge_conflict_applications\".\"source_material_revision\" > 0"
+        },
+        "investigation_challenge_conflict_applications_resulting_case_version_check": {
+          "name": "investigation_challenge_conflict_applications_resulting_case_version_check",
+          "value": "\"investigation_challenge_conflict_applications\".\"resulting_case_version\" > 0"
+        },
+        "investigation_challenge_conflict_applications_resulting_material_revision_check": {
+          "name": "investigation_challenge_conflict_applications_resulting_material_revision_check",
+          "value": "\"investigation_challenge_conflict_applications\".\"resulting_material_revision\" > 0"
+        },
+        "investigation_challenge_conflict_applications_case_version_step_check": {
+          "name": "investigation_challenge_conflict_applications_case_version_step_check",
+          "value": "\"investigation_challenge_conflict_applications\".\"resulting_case_version\" = \"investigation_challenge_conflict_applications\".\"source_case_version\" + 1"
+        },
+        "investigation_challenge_conflict_applications_material_revision_step_check": {
+          "name": "investigation_challenge_conflict_applications_material_revision_step_check",
+          "value": "\"investigation_challenge_conflict_applications\".\"resulting_material_revision\" = \"investigation_challenge_conflict_applications\".\"source_material_revision\" + 1"
+        },
+        "investigation_challenge_conflict_applications_actor_kind_check": {
+          "name": "investigation_challenge_conflict_applications_actor_kind_check",
+          "value": "\"investigation_challenge_conflict_applications\".\"actor_kind\" = 'HUMAN'"
+        },
+        "investigation_challenge_conflict_applications_actor_identifier_check": {
+          "name": "investigation_challenge_conflict_applications_actor_identifier_check",
+          "value": "length(trim(\"investigation_challenge_conflict_applications\".\"actor_identifier\")) > 0"
+        },
+        "investigation_challenge_conflict_applications_rationale_check": {
+          "name": "investigation_challenge_conflict_applications_rationale_check",
+          "value": "length(trim(\"investigation_challenge_conflict_applications\".\"rationale\")) > 0"
+        },
+        "investigation_challenge_conflict_applications_policy_identifier_check": {
+          "name": "investigation_challenge_conflict_applications_policy_identifier_check",
+          "value": "length(trim(\"investigation_challenge_conflict_applications\".\"policy_identifier\")) > 0"
+        },
+        "investigation_challenge_conflict_applications_policy_version_check": {
+          "name": "investigation_challenge_conflict_applications_policy_version_check",
+          "value": "length(trim(\"investigation_challenge_conflict_applications\".\"policy_version\")) > 0"
+        },
+        "investigation_challenge_conflict_applications_basis_format_version_check": {
+          "name": "investigation_challenge_conflict_applications_basis_format_version_check",
+          "value": "length(trim(\"investigation_challenge_conflict_applications\".\"basis_format_version\")) > 0"
+        },
+        "investigation_challenge_conflict_applications_basis_digest_check": {
+          "name": "investigation_challenge_conflict_applications_basis_digest_check",
+          "value": "length(\"investigation_challenge_conflict_applications\".\"basis_digest\") = 71\n          and substr(\"investigation_challenge_conflict_applications\".\"basis_digest\", 1, 7) = 'sha256:'\n          and substr(\"investigation_challenge_conflict_applications\".\"basis_digest\", 8) not glob '*[^0-9a-f]*'"
+        },
+        "investigation_challenge_conflict_applications_demo_check": {
+          "name": "investigation_challenge_conflict_applications_demo_check",
+          "value": "\"investigation_challenge_conflict_applications\".\"demo\" = 1"
+        }
+      }
+    },
+    "investigation_challenge_establishments": {
+      "name": "investigation_challenge_establishments",
+      "columns": {
+        "establishment_ref": {
+          "name": "establishment_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_ref": {
+          "name": "challenge_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_challenge_establishments_challenge_idx": {
+          "name": "investigation_challenge_establishments_challenge_idx",
+          "columns": [
+            "challenge_ref"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_challenge_establishments_establishment_ref_investigation_establishments_establishment_ref_fk": {
+          "name": "investigation_challenge_establishments_establishment_ref_investigation_establishments_establishment_ref_fk",
+          "tableFrom": "investigation_challenge_establishments",
+          "tableTo": "investigation_establishments",
+          "columnsFrom": [
+            "establishment_ref"
+          ],
+          "columnsTo": [
+            "establishment_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_establishments_challenge_ref_investigation_challenges_challenge_ref_fk": {
+          "name": "investigation_challenge_establishments_challenge_ref_investigation_challenges_challenge_ref_fk",
+          "tableFrom": "investigation_challenge_establishments",
+          "tableTo": "investigation_challenges",
+          "columnsFrom": [
+            "challenge_ref"
+          ],
+          "columnsTo": [
+            "challenge_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "investigation_challenge_requests": {
+      "name": "investigation_challenge_requests",
+      "columns": {
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_ref": {
+          "name": "challenge_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_challenge_requests_challenge_idx": {
+          "name": "investigation_challenge_requests_challenge_idx",
+          "columns": [
+            "challenge_ref"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_challenge_requests_request_id_evidence_requests_id_fk": {
+          "name": "investigation_challenge_requests_request_id_evidence_requests_id_fk",
+          "tableFrom": "investigation_challenge_requests",
+          "tableTo": "evidence_requests",
+          "columnsFrom": [
+            "request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenge_requests_challenge_ref_investigation_challenges_challenge_ref_fk": {
+          "name": "investigation_challenge_requests_challenge_ref_investigation_challenges_challenge_ref_fk",
+          "tableFrom": "investigation_challenge_requests",
+          "tableTo": "investigation_challenges",
+          "columnsFrom": [
+            "challenge_ref"
+          ],
+          "columnsTo": [
+            "challenge_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "investigation_challenges": {
+      "name": "investigation_challenges",
+      "columns": {
+        "challenge_ref": {
+          "name": "challenge_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenged_revision_id": {
+          "name": "challenged_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenged_material_revision": {
+          "name": "challenged_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opened_case_version": {
+          "name": "opened_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "trigger_evidence_refs_json": {
+          "name": "trigger_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opened_by_kind": {
+          "name": "opened_by_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opened_by_identifier": {
+          "name": "opened_by_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_challenges_case_question_material_unique": {
+          "name": "investigation_challenges_case_question_material_unique",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "challenged_material_revision"
+          ],
+          "isUnique": true
+        },
+        "investigation_challenges_case_question_created_idx": {
+          "name": "investigation_challenges_case_question_created_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_challenges_case_id_cases_id_fk": {
+          "name": "investigation_challenges_case_id_cases_id_fk",
+          "tableFrom": "investigation_challenges",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenges_question_ref_investigation_questions_question_ref_fk": {
+          "name": "investigation_challenges_question_ref_investigation_questions_question_ref_fk",
+          "tableFrom": "investigation_challenges",
+          "tableTo": "investigation_questions",
+          "columnsFrom": [
+            "question_ref"
+          ],
+          "columnsTo": [
+            "question_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_challenges_challenged_revision_id_case_revisions_id_fk": {
+          "name": "investigation_challenges_challenged_revision_id_case_revisions_id_fk",
+          "tableFrom": "investigation_challenges",
+          "tableTo": "case_revisions",
+          "columnsFrom": [
+            "challenged_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_challenges_material_revision_check": {
+          "name": "investigation_challenges_material_revision_check",
+          "value": "\"investigation_challenges\".\"challenged_material_revision\" > 0"
+        },
+        "investigation_challenges_opened_case_version_check": {
+          "name": "investigation_challenges_opened_case_version_check",
+          "value": "\"investigation_challenges\".\"opened_case_version\" > 0"
+        },
+        "investigation_challenges_opened_by_kind_check": {
+          "name": "investigation_challenges_opened_by_kind_check",
+          "value": "\"investigation_challenges\".\"opened_by_kind\" = 'HUMAN'"
+        },
+        "investigation_challenges_opened_by_identifier_check": {
+          "name": "investigation_challenges_opened_by_identifier_check",
+          "value": "length(trim(\"investigation_challenges\".\"opened_by_identifier\")) > 0"
+        },
+        "investigation_challenges_rationale_check": {
+          "name": "investigation_challenges_rationale_check",
+          "value": "length(trim(\"investigation_challenges\".\"rationale\")) > 0"
+        },
+        "investigation_challenges_demo_check": {
+          "name": "investigation_challenges_demo_check",
+          "value": "\"investigation_challenges\".\"demo\" = 1"
+        }
+      }
+    },
+    "investigation_claims": {
+      "name": "investigation_claims",
+      "columns": {
+        "claim_ref": {
+          "name": "claim_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject_ref": {
+          "name": "subject_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "claim_type": {
+          "name": "claim_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value_json": {
+          "name": "value_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "evidence_refs_json": {
+          "name": "evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "origin_kind": {
+          "name": "origin_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "producer_identifier": {
+          "name": "producer_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "derivation_metadata_json": {
+          "name": "derivation_metadata_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "supersedes_claim_ref": {
+          "name": "supersedes_claim_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_claims_case_question_created_idx": {
+          "name": "investigation_claims_case_question_created_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_claims_case_id_cases_id_fk": {
+          "name": "investigation_claims_case_id_cases_id_fk",
+          "tableFrom": "investigation_claims",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_claims_subject_ref_products_id_fk": {
+          "name": "investigation_claims_subject_ref_products_id_fk",
+          "tableFrom": "investigation_claims",
+          "tableTo": "products",
+          "columnsFrom": [
+            "subject_ref"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_claims_supersedes_claim_ref_investigation_claims_claim_ref_fk": {
+          "name": "investigation_claims_supersedes_claim_ref_investigation_claims_claim_ref_fk",
+          "tableFrom": "investigation_claims",
+          "tableTo": "investigation_claims",
+          "columnsFrom": [
+            "supersedes_claim_ref"
+          ],
+          "columnsTo": [
+            "claim_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_claims_claim_type_check": {
+          "name": "investigation_claims_claim_type_check",
+          "value": "\"investigation_claims\".\"claim_type\" in ('AFFECTED_BATCH_LOT')"
+        },
+        "investigation_claims_origin_kind_check": {
+          "name": "investigation_claims_origin_kind_check",
+          "value": "\"investigation_claims\".\"origin_kind\" in ('DETERMINISTIC_EXTRACTED', 'AI_PROPOSED', 'HUMAN_OBSERVED')"
+        },
+        "investigation_claims_demo_check": {
+          "name": "investigation_claims_demo_check",
+          "value": "\"investigation_claims\".\"demo\" in (0, 1)"
+        }
+      }
+    },
+    "investigation_established_batch_applications": {
+      "name": "investigation_established_batch_applications",
+      "columns": {
+        "application_ref": {
+          "name": "application_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "establishment_ref": {
+          "name": "establishment_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "claim_ref": {
+          "name": "claim_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_policy_identifier": {
+          "name": "application_policy_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "application_policy_version": {
+          "name": "application_policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_format_version": {
+          "name": "basis_format_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_digest": {
+          "name": "basis_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewed_claim_refs_json": {
+          "name": "reviewed_claim_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewed_assessment_refs_json": {
+          "name": "reviewed_assessment_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewed_evidence_refs_json": {
+          "name": "reviewed_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_evidence_refs_json": {
+          "name": "applied_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_lot": {
+          "name": "applied_lot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_revision_id": {
+          "name": "source_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_case_version": {
+          "name": "source_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_material_revision": {
+          "name": "source_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_revision_id": {
+          "name": "resulting_revision_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_case_version": {
+          "name": "resulting_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resulting_material_revision": {
+          "name": "resulting_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_kind": {
+          "name": "actor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_identifier": {
+          "name": "actor_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_established_batch_applications_establishment_unique": {
+          "name": "investigation_established_batch_applications_establishment_unique",
+          "columns": [
+            "establishment_ref"
+          ],
+          "isUnique": true
+        },
+        "investigation_established_batch_applications_result_revision_unique": {
+          "name": "investigation_established_batch_applications_result_revision_unique",
+          "columns": [
+            "resulting_revision_id"
+          ],
+          "isUnique": true
+        },
+        "investigation_established_batch_applications_case_question_created_idx": {
+          "name": "investigation_established_batch_applications_case_question_created_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_established_batch_applications_case_id_cases_id_fk": {
+          "name": "investigation_established_batch_applications_case_id_cases_id_fk",
+          "tableFrom": "investigation_established_batch_applications",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_established_batch_applications_question_ref_investigation_questions_question_ref_fk": {
+          "name": "investigation_established_batch_applications_question_ref_investigation_questions_question_ref_fk",
+          "tableFrom": "investigation_established_batch_applications",
+          "tableTo": "investigation_questions",
+          "columnsFrom": [
+            "question_ref"
+          ],
+          "columnsTo": [
+            "question_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_established_batch_applications_establishment_ref_investigation_establishments_establishment_ref_fk": {
+          "name": "investigation_established_batch_applications_establishment_ref_investigation_establishments_establishment_ref_fk",
+          "tableFrom": "investigation_established_batch_applications",
+          "tableTo": "investigation_establishments",
+          "columnsFrom": [
+            "establishment_ref"
+          ],
+          "columnsTo": [
+            "establishment_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_established_batch_applications_claim_ref_investigation_claims_claim_ref_fk": {
+          "name": "investigation_established_batch_applications_claim_ref_investigation_claims_claim_ref_fk",
+          "tableFrom": "investigation_established_batch_applications",
+          "tableTo": "investigation_claims",
+          "columnsFrom": [
+            "claim_ref"
+          ],
+          "columnsTo": [
+            "claim_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_established_batch_applications_source_revision_id_case_revisions_id_fk": {
+          "name": "investigation_established_batch_applications_source_revision_id_case_revisions_id_fk",
+          "tableFrom": "investigation_established_batch_applications",
+          "tableTo": "case_revisions",
+          "columnsFrom": [
+            "source_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_established_batch_applications_resulting_revision_id_case_revisions_id_fk": {
+          "name": "investigation_established_batch_applications_resulting_revision_id_case_revisions_id_fk",
+          "tableFrom": "investigation_established_batch_applications",
+          "tableTo": "case_revisions",
+          "columnsFrom": [
+            "resulting_revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_established_batch_applications_source_case_version_check": {
+          "name": "investigation_established_batch_applications_source_case_version_check",
+          "value": "\"investigation_established_batch_applications\".\"source_case_version\" > 0"
+        },
+        "investigation_established_batch_applications_source_material_revision_check": {
+          "name": "investigation_established_batch_applications_source_material_revision_check",
+          "value": "\"investigation_established_batch_applications\".\"source_material_revision\" > 0"
+        },
+        "investigation_established_batch_applications_resulting_case_version_check": {
+          "name": "investigation_established_batch_applications_resulting_case_version_check",
+          "value": "\"investigation_established_batch_applications\".\"resulting_case_version\" > 0"
+        },
+        "investigation_established_batch_applications_resulting_material_revision_check": {
+          "name": "investigation_established_batch_applications_resulting_material_revision_check",
+          "value": "\"investigation_established_batch_applications\".\"resulting_material_revision\" > 0"
+        },
+        "investigation_established_batch_applications_case_version_step_check": {
+          "name": "investigation_established_batch_applications_case_version_step_check",
+          "value": "\"investigation_established_batch_applications\".\"resulting_case_version\" = \"investigation_established_batch_applications\".\"source_case_version\" + 1"
+        },
+        "investigation_established_batch_applications_material_revision_step_check": {
+          "name": "investigation_established_batch_applications_material_revision_step_check",
+          "value": "\"investigation_established_batch_applications\".\"resulting_material_revision\" = \"investigation_established_batch_applications\".\"source_material_revision\" + 1"
+        },
+        "investigation_established_batch_applications_actor_kind_check": {
+          "name": "investigation_established_batch_applications_actor_kind_check",
+          "value": "\"investigation_established_batch_applications\".\"actor_kind\" = 'HUMAN'"
+        },
+        "investigation_established_batch_applications_actor_identifier_check": {
+          "name": "investigation_established_batch_applications_actor_identifier_check",
+          "value": "length(trim(\"investigation_established_batch_applications\".\"actor_identifier\")) > 0"
+        },
+        "investigation_established_batch_applications_rationale_check": {
+          "name": "investigation_established_batch_applications_rationale_check",
+          "value": "length(trim(\"investigation_established_batch_applications\".\"rationale\")) > 0"
+        },
+        "investigation_established_batch_applications_policy_identifier_check": {
+          "name": "investigation_established_batch_applications_policy_identifier_check",
+          "value": "length(trim(\"investigation_established_batch_applications\".\"application_policy_identifier\")) > 0"
+        },
+        "investigation_established_batch_applications_policy_version_check": {
+          "name": "investigation_established_batch_applications_policy_version_check",
+          "value": "length(trim(\"investigation_established_batch_applications\".\"application_policy_version\")) > 0"
+        },
+        "investigation_established_batch_applications_basis_format_version_check": {
+          "name": "investigation_established_batch_applications_basis_format_version_check",
+          "value": "length(trim(\"investigation_established_batch_applications\".\"basis_format_version\")) > 0"
+        },
+        "investigation_established_batch_applications_basis_digest_check": {
+          "name": "investigation_established_batch_applications_basis_digest_check",
+          "value": "length(\"investigation_established_batch_applications\".\"basis_digest\") = 71\n          and substr(\"investigation_established_batch_applications\".\"basis_digest\", 1, 7) = 'sha256:'\n          and substr(\"investigation_established_batch_applications\".\"basis_digest\", 8) not glob '*[^0-9a-f]*'"
+        },
+        "investigation_established_batch_applications_applied_lot_check": {
+          "name": "investigation_established_batch_applications_applied_lot_check",
+          "value": "length(trim(\"investigation_established_batch_applications\".\"applied_lot\")) > 0"
+        },
+        "investigation_established_batch_applications_demo_check": {
+          "name": "investigation_established_batch_applications_demo_check",
+          "value": "\"investigation_established_batch_applications\".\"demo\" = 1"
+        }
+      }
+    },
+    "investigation_establishments": {
+      "name": "investigation_establishments",
+      "columns": {
+        "establishment_ref": {
+          "name": "establishment_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "claim_ref": {
+          "name": "claim_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_identifier": {
+          "name": "policy_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_claim_refs_json": {
+          "name": "basis_claim_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_assessment_refs_json": {
+          "name": "basis_assessment_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_evidence_refs_json": {
+          "name": "basis_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "evaluator_kind": {
+          "name": "evaluator_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "evaluator_identifier": {
+          "name": "evaluator_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_case_version": {
+          "name": "basis_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_material_revision": {
+          "name": "basis_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_establishments_case_question_created_idx": {
+          "name": "investigation_establishments_case_question_created_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_establishments_case_id_cases_id_fk": {
+          "name": "investigation_establishments_case_id_cases_id_fk",
+          "tableFrom": "investigation_establishments",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_establishments_claim_ref_investigation_claims_claim_ref_fk": {
+          "name": "investigation_establishments_claim_ref_investigation_claims_claim_ref_fk",
+          "tableFrom": "investigation_establishments",
+          "tableTo": "investigation_claims",
+          "columnsFrom": [
+            "claim_ref"
+          ],
+          "columnsTo": [
+            "claim_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_establishments_evaluator_kind_check": {
+          "name": "investigation_establishments_evaluator_kind_check",
+          "value": "\"investigation_establishments\".\"evaluator_kind\" = 'RULE'"
+        },
+        "investigation_establishments_policy_identifier_check": {
+          "name": "investigation_establishments_policy_identifier_check",
+          "value": "length(trim(\"investigation_establishments\".\"policy_identifier\")) > 0"
+        },
+        "investigation_establishments_policy_version_check": {
+          "name": "investigation_establishments_policy_version_check",
+          "value": "length(trim(\"investigation_establishments\".\"policy_version\")) > 0"
+        },
+        "investigation_establishments_evaluator_identifier_check": {
+          "name": "investigation_establishments_evaluator_identifier_check",
+          "value": "length(trim(\"investigation_establishments\".\"evaluator_identifier\")) > 0"
+        },
+        "investigation_establishments_basis_case_version_check": {
+          "name": "investigation_establishments_basis_case_version_check",
+          "value": "\"investigation_establishments\".\"basis_case_version\" > 0"
+        },
+        "investigation_establishments_basis_material_revision_check": {
+          "name": "investigation_establishments_basis_material_revision_check",
+          "value": "\"investigation_establishments\".\"basis_material_revision\" > 0"
+        },
+        "investigation_establishments_demo_check": {
+          "name": "investigation_establishments_demo_check",
+          "value": "\"investigation_establishments\".\"demo\" = 1"
+        }
+      }
+    },
+    "investigation_evidence": {
+      "name": "investigation_evidence",
+      "columns": {
+        "evidence_ref": {
+          "name": "evidence_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "evidence_request_id": {
+          "name": "evidence_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_identifier": {
+          "name": "source_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "valid_as_of": {
+          "name": "valid_as_of",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "content_kind": {
+          "name": "content_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_json": {
+          "name": "content_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "content_locator": {
+          "name": "content_locator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "integrity_hash": {
+          "name": "integrity_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_evidence_case_idx": {
+          "name": "investigation_evidence_case_idx",
+          "columns": [
+            "case_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_evidence_case_id_cases_id_fk": {
+          "name": "investigation_evidence_case_id_cases_id_fk",
+          "tableFrom": "investigation_evidence",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_evidence_evidence_request_id_evidence_requests_id_fk": {
+          "name": "investigation_evidence_evidence_request_id_evidence_requests_id_fk",
+          "tableFrom": "investigation_evidence",
+          "tableTo": "evidence_requests",
+          "columnsFrom": [
+            "evidence_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_evidence_source_kind_check": {
+          "name": "investigation_evidence_source_kind_check",
+          "value": "\"investigation_evidence\".\"source_kind\" in ('REGULATOR', 'INTERNAL', 'EXTERNAL_PARTY', 'HUMAN_OBSERVED')"
+        },
+        "investigation_evidence_content_kind_check": {
+          "name": "investigation_evidence_content_kind_check",
+          "value": "\"investigation_evidence\".\"content_kind\" in ('STRUCTURED', 'LOCATOR')"
+        },
+        "investigation_evidence_content_check": {
+          "name": "investigation_evidence_content_check",
+          "value": "(\"investigation_evidence\".\"content_kind\" = 'STRUCTURED' and \"investigation_evidence\".\"content_json\" is not null and \"investigation_evidence\".\"content_locator\" is null)\n          or (\"investigation_evidence\".\"content_kind\" = 'LOCATOR' and \"investigation_evidence\".\"content_json\" is null and \"investigation_evidence\".\"content_locator\" is not null)"
+        },
+        "investigation_evidence_integrity_hash_check": {
+          "name": "investigation_evidence_integrity_hash_check",
+          "value": "length(\"investigation_evidence\".\"integrity_hash\") = 64 and \"investigation_evidence\".\"integrity_hash\" not glob '*[^0-9a-f]*'"
+        },
+        "investigation_evidence_demo_check": {
+          "name": "investigation_evidence_demo_check",
+          "value": "\"investigation_evidence\".\"demo\" in (0, 1)"
+        }
+      }
+    },
+    "investigation_investigator_recommendation_events": {
+      "name": "investigation_investigator_recommendation_events",
+      "columns": {
+        "event_ref": {
+          "name": "event_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recommendation_ref": {
+          "name": "recommendation_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_kind": {
+          "name": "event_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "linked_artifact_kind": {
+          "name": "linked_artifact_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "linked_artifact_ref": {
+          "name": "linked_artifact_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "supporting_evidence_refs_json": {
+          "name": "supporting_evidence_refs_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_kind": {
+          "name": "actor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_identifier": {
+          "name": "actor_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_case_version": {
+          "name": "basis_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_material_revision": {
+          "name": "basis_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigator_recommendation_events_kind_unique": {
+          "name": "investigator_recommendation_events_kind_unique",
+          "columns": [
+            "recommendation_ref",
+            "event_kind"
+          ],
+          "isUnique": true
+        },
+        "investigator_recommendation_events_recommendation_idx": {
+          "name": "investigator_recommendation_events_recommendation_idx",
+          "columns": [
+            "recommendation_ref",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_investigator_recommendation_events_recommendation_ref_investigation_investigator_recommendations_recommendation_ref_fk": {
+          "name": "investigation_investigator_recommendation_events_recommendation_ref_investigation_investigator_recommendations_recommendation_ref_fk",
+          "tableFrom": "investigation_investigator_recommendation_events",
+          "tableTo": "investigation_investigator_recommendations",
+          "columnsFrom": [
+            "recommendation_ref"
+          ],
+          "columnsTo": [
+            "recommendation_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigator_recommendation_events_kind_check": {
+          "name": "investigator_recommendation_events_kind_check",
+          "value": "\"investigation_investigator_recommendation_events\".\"event_kind\" in ('DISMISSED', 'ACTED', 'PATH_EXHAUSTED')"
+        },
+        "investigator_recommendation_events_link_check": {
+          "name": "investigator_recommendation_events_link_check",
+          "value": "(\"investigation_investigator_recommendation_events\".\"linked_artifact_kind\" is null and \"investigation_investigator_recommendation_events\".\"linked_artifact_ref\" is null)\n          or (\"investigation_investigator_recommendation_events\".\"linked_artifact_kind\" = 'EVIDENCE_REQUEST'\n            and \"investigation_investigator_recommendation_events\".\"linked_artifact_ref\" is not null\n            and length(trim(\"investigation_investigator_recommendation_events\".\"linked_artifact_ref\")) > 0)"
+        },
+        "investigator_recommendation_events_evidence_check": {
+          "name": "investigator_recommendation_events_evidence_check",
+          "value": "json_valid(\"investigation_investigator_recommendation_events\".\"supporting_evidence_refs_json\")\n          and (\"investigation_investigator_recommendation_events\".\"event_kind\" <> 'PATH_EXHAUSTED'\n            or \"investigation_investigator_recommendation_events\".\"supporting_evidence_refs_json\" <> '[]')"
+        },
+        "investigator_recommendation_events_actor_check": {
+          "name": "investigator_recommendation_events_actor_check",
+          "value": "\"investigation_investigator_recommendation_events\".\"actor_kind\" = 'HUMAN' and length(trim(\"investigation_investigator_recommendation_events\".\"actor_identifier\")) > 0"
+        },
+        "investigator_recommendation_events_rationale_check": {
+          "name": "investigator_recommendation_events_rationale_check",
+          "value": "length(trim(\"investigation_investigator_recommendation_events\".\"rationale\")) between 1 and 10000"
+        },
+        "investigator_recommendation_events_version_check": {
+          "name": "investigator_recommendation_events_version_check",
+          "value": "\"investigation_investigator_recommendation_events\".\"basis_case_version\" > 0 and \"investigation_investigator_recommendation_events\".\"basis_material_revision\" > 0"
+        },
+        "investigator_recommendation_events_demo_check": {
+          "name": "investigator_recommendation_events_demo_check",
+          "value": "\"investigation_investigator_recommendation_events\".\"demo\" = 1"
+        }
+      }
+    },
+    "investigation_investigator_recommendations": {
+      "name": "investigation_investigator_recommendations",
+      "columns": {
+        "recommendation_ref": {
+          "name": "recommendation_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "context_challenge_ref": {
+          "name": "context_challenge_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "context_kind": {
+          "name": "context_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_version": {
+          "name": "case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "material_revision": {
+          "name": "material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "snapshot_format_version": {
+          "name": "snapshot_format_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_identifier": {
+          "name": "policy_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_json": {
+          "name": "basis_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "basis_digest": {
+          "name": "basis_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recommendation_kind": {
+          "name": "recommendation_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recommendation_json": {
+          "name": "recommendation_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recommendation_digest": {
+          "name": "recommendation_digest",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action_key": {
+          "name": "action_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_identifier": {
+          "name": "provider_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_identifier": {
+          "name": "client_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model_identifier": {
+          "name": "model_identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "prompt_policy_version": {
+          "name": "prompt_policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generated_at": {
+          "name": "generated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigator_recommendations_basis_digest_unique": {
+          "name": "investigator_recommendations_basis_digest_unique",
+          "columns": [
+            "basis_digest"
+          ],
+          "isUnique": true
+        },
+        "investigator_recommendations_case_question_idx": {
+          "name": "investigator_recommendations_case_question_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "case_version"
+          ],
+          "isUnique": false
+        },
+        "investigator_recommendations_action_key_idx": {
+          "name": "investigator_recommendations_action_key_idx",
+          "columns": [
+            "case_id",
+            "question_ref",
+            "action_key"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_investigator_recommendations_case_id_cases_id_fk": {
+          "name": "investigation_investigator_recommendations_case_id_cases_id_fk",
+          "tableFrom": "investigation_investigator_recommendations",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_investigator_recommendations_question_ref_investigation_questions_question_ref_fk": {
+          "name": "investigation_investigator_recommendations_question_ref_investigation_questions_question_ref_fk",
+          "tableFrom": "investigation_investigator_recommendations",
+          "tableTo": "investigation_questions",
+          "columnsFrom": [
+            "question_ref"
+          ],
+          "columnsTo": [
+            "question_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_investigator_recommendations_context_challenge_ref_investigation_challenges_challenge_ref_fk": {
+          "name": "investigation_investigator_recommendations_context_challenge_ref_investigation_challenges_challenge_ref_fk",
+          "tableFrom": "investigation_investigator_recommendations",
+          "tableTo": "investigation_challenges",
+          "columnsFrom": [
+            "context_challenge_ref"
+          ],
+          "columnsTo": [
+            "challenge_ref"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigator_recommendations_context_kind_check": {
+          "name": "investigator_recommendations_context_kind_check",
+          "value": "\"investigation_investigator_recommendations\".\"context_kind\" in ('OPEN_GAP', 'OPEN_CHALLENGE', 'APPLIED_CHALLENGE_CONFLICT')"
+        },
+        "investigator_recommendations_context_challenge_check": {
+          "name": "investigator_recommendations_context_challenge_check",
+          "value": "(\"investigation_investigator_recommendations\".\"context_kind\" = 'OPEN_GAP' and \"investigation_investigator_recommendations\".\"context_challenge_ref\" is null)\n          or (\"investigation_investigator_recommendations\".\"context_kind\" in ('OPEN_CHALLENGE', 'APPLIED_CHALLENGE_CONFLICT')\n            and \"investigation_investigator_recommendations\".\"context_challenge_ref\" is not null)"
+        },
+        "investigator_recommendations_version_check": {
+          "name": "investigator_recommendations_version_check",
+          "value": "\"investigation_investigator_recommendations\".\"case_version\" > 0 and \"investigation_investigator_recommendations\".\"material_revision\" > 0\n          and \"investigation_investigator_recommendations\".\"snapshot_format_version\" > 0 and \"investigation_investigator_recommendations\".\"policy_version\" > 0"
+        },
+        "investigator_recommendations_policy_check": {
+          "name": "investigator_recommendations_policy_check",
+          "value": "length(trim(\"investigation_investigator_recommendations\".\"policy_identifier\")) > 0\n          and length(trim(\"investigation_investigator_recommendations\".\"provider_identifier\")) > 0\n          and length(trim(\"investigation_investigator_recommendations\".\"client_identifier\")) > 0\n          and length(trim(\"investigation_investigator_recommendations\".\"model_identifier\")) > 0\n          and length(trim(\"investigation_investigator_recommendations\".\"prompt_policy_version\")) > 0"
+        },
+        "investigator_recommendations_json_check": {
+          "name": "investigator_recommendations_json_check",
+          "value": "json_valid(\"investigation_investigator_recommendations\".\"basis_json\") and json_valid(\"investigation_investigator_recommendations\".\"recommendation_json\")"
+        },
+        "investigator_recommendations_kind_check": {
+          "name": "investigator_recommendations_kind_check",
+          "value": "\"investigation_investigator_recommendations\".\"recommendation_kind\" in ('REQUEST_EVIDENCE', 'REVIEW_EXISTING_EVIDENCE',\n          'FOLLOW_UP_RECORDED_REQUEST', 'WAIT_FOR_PENDING_EVIDENCE',\n          'ESCALATE_UNRESOLVED_TO_HUMAN', 'NO_ACTION')"
+        },
+        "investigator_recommendations_digest_check": {
+          "name": "investigator_recommendations_digest_check",
+          "value": "length(\"investigation_investigator_recommendations\".\"basis_digest\") = 71\n          and substr(\"investigation_investigator_recommendations\".\"basis_digest\", 1, 7) = 'sha256:'\n          and substr(\"investigation_investigator_recommendations\".\"basis_digest\", 8) not glob '*[^0-9a-f]*'\n          and length(\"investigation_investigator_recommendations\".\"recommendation_digest\") = 71\n          and substr(\"investigation_investigator_recommendations\".\"recommendation_digest\", 1, 7) = 'sha256:'\n          and substr(\"investigation_investigator_recommendations\".\"recommendation_digest\", 8) not glob '*[^0-9a-f]*'\n          and length(\"investigation_investigator_recommendations\".\"action_key\") = 71\n          and substr(\"investigation_investigator_recommendations\".\"action_key\", 1, 7) = 'sha256:'\n          and substr(\"investigation_investigator_recommendations\".\"action_key\", 8) not glob '*[^0-9a-f]*'"
+        },
+        "investigator_recommendations_demo_check": {
+          "name": "investigator_recommendations_demo_check",
+          "value": "\"investigation_investigator_recommendations\".\"demo\" = 1"
+        }
+      }
+    },
+    "investigation_questions": {
+      "name": "investigation_questions",
+      "columns": {
+        "question_ref": {
+          "name": "question_ref",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject_ref": {
+          "name": "subject_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "question_type": {
+          "name": "question_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "origin_case_version": {
+          "name": "origin_case_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "origin_material_revision": {
+          "name": "origin_material_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "demo": {
+          "name": "demo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "investigation_questions_case_created_idx": {
+          "name": "investigation_questions_case_created_idx",
+          "columns": [
+            "case_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "investigation_questions_case_id_cases_id_fk": {
+          "name": "investigation_questions_case_id_cases_id_fk",
+          "tableFrom": "investigation_questions",
+          "tableTo": "cases",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "investigation_questions_subject_ref_products_id_fk": {
+          "name": "investigation_questions_subject_ref_products_id_fk",
+          "tableFrom": "investigation_questions",
+          "tableTo": "products",
+          "columnsFrom": [
+            "subject_ref"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "investigation_questions_question_ref_check": {
+          "name": "investigation_questions_question_ref_check",
+          "value": "length(trim(\"investigation_questions\".\"question_ref\")) > 0"
+        },
+        "investigation_questions_question_type_check": {
+          "name": "investigation_questions_question_type_check",
+          "value": "\"investigation_questions\".\"question_type\" = 'AFFECTED_BATCH_LOT'"
+        },
+        "investigation_questions_origin_case_version_check": {
+          "name": "investigation_questions_origin_case_version_check",
+          "value": "\"investigation_questions\".\"origin_case_version\" > 0"
+        },
+        "investigation_questions_origin_material_revision_check": {
+          "name": "investigation_questions_origin_material_revision_check",
+          "value": "\"investigation_questions\".\"origin_material_revision\" > 0"
+        },
+        "investigation_questions_demo_check": {
+          "name": "investigation_questions_demo_check",
+          "value": "\"investigation_questions\".\"demo\" in (0, 1)"
+        }
+      }
+    },
+    "matches": {
+      "name": "matches",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "total_score": {
+          "name": "total_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name_score": {
+          "name": "name_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "brand_score": {
+          "name": "brand_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ean_score": {
+          "name": "ean_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "batch_score": {
+          "name": "batch_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "has_hard_conflict": {
+          "name": "has_hard_conflict",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "explanation": {
+          "name": "explanation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "matches_alert_id_idx": {
+          "name": "matches_alert_id_idx",
+          "columns": [
+            "alert_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "matches_alert_id_alerts_id_fk": {
+          "name": "matches_alert_id_alerts_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "matches_product_id_products_id_fk": {
+          "name": "matches_product_id_products_id_fk",
+          "tableFrom": "matches",
+          "tableTo": "products",
+          "columnsFrom": [
+            "product_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "matches_total_score_check": {
+          "name": "matches_total_score_check",
+          "value": "\"matches\".\"total_score\" between 0 and 100"
+        },
+        "matches_name_score_check": {
+          "name": "matches_name_score_check",
+          "value": "\"matches\".\"name_score\" between 0 and 100"
+        },
+        "matches_brand_score_check": {
+          "name": "matches_brand_score_check",
+          "value": "\"matches\".\"brand_score\" between 0 and 100"
+        },
+        "matches_ean_score_check": {
+          "name": "matches_ean_score_check",
+          "value": "\"matches\".\"ean_score\" between 0 and 100"
+        },
+        "matches_batch_score_check": {
+          "name": "matches_batch_score_check",
+          "value": "\"matches\".\"batch_score\" between 0 and 100"
+        },
+        "matches_hard_conflict_check": {
+          "name": "matches_hard_conflict_check",
+          "value": "\"matches\".\"has_hard_conflict\" in (0, 1)"
+        },
+        "matches_status_check": {
+          "name": "matches_status_check",
+          "value": "\"matches\".\"status\" in ('candidate', 'confirmed', 'rejected', 'awaiting_evidence')"
+        }
+      }
+    },
+    "products": {
+      "name": "products",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sku": {
+          "name": "sku",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_name": {
+          "name": "normalized_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "brand": {
+          "name": "brand",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_brand": {
+          "name": "normalized_brand",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ean": {
+          "name": "ean",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "supplier_name": {
+          "name": "supplier_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "supplier_email": {
+          "name": "supplier_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stock_quantity": {
+          "name": "stock_quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "products_sku_unique": {
+          "name": "products_sku_unique",
+          "columns": [
+            "sku"
+          ],
+          "isUnique": true
+        },
+        "products_ean_idx": {
+          "name": "products_ean_idx",
+          "columns": [
+            "ean"
+          ],
+          "isUnique": false
+        },
+        "products_normalized_brand_idx": {
+          "name": "products_normalized_brand_idx",
+          "columns": [
+            "normalized_brand"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "products_stock_quantity_check": {
+          "name": "products_stock_quantity_check",
+          "value": "\"products\".\"stock_quantity\" >= 0"
+        }
+      }
+    },
+    "purchases": {
+      "name": "purchases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "purchased_at": {
+          "name": "purchased_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "purchases_customer_id_customers_id_fk": {
+          "name": "purchases_customer_id_customers_id_fk",
+          "tableFrom": "purchases",
+          "tableTo": "customers",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "purchases_product_id_products_id_fk": {
+          "name": "purchases_product_id_products_id_fk",
+          "tableFrom": "purchases",
+          "tableTo": "products",
+          "columnsFrom": [
+            "product_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "purchases_quantity_check": {
+          "name": "purchases_quantity_check",
+          "value": "\"purchases\".\"quantity\" > 0"
+        }
+      }
+    },
+    "settings": {
+      "name": "settings",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "confidence_threshold": {
+          "name": "confidence_threshold",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 85
+        },
+        "review_floor": {
+          "name": "review_floor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 55
+        },
+        "onboarding_completed": {
+          "name": "onboarding_completed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "settings_confidence_threshold_check": {
+          "name": "settings_confidence_threshold_check",
+          "value": "\"settings\".\"confidence_threshold\" between 70 and 95"
+        },
+        "settings_review_floor_check": {
+          "name": "settings_review_floor_check",
+          "value": "\"settings\".\"review_floor\" between 0 and 100"
+        },
+        "settings_onboarding_completed_check": {
+          "name": "settings_onboarding_completed_check",
+          "value": "\"settings\".\"onboarding_completed\" in (0, 1)"
+        }
+      }
+    },
+    "traceability_records": {
+      "name": "traceability_records",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "case_id": {
+          "name": "case_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_ref": {
+          "name": "source_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "record_type": {
+          "name": "record_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "traceability_records_source_unique": {
+          "name": "traceability_records_source_unique",
+          "columns": [
+            "case_id",
+            "source_ref"
+          ],
+          "isUnique": true
+        },
+        "traceability_records_case_idx": {
+          "name": "traceability_records_case_idx",
+          "columns": [
+            "case_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "traceability_records_case_id_case_lifecycle_case_id_fk": {
+          "name": "traceability_records_case_id_case_lifecycle_case_id_fk",
+          "tableFrom": "traceability_records",
+          "tableTo": "case_lifecycle",
+          "columnsFrom": [
+            "case_id"
+          ],
+          "columnsTo": [
+            "case_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

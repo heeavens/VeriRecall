@@ -1131,23 +1131,32 @@ export function readEffectiveInvestigationAnalysis(
   caseId: string,
   questionRef: string
 ): EffectiveInvestigationAnalysis {
-  return database.transaction((transaction) => {
-    const snapshot = readCaseSnapshot(transaction, caseId);
-    if (!snapshot) {
-      throw new EffectiveAnalysisError(
-        'VERSIONED_CASE_REQUIRED',
-        'Effective analysis requires an authoritative versioned investigation.'
-      );
-    }
-    return projectEffectiveInvestigationAnalysis({
-      snapshot,
-      questionRef,
-      claims: listInvestigationClaims(transaction, caseId, questionRef),
-      assessments: listInvestigationAssessments(transaction, caseId, questionRef),
-      caseRevisions: getCaseHistory(transaction, caseId).map((revision) => ({
-        caseVersion: revision.caseVersion,
-        materialRevision: revision.materialRevision
-      }))
-    });
+  return database.transaction((transaction) =>
+    readEffectiveInvestigationAnalysisInTransaction(transaction, caseId, questionRef)
+  );
+}
+
+/** Build OPEN_GAP effective analysis inside a transaction already owned by the caller. */
+export function readEffectiveInvestigationAnalysisInTransaction(
+  database: RecallDatabase,
+  caseId: string,
+  questionRef: string
+): EffectiveInvestigationAnalysis {
+  const snapshot = readCaseSnapshot(database, caseId);
+  if (!snapshot) {
+    throw new EffectiveAnalysisError(
+      'VERSIONED_CASE_REQUIRED',
+      'Effective analysis requires an authoritative versioned investigation.'
+    );
+  }
+  return projectEffectiveInvestigationAnalysis({
+    snapshot,
+    questionRef,
+    claims: listInvestigationClaims(database, caseId, questionRef),
+    assessments: listInvestigationAssessments(database, caseId, questionRef),
+    caseRevisions: getCaseHistory(database, caseId).map((revision) => ({
+      caseVersion: revision.caseVersion,
+      materialRevision: revision.materialRevision
+    }))
   });
 }

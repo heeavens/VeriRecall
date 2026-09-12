@@ -77,6 +77,29 @@ export const alertFieldAssertionOriginKinds = [
 
 export const alertMatchExplanationOrigins = ['DETERMINISTIC', 'AI_GENERATED'] as const;
 
+export const investigatorContextKinds = [
+  'OPEN_GAP',
+  'OPEN_CHALLENGE',
+  'APPLIED_CHALLENGE_CONFLICT'
+] as const;
+
+export const investigatorRecommendationKinds = [
+  'REQUEST_EVIDENCE',
+  'REVIEW_EXISTING_EVIDENCE',
+  'FOLLOW_UP_RECORDED_REQUEST',
+  'WAIT_FOR_PENDING_EVIDENCE',
+  'ESCALATE_UNRESOLVED_TO_HUMAN',
+  'NO_ACTION'
+] as const;
+
+export const investigatorRecommendationEventKinds = [
+  'DISMISSED',
+  'ACTED',
+  'PATH_EXHAUSTED'
+] as const;
+
+export const investigatorLinkedArtifactKinds = ['EVIDENCE_REQUEST'] as const;
+
 export const settings = sqliteTable(
   'settings',
   {
@@ -908,6 +931,163 @@ export const investigationChallenges = sqliteTable(
       sql`length(trim(${table.rationale})) > 0`
     ),
     check('investigation_challenges_demo_check', sql`${table.demo} = 1`)
+  ]
+);
+
+export const investigationInvestigatorRecommendations = sqliteTable(
+  'investigation_investigator_recommendations',
+  {
+    recommendationRef: text('recommendation_ref').primaryKey(),
+    caseId: text('case_id')
+      .notNull()
+      .references(() => cases.id),
+    questionRef: text('question_ref')
+      .notNull()
+      .references(() => investigationQuestions.questionRef),
+    contextChallengeRef: text('context_challenge_ref')
+      .references(() => investigationChallenges.challengeRef),
+    contextKind: text('context_kind', { enum: investigatorContextKinds }).notNull(),
+    caseVersion: integer('case_version').notNull(),
+    materialRevision: integer('material_revision').notNull(),
+    snapshotFormatVersion: integer('snapshot_format_version').notNull(),
+    policyIdentifier: text('policy_identifier').notNull(),
+    policyVersion: integer('policy_version').notNull(),
+    basisJson: text('basis_json').notNull(),
+    basisDigest: text('basis_digest').notNull(),
+    recommendationKind: text('recommendation_kind', {
+      enum: investigatorRecommendationKinds
+    }).notNull(),
+    recommendationJson: text('recommendation_json').notNull(),
+    recommendationDigest: text('recommendation_digest').notNull(),
+    actionKey: text('action_key').notNull(),
+    providerIdentifier: text('provider_identifier').notNull(),
+    clientIdentifier: text('client_identifier').notNull(),
+    modelIdentifier: text('model_identifier').notNull(),
+    promptPolicyVersion: text('prompt_policy_version').notNull(),
+    generatedAt: text('generated_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    uniqueIndex('investigator_recommendations_basis_digest_unique').on(table.basisDigest),
+    index('investigator_recommendations_case_question_idx').on(
+      table.caseId,
+      table.questionRef,
+      table.caseVersion
+    ),
+    index('investigator_recommendations_action_key_idx').on(
+      table.caseId,
+      table.questionRef,
+      table.actionKey
+    ),
+    check(
+      'investigator_recommendations_context_kind_check',
+      sql`${table.contextKind} in ('OPEN_GAP', 'OPEN_CHALLENGE', 'APPLIED_CHALLENGE_CONFLICT')`
+    ),
+    check(
+      'investigator_recommendations_context_challenge_check',
+      sql`(${table.contextKind} = 'OPEN_GAP' and ${table.contextChallengeRef} is null)
+          or (${table.contextKind} in ('OPEN_CHALLENGE', 'APPLIED_CHALLENGE_CONFLICT')
+            and ${table.contextChallengeRef} is not null)`
+    ),
+    check(
+      'investigator_recommendations_version_check',
+      sql`${table.caseVersion} > 0 and ${table.materialRevision} > 0
+          and ${table.snapshotFormatVersion} > 0 and ${table.policyVersion} > 0`
+    ),
+    check(
+      'investigator_recommendations_policy_check',
+      sql`length(trim(${table.policyIdentifier})) > 0
+          and length(trim(${table.providerIdentifier})) > 0
+          and length(trim(${table.clientIdentifier})) > 0
+          and length(trim(${table.modelIdentifier})) > 0
+          and length(trim(${table.promptPolicyVersion})) > 0`
+    ),
+    check(
+      'investigator_recommendations_json_check',
+      sql`json_valid(${table.basisJson}) and json_valid(${table.recommendationJson})`
+    ),
+    check(
+      'investigator_recommendations_kind_check',
+      sql`${table.recommendationKind} in ('REQUEST_EVIDENCE', 'REVIEW_EXISTING_EVIDENCE',
+          'FOLLOW_UP_RECORDED_REQUEST', 'WAIT_FOR_PENDING_EVIDENCE',
+          'ESCALATE_UNRESOLVED_TO_HUMAN', 'NO_ACTION')`
+    ),
+    check(
+      'investigator_recommendations_digest_check',
+      sql`length(${table.basisDigest}) = 71
+          and substr(${table.basisDigest}, 1, 7) = 'sha256:'
+          and substr(${table.basisDigest}, 8) not glob '*[^0-9a-f]*'
+          and length(${table.recommendationDigest}) = 71
+          and substr(${table.recommendationDigest}, 1, 7) = 'sha256:'
+          and substr(${table.recommendationDigest}, 8) not glob '*[^0-9a-f]*'
+          and length(${table.actionKey}) = 71
+          and substr(${table.actionKey}, 1, 7) = 'sha256:'
+          and substr(${table.actionKey}, 8) not glob '*[^0-9a-f]*'`
+    ),
+    check('investigator_recommendations_demo_check', sql`${table.demo} = 1`)
+  ]
+);
+
+export const investigationInvestigatorRecommendationEvents = sqliteTable(
+  'investigation_investigator_recommendation_events',
+  {
+    eventRef: text('event_ref').primaryKey(),
+    recommendationRef: text('recommendation_ref')
+      .notNull()
+      .references(() => investigationInvestigatorRecommendations.recommendationRef),
+    eventKind: text('event_kind', { enum: investigatorRecommendationEventKinds }).notNull(),
+    linkedArtifactKind: text('linked_artifact_kind', {
+      enum: investigatorLinkedArtifactKinds
+    }),
+    linkedArtifactRef: text('linked_artifact_ref'),
+    supportingEvidenceRefsJson: text('supporting_evidence_refs_json').notNull(),
+    rationale: text('rationale').notNull(),
+    actorKind: text('actor_kind', { enum: ['HUMAN'] as const }).notNull(),
+    actorIdentifier: text('actor_identifier').notNull(),
+    basisCaseVersion: integer('basis_case_version').notNull(),
+    basisMaterialRevision: integer('basis_material_revision').notNull(),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    uniqueIndex('investigator_recommendation_events_kind_unique').on(
+      table.recommendationRef,
+      table.eventKind
+    ),
+    index('investigator_recommendation_events_recommendation_idx').on(
+      table.recommendationRef,
+      table.createdAt
+    ),
+    check(
+      'investigator_recommendation_events_kind_check',
+      sql`${table.eventKind} in ('DISMISSED', 'ACTED', 'PATH_EXHAUSTED')`
+    ),
+    check(
+      'investigator_recommendation_events_link_check',
+      sql`(${table.linkedArtifactKind} is null and ${table.linkedArtifactRef} is null)
+          or (${table.linkedArtifactKind} = 'EVIDENCE_REQUEST'
+            and ${table.linkedArtifactRef} is not null
+            and length(trim(${table.linkedArtifactRef})) > 0)`
+    ),
+    check(
+      'investigator_recommendation_events_evidence_check',
+      sql`json_valid(${table.supportingEvidenceRefsJson})
+          and (${table.eventKind} <> 'PATH_EXHAUSTED'
+            or ${table.supportingEvidenceRefsJson} <> '[]')`
+    ),
+    check(
+      'investigator_recommendation_events_actor_check',
+      sql`${table.actorKind} = 'HUMAN' and length(trim(${table.actorIdentifier})) > 0`
+    ),
+    check(
+      'investigator_recommendation_events_rationale_check',
+      sql`length(trim(${table.rationale})) between 1 and 10000`
+    ),
+    check(
+      'investigator_recommendation_events_version_check',
+      sql`${table.basisCaseVersion} > 0 and ${table.basisMaterialRevision} > 0`
+    ),
+    check('investigator_recommendation_events_demo_check', sql`${table.demo} = 1`)
   ]
 );
 

@@ -133,6 +133,8 @@ export function getDemoStateSummary(database: RecallDatabase): DemoStateSummary 
 
 export function clearDemoData(database: RecallDatabase): void {
   database.transaction((transaction) => {
+    transaction.delete(schema.investigationInvestigatorRecommendationEvents).run();
+    transaction.delete(schema.investigationInvestigatorRecommendations).run();
     transaction.delete(schema.investigationChallengeBatchApplications).run();
     transaction.delete(schema.investigationEstablishedBatchApplications).run();
     transaction.delete(schema.investigationChallengeConflictApplications).run();
@@ -166,6 +168,8 @@ export function clearDemoData(database: RecallDatabase): void {
 
 export function replaceWithDemoData(database: RecallDatabase, fixtures: DemoFixtures): void {
   database.transaction((transaction) => {
+    transaction.delete(schema.investigationInvestigatorRecommendationEvents).run();
+    transaction.delete(schema.investigationInvestigatorRecommendations).run();
     transaction.delete(schema.investigationChallengeBatchApplications).run();
     transaction.delete(schema.investigationEstablishedBatchApplications).run();
     transaction.delete(schema.investigationChallengeConflictApplications).run();
