@@ -57,6 +57,26 @@ export const investigationChallengeBatchApplicationActorKinds = ['HUMAN'] as con
 
 export const investigationEstablishedBatchApplicationActorKinds = ['HUMAN'] as const;
 
+export const alertSourceObservationRecordKinds = ['RAW_SOURCE', 'LEGACY_SNAPSHOT'] as const;
+
+export const alertFieldKinds = [
+  'PRODUCT_NAME',
+  'BRAND',
+  'EAN_GTIN',
+  'BATCH_LOT',
+  'CATEGORY'
+] as const;
+
+export const alertFieldAssertionOriginKinds = [
+  'SOURCE_ASSERTED',
+  'DETERMINISTIC_DERIVED',
+  'AI_PROPOSAL',
+  'HUMAN_CONFIRMED',
+  'LEGACY_UNVERIFIED'
+] as const;
+
+export const alertMatchExplanationOrigins = ['DETERMINISTIC', 'AI_GENERATED'] as const;
+
 export const settings = sqliteTable(
   'settings',
   {
@@ -326,6 +346,217 @@ export const investigationQuestions = sqliteTable(
       sql`${table.originMaterialRevision} > 0`
     ),
     check('investigation_questions_demo_check', sql`${table.demo} in (0, 1)`)
+  ]
+);
+
+export const alertSourceObservations = sqliteTable(
+  'alert_source_observations',
+  {
+    observationRef: text('observation_ref').primaryKey(),
+    alertId: text('alert_id')
+      .notNull()
+      .references(() => alerts.id),
+    recordKind: text('record_kind', { enum: alertSourceObservationRecordKinds }).notNull(),
+    source: text('source', { enum: alertSourceNames }).notNull(),
+    provider: text('provider').notNull(),
+    sourceReference: text('source_reference').notNull(),
+    sourceUrl: text('source_url').notNull(),
+    sourceVersionIdentifier: text('source_version_identifier').notNull(),
+    predecessorObservationRef: text('predecessor_observation_ref')
+      .references((): AnySQLiteColumn => alertSourceObservations.observationRef),
+    payloadFormat: text('payload_format').notNull(),
+    rawPayload: text('raw_payload').notNull(),
+    contentSha256: text('content_sha256').notNull(),
+    publishedAt: text('published_at').notNull(),
+    sourceUpdatedAt: text('source_updated_at'),
+    observedAt: text('observed_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    uniqueIndex('alert_source_observations_source_version_unique').on(
+      table.source,
+      table.sourceReference,
+      table.sourceVersionIdentifier
+    ),
+    uniqueIndex('alert_source_observations_source_content_unique').on(
+      table.source,
+      table.sourceReference,
+      table.contentSha256
+    ),
+    uniqueIndex('alert_source_observations_predecessor_unique').on(
+      table.predecessorObservationRef
+    ),
+    index('alert_source_observations_alert_idx').on(table.alertId),
+    check(
+      'alert_source_observations_record_kind_check',
+      sql`${table.recordKind} in ('RAW_SOURCE', 'LEGACY_SNAPSHOT')`
+    ),
+    check(
+      'alert_source_observations_source_check',
+      sql`${table.source} in ('safety_gate', 'rasff')`
+    ),
+    check(
+      'alert_source_observations_nonblank_check',
+      sql`length(trim(${table.provider})) > 0
+          and length(trim(${table.sourceReference})) > 0
+          and length(trim(${table.sourceUrl})) > 0
+          and length(trim(${table.sourceVersionIdentifier})) > 0
+          and length(trim(${table.payloadFormat})) > 0`
+    ),
+    check(
+      'alert_source_observations_payload_size_check',
+      sql`length(${table.rawPayload}) between 1 and 262144`
+    ),
+    check(
+      'alert_source_observations_content_sha256_check',
+      sql`length(${table.contentSha256}) = 64
+          and ${table.contentSha256} not glob '*[^0-9a-f]*'`
+    ),
+    check(
+      'alert_source_observations_not_self_parent_check',
+      sql`${table.predecessorObservationRef} is null
+          or ${table.predecessorObservationRef} <> ${table.observationRef}`
+    ),
+    check('alert_source_observations_demo_check', sql`${table.demo} in (0, 1)`)
+  ]
+);
+
+export const alertFieldAssertions = sqliteTable(
+  'alert_field_assertions',
+  {
+    assertionRef: text('assertion_ref').primaryKey(),
+    alertId: text('alert_id')
+      .notNull()
+      .references(() => alerts.id),
+    sourceObservationRef: text('source_observation_ref')
+      .notNull()
+      .references(() => alertSourceObservations.observationRef),
+    fieldKind: text('field_kind', { enum: alertFieldKinds }).notNull(),
+    rawValue: text('raw_value').notNull(),
+    normalizedValue: text('normalized_value').notNull(),
+    originKind: text('origin_kind', { enum: alertFieldAssertionOriginKinds }).notNull(),
+    sourceLocator: text('source_locator'),
+    producerIdentifier: text('producer_identifier').notNull(),
+    producerVersion: text('producer_version').notNull(),
+    modelIdentifier: text('model_identifier'),
+    basisAssertionRefsJson: text('basis_assertion_refs_json').notNull(),
+    supportingEvidenceRefsJson: text('supporting_evidence_refs_json').notNull(),
+    humanActorIdentifier: text('human_actor_identifier'),
+    rationale: text('rationale'),
+    semanticDigest: text('semantic_digest').notNull(),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    uniqueIndex('alert_field_assertions_semantic_digest_unique').on(table.semanticDigest),
+    index('alert_field_assertions_alert_observation_idx').on(
+      table.alertId,
+      table.sourceObservationRef
+    ),
+    check(
+      'alert_field_assertions_field_kind_check',
+      sql`${table.fieldKind} in ('PRODUCT_NAME', 'BRAND', 'EAN_GTIN', 'BATCH_LOT', 'CATEGORY')`
+    ),
+    check(
+      'alert_field_assertions_origin_kind_check',
+      sql`${table.originKind} in ('SOURCE_ASSERTED', 'DETERMINISTIC_DERIVED', 'AI_PROPOSAL', 'HUMAN_CONFIRMED', 'LEGACY_UNVERIFIED')`
+    ),
+    check(
+      'alert_field_assertions_value_check',
+      sql`length(trim(${table.rawValue})) > 0 and length(trim(${table.normalizedValue})) > 0`
+    ),
+    check(
+      'alert_field_assertions_producer_check',
+      sql`length(trim(${table.producerIdentifier})) > 0
+          and length(trim(${table.producerVersion})) > 0`
+    ),
+    check(
+      'alert_field_assertions_origin_metadata_check',
+      sql`(${table.originKind} = 'SOURCE_ASSERTED'
+            and ${table.sourceLocator} is not null
+            and ${table.modelIdentifier} is null
+            and ${table.humanActorIdentifier} is null)
+          or (${table.originKind} = 'DETERMINISTIC_DERIVED'
+            and (${table.sourceLocator} is not null or ${table.basisAssertionRefsJson} <> '[]')
+            and ${table.modelIdentifier} is null
+            and ${table.humanActorIdentifier} is null)
+          or (${table.originKind} = 'AI_PROPOSAL'
+            and ${table.modelIdentifier} is not null
+            and ${table.humanActorIdentifier} is null)
+          or (${table.originKind} = 'HUMAN_CONFIRMED'
+            and ${table.modelIdentifier} is null
+            and ${table.humanActorIdentifier} is not null
+            and ${table.rationale} is not null
+            and ${table.supportingEvidenceRefsJson} <> '[]')
+          or (${table.originKind} = 'LEGACY_UNVERIFIED'
+            and ${table.modelIdentifier} is null
+            and ${table.humanActorIdentifier} is null)`
+    ),
+    check(
+      'alert_field_assertions_semantic_digest_check',
+      sql`length(${table.semanticDigest}) = 71
+          and substr(${table.semanticDigest}, 1, 7) = 'sha256:'
+          and substr(${table.semanticDigest}, 8) not glob '*[^0-9a-f]*'`
+    ),
+    check('alert_field_assertions_demo_check', sql`${table.demo} in (0, 1)`)
+  ]
+);
+
+export const alertMatchBases = sqliteTable(
+  'alert_match_bases',
+  {
+    matchId: text('match_id')
+      .primaryKey()
+      .references(() => matches.id),
+    alertId: text('alert_id')
+      .notNull()
+      .references(() => alerts.id),
+    sourceObservationRef: text('source_observation_ref')
+      .notNull()
+      .references(() => alertSourceObservations.observationRef),
+    catalogueProductSnapshotJson: text('catalogue_product_snapshot_json').notNull(),
+    matchingPolicyIdentifier: text('matching_policy_identifier').notNull(),
+    matchingPolicyVersion: text('matching_policy_version').notNull(),
+    discoveryAssertionRefsJson: text('discovery_assertion_refs_json').notNull(),
+    authoritativeIdentityAssertionRefsJson: text('authoritative_identity_assertion_refs_json').notNull(),
+    authoritativeScopeAssertionRefsJson: text('authoritative_scope_assertion_refs_json').notNull(),
+    explanationOrigin: text('explanation_origin', { enum: alertMatchExplanationOrigins }).notNull(),
+    explanationGeneratorIdentifier: text('explanation_generator_identifier').notNull(),
+    explanationGeneratorVersion: text('explanation_generator_version').notNull(),
+    explanationModelIdentifier: text('explanation_model_identifier'),
+    basisDigest: text('basis_digest').notNull(),
+    createdAt: text('created_at').notNull(),
+    demo: integer('demo', { mode: 'boolean' }).notNull()
+  },
+  (table) => [
+    index('alert_match_bases_alert_observation_idx').on(table.alertId, table.sourceObservationRef),
+    check(
+      'alert_match_bases_catalogue_snapshot_check',
+      sql`json_valid(${table.catalogueProductSnapshotJson})`
+    ),
+    check(
+      'alert_match_bases_policy_check',
+      sql`length(trim(${table.matchingPolicyIdentifier})) > 0
+          and length(trim(${table.matchingPolicyVersion})) > 0`
+    ),
+    check(
+      'alert_match_bases_explanation_origin_check',
+      sql`${table.explanationOrigin} in ('DETERMINISTIC', 'AI_GENERATED')`
+    ),
+    check(
+      'alert_match_bases_explanation_metadata_check',
+      sql`length(trim(${table.explanationGeneratorIdentifier})) > 0
+          and length(trim(${table.explanationGeneratorVersion})) > 0
+          and ((${table.explanationOrigin} = 'DETERMINISTIC' and ${table.explanationModelIdentifier} is null)
+            or (${table.explanationOrigin} = 'AI_GENERATED' and ${table.explanationModelIdentifier} is not null))`
+    ),
+    check(
+      'alert_match_bases_digest_check',
+      sql`length(${table.basisDigest}) = 71
+          and substr(${table.basisDigest}, 1, 7) = 'sha256:'
+          and substr(${table.basisDigest}, 8) not glob '*[^0-9a-f]*'`
+    ),
+    check('alert_match_bases_demo_check', sql`${table.demo} in (0, 1)`)
   ]
 );
 

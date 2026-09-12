@@ -50,7 +50,7 @@
   });
 
   function sourceLabel(source: string): string {
-    return source === 'safety_gate' ? 'EU Safety Gate' : 'RASFF';
+    return source === 'safety_gate' ? 'Synthetic Safety Gate-format archive' : 'Synthetic RASFF-format archive';
   }
 
   function statusLabel(outcome: IdentityOutcome): string {
@@ -201,7 +201,7 @@
         <article class="overflow-hidden rounded-[13px] border border-[#eae4f2] bg-white shadow-[0_1px_2px_rgba(40,24,65,0.025)]">
           <header class="flex min-h-16 items-center justify-between gap-3 border-b border-[#eae4f2] bg-[#fffafb] px-4 py-3">
             <div>
-              <span class="text-[9px] font-semibold tracking-[0.14em] text-[#e14f55] uppercase">Official alert</span>
+              <span class="text-[9px] font-semibold tracking-[0.14em] text-[#e14f55] uppercase">Source alert</span>
               <h2 class="mt-1 text-[14px] font-bold text-[#17151c]">{sourceLabel(data.alert.source)} record</h2>
             </div>
             <span class="badge max-w-[48%] bg-[#fff0f0] text-[#e14f55]">{data.harm.level} harm · {data.alert.risk}</span>
@@ -214,7 +214,7 @@
                   <img
                     class="h-full w-full object-contain p-2"
                     src={data.alert.imageUrl}
-                    alt={`${data.alert.productName} from the official alert`}
+                    alt={`${data.alert.productName} from the source alert`}
                   />
                 {:else}
                   <Icon name="triangle-alert" size={34} class="text-[#7542dd]" />
@@ -306,7 +306,7 @@
             </div>
             <div class="text-right">
               <span class="text-[26px] font-bold text-[#6330c8]">{bestMatch.totalScore}%</span>
-              <span class="ml-1 text-[10px] text-[#716b7b]">confidence</span>
+              <span class="ml-1 text-[10px] text-[#716b7b]">match score</span>
             </div>
           </div>
 
@@ -359,7 +359,7 @@
                 </div>
                 <div class="text-right">
                   <b class="text-[12px] text-[#302b35]">{candidate.totalScore}%</b>
-                  <span class="mt-0.5 block text-[8px] text-[#716b7b]">confidence</span>
+                  <span class="mt-0.5 block text-[8px] text-[#716b7b]">match score</span>
                 </div>
               </li>
             {/each}

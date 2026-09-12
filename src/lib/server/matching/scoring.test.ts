@@ -16,7 +16,7 @@ const alert: NormalizedAlert = {
   risk: 'Injury',
   productName: 'Magnetic Construction Toy Set',
   brand: 'JC Toy',
-  ean: '642 0650066059',
+  ean: '642 0650066050',
   batch: 'MFT-24',
   category: 'Toys',
   publishedAt: '2026-08-28T00:00:00.000Z'
@@ -29,7 +29,7 @@ const product: Product = {
   normalizedName: 'magnetic construction toy set',
   brand: 'JC Toy',
   normalizedBrand: 'jc toy',
-  ean: '6420650066059',
+  ean: '6420650066050',
   batch: 'MFT 24',
   supplierName: 'Northstar Imports',
   supplierEmail: 'recalls@northstar.example.test',
@@ -66,7 +66,7 @@ describe('Stage 3 matching score', () => {
     expect(classifyScore(score, 85, 55)).toBe('matched');
   });
 
-  it('sends a strong descriptive match with an EAN conflict to review', () => {
+  it('keeps a plain unattributed EAN disagreement discovery-only', () => {
     const score = scoreCandidate(
       { ...alert, batch: undefined },
       { ...product, ean: '3073646035993', batch: null },
@@ -74,11 +74,14 @@ describe('Stage 3 matching score', () => {
     );
 
     expect(score).toMatchObject({ total: 45, ean: 0, name: 25, brand: 20, batch: 0 });
-    expect(score.hasHardConflict).toBe(true);
+    expect(score.hasHardConflict).toBe(false);
+    expect(score.reasons).toContain(
+      'Discovery-only EAN proposal differs from the catalogue record; no factual conflict is established.'
+    );
     expect(score.requestedEvidence).toEqual(
       expect.arrayContaining(['barcode photo', 'supplier invoice', 'batch label photo'])
     );
-    expect(classifyScore(score, 85, 55)).toBe('needs_review');
+    expect(classifyScore(score, 85, 55)).toBe('not_relevant');
   });
 
   it('does not renormalize weights when identifiers are missing', () => {

@@ -25,6 +25,7 @@ import {
 import * as schema from '../db/schema';
 import { getCaseHistory, readCaseSnapshot } from '../workflow/case-lifecycle';
 import { confirmReviewMatch } from '../workflow/review';
+import { rebaseUndecidedDemoMatchFixture } from '../testing/alert-provenance-fixtures';
 import {
   batchContradictionRule,
   demoHumanAssessorIdentifier,
@@ -87,6 +88,11 @@ function versionedGapCase(database: RecallDatabase = connection.db) {
     .set({ hasHardConflict: false })
     .where(eq(schema.matches.id, gapMatchId))
     .run();
+  rebaseUndecidedDemoMatchFixture(database, {
+    matchId: gapMatchId,
+    sourceFields: { ean: product.ean },
+    observedAt: '2026-09-09T09:59:00.000Z'
+  });
   const confirmed = confirmReviewMatch(
     database,
     { matchId: gapMatchId, actorName: demoHumanAssessorIdentifier },

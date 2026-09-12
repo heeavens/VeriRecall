@@ -5,7 +5,13 @@ import { join, resolve } from 'node:path';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { ActionType, LlmClient, NormalizedAlert, ScoreBreakdown } from '../../types/domain';
+import type {
+  ActionType,
+  AlertProposalExtraction,
+  LlmClient,
+  MatchExplanation,
+  ScoreBreakdown
+} from '../../types/domain';
 import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { products, settings } from '../db/schema';
@@ -31,11 +37,11 @@ class StubTransport implements OpenAiResponseTransport {
 }
 
 class FailingLlmClient implements LlmClient {
-  async extractAlert(): Promise<NormalizedAlert> {
+  async extractAlert(): Promise<AlertProposalExtraction> {
     throw new Error('mock API unavailable');
   }
 
-  async explainMatch(): Promise<string> {
+  async explainMatch(): Promise<MatchExplanation> {
     throw new Error('mock API unavailable');
   }
 
@@ -75,33 +81,40 @@ afterEach(() => {
 describe('Stage 6 LLM clients', () => {
   it('validates structured alert extraction before returning domain data', async () => {
     const transport = new StubTransport({
-      source: 'safety_gate',
-      sourceReference: 'TEST/2026/001',
-      sourceUrl: 'https://example.test/alert',
-      title: 'Test recall',
-      description: 'A structured test alert.',
-      risk: 'High',
       productName: 'Test product',
       brand: null,
       ean: ' 5391234567890 ',
       batch: null,
       category: 'Toys',
-      publishedAt: '2026-08-29T08:00:00.000Z'
     });
     const client = new OpenAiLlmClient(transport, { model: 'gpt-test' });
 
     const alert = await client.extractAlert('untrusted source text');
 
     expect(alert).toMatchObject({
-      source: 'safety_gate',
-      sourceReference: 'TEST/2026/001',
-      ean: '5391234567890'
+      origin: 'AI_GENERATED',
+      modelIdentifier: 'gpt-test',
+      proposals: { ean: '5391234567890' }
     });
-    expect(alert.brand).toBeUndefined();
+    expect(alert.proposals.brand).toBeUndefined();
     expect(transport.requests[0]).toMatchObject({
-      schemaName: 'recall_alert',
+      schemaName: 'recall_alert_proposals',
       store: false
     });
+  });
+
+  it('rejects proposal output that attempts to replace immutable source identity', async () => {
+    const transport = new StubTransport({
+      productName: 'Test product',
+      brand: null,
+      ean: null,
+      batch: null,
+      category: null,
+      sourceUrl: 'https://attacker.example/replacement'
+    });
+    const client = new OpenAiLlmClient(transport, { model: 'gpt-test' });
+
+    await expect(client.extractAlert('{"title":"untrusted"}')).rejects.toThrow();
   });
 
   it('runs the complete monitoring workflow with an empty API key', async () => {
@@ -134,8 +147,9 @@ describe('Stage 6 LLM clients', () => {
 
     const explanation = await client.explainMatch(breakdown);
 
-    expect(explanation).toContain('Brand matches exactly.');
-    expect(explanation).toContain('Requested evidence: barcode photo.');
+    expect(explanation.text).toContain('Brand matches exactly.');
+    expect(explanation.text).toContain('Requested evidence: barcode photo.');
+    expect(explanation.origin).toBe('DETERMINISTIC');
     expect(transport.requests[0]).toMatchObject({
       model: 'gpt-test',
       schemaName: 'match_explanation',

@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import type { AlertSource, NormalizedAlert } from '../../types/domain';
+import type { AlertSource, AlertSourceRecord, NormalizedAlert } from '../../types/domain';
 import { normalizeAlert } from './normalization';
 
 export function alertReferenceKey(alert: Pick<NormalizedAlert, 'source' | 'sourceReference'>): string {
@@ -11,27 +11,29 @@ export function alertReferenceKey(alert: Pick<NormalizedAlert, 'source' | 'sourc
 export class ArchiveAlertSource implements AlertSource {
   constructor(private readonly fixtureDirectory = resolve('data/alerts')) {}
 
-  async getNewAlerts(existingReferences: Set<string>): Promise<NormalizedAlert[]> {
+  async readAlerts(): Promise<AlertSourceRecord[]> {
     const fileNames = (await readdir(this.fixtureDirectory))
       .filter((fileName) => fileName.endsWith('.json'))
       .sort();
 
-    const alerts = await Promise.all(
+    const observations = await Promise.all(
       fileNames.map(async (fileName) => {
         const contents = await readFile(resolve(this.fixtureDirectory, fileName), 'utf8');
-        return normalizeAlert(JSON.parse(contents) as unknown);
+        return {
+          alert: normalizeAlert(JSON.parse(contents) as unknown),
+          provider: 'demo_archive',
+          payloadFormat: 'application/json' as const,
+          rawPayload: contents,
+          observedAt: new Date().toISOString(),
+          demo: true
+        };
       })
     );
 
-    return alerts
-      .filter(
-        (alert) =>
-          !existingReferences.has(alert.sourceReference) &&
-          !existingReferences.has(alertReferenceKey(alert))
-      )
+    return observations
       .sort((left, right) =>
-        left.publishedAt.localeCompare(right.publishedAt) ||
-        left.sourceReference.localeCompare(right.sourceReference)
+        left.alert.publishedAt.localeCompare(right.alert.publishedAt) ||
+        left.alert.sourceReference.localeCompare(right.alert.sourceReference)
       );
   }
 }

@@ -2,7 +2,13 @@ import {
   investigationOutcomeSchema,
   type InvestigationOutcome
 } from '../../contracts/recall';
-import { normalizeEan } from '../alerts/normalization';
+import { validateGtin } from '../alerts/gtin';
+import { normalizeBatch } from '../alerts/normalization';
+
+export interface TrustedAlertOutcomeValue {
+  normalizedValue: string;
+  assertionRefs: string[];
+}
 
 export interface ProduceInvestigationOutcomeInput {
   caseId: string;
@@ -10,17 +16,16 @@ export interface ProduceInvestigationOutcomeInput {
   matchId: string;
   materialRevision: number;
   updatedAt: string;
-  alertEan: string | null;
+  trustedAlertFacts: {
+    sourceObservationRef: string;
+    eans: TrustedAlertOutcomeValue[];
+    batches: TrustedAlertOutcomeValue[];
+  };
   catalogueEan: string | null;
-  alertBatch: string | null;
   catalogueBatch: string | null;
-  hasHardIdentityConflict: boolean;
-  evidenceRefs: {
-    alert: string;
+  provenanceRefs: {
     catalogueProduct: string;
-    match: string;
-    alertBatch: string;
-    catalogueBatch: string;
+    matchBasis: string;
   };
   decisionRefs: {
     review: string;
@@ -28,66 +33,108 @@ export interface ProduceInvestigationOutcomeInput {
   demo: boolean;
 }
 
+function canonicalRefs(values: readonly string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
 export function produceInvestigationOutcome(
   input: ProduceInvestigationOutcomeInput
 ): InvestigationOutcome {
-  const identityEvidence = [
-    input.evidenceRefs.alert,
-    input.evidenceRefs.catalogueProduct,
-    input.evidenceRefs.match
-  ];
-  const alertEan = normalizeEan(input.alertEan);
-  const catalogueEan = normalizeEan(input.catalogueEan);
-  const hasComparableEans = Boolean(alertEan && catalogueEan);
-  const hasHardIdentityConflict = input.hasHardIdentityConflict || Boolean(
-    hasComparableEans && alertEan !== catalogueEan
+  const catalogueGtin = validateGtin(input.catalogueEan);
+  for (const item of input.trustedAlertFacts.eans) {
+    const validation = validateGtin(item.normalizedValue);
+    if (
+      !validation.valid ||
+      validation.normalized !== item.normalizedValue ||
+      item.assertionRefs.length === 0 ||
+      item.assertionRefs.some((ref) => !ref.trim())
+    ) {
+      throw new Error('Trusted alert GTIN input is not valid attributed provenance.');
+    }
+  }
+  if (!input.trustedAlertFacts.sourceObservationRef.trim()) {
+    throw new Error('Trusted alert facts require an immutable source observation.');
+  }
+  for (const item of input.trustedAlertFacts.batches) {
+    if (
+      !normalizeBatch(item.normalizedValue) ||
+      normalizeBatch(item.normalizedValue) !== item.normalizedValue ||
+      item.assertionRefs.length === 0 ||
+      item.assertionRefs.some((ref) => !ref.trim())
+    ) {
+      throw new Error('Trusted alert batch input is not valid attributed provenance.');
+    }
+  }
+  const trustedEans = [...new Map(
+    input.trustedAlertFacts.eans.map((item) => [item.normalizedValue, item])
+  ).values()];
+  const trustedBatches = [...new Map(
+    input.trustedAlertFacts.batches.map((item) => [normalizeBatch(item.normalizedValue), item])
+  ).values()].filter((item) => normalizeBatch(item.normalizedValue));
+  const identityAssertionRefs = canonicalRefs(trustedEans.flatMap((item) => item.assertionRefs));
+  const scopeAssertionRefs = canonicalRefs(trustedBatches.flatMap((item) => item.assertionRefs));
+  const identityEvidence = canonicalRefs([
+    input.trustedAlertFacts.sourceObservationRef,
+    ...identityAssertionRefs,
+    input.provenanceRefs.catalogueProduct,
+    input.provenanceRefs.matchBasis
+  ]);
+  const catalogueEan = catalogueGtin.valid ? catalogueGtin.normalized : null;
+  const hasComparableEans = trustedEans.length === 1 && Boolean(catalogueEan);
+  const hasHardIdentityConflict = trustedEans.length > 1 || Boolean(
+    hasComparableEans && trustedEans[0].normalizedValue !== catalogueEan
   );
   const hasDeterministicIdentityMatch = Boolean(
-    hasComparableEans && alertEan === catalogueEan && !hasHardIdentityConflict
+    hasComparableEans && trustedEans[0].normalizedValue === catalogueEan && !hasHardIdentityConflict
   );
   const identityConflict = hasHardIdentityConflict
     ? [{
         id: `demo:identity-conflict:${input.matchId}`,
         code: 'EAN_CONFLICT',
-        message: 'The official warning and catalogue EAN values conflict; confirmation does not erase this fact.',
+        message: 'Trusted alert and catalogue GTIN facts conflict; product confirmation does not erase this fact.',
         critical: true,
         subjectRefs: [input.productId],
-        evidenceRefs: [input.evidenceRefs.alert, input.evidenceRefs.catalogueProduct]
+        evidenceRefs: identityEvidence
       }]
     : [];
-  const batchesMatch = Boolean(
-    input.alertBatch &&
-    input.catalogueBatch &&
-    input.alertBatch === input.catalogueBatch
+
+  const catalogueBatch = normalizeBatch(input.catalogueBatch);
+  const batchesMatch = trustedBatches.length === 1 && Boolean(
+    catalogueBatch && normalizeBatch(trustedBatches[0].normalizedValue) === catalogueBatch
   );
-  const batchConflict = Boolean(
-    input.alertBatch &&
-    input.catalogueBatch &&
-    input.alertBatch !== input.catalogueBatch
+  const batchConflict = trustedBatches.length > 1 || Boolean(
+    trustedBatches.length === 1 &&
+    catalogueBatch &&
+    normalizeBatch(trustedBatches[0].normalizedValue) !== catalogueBatch
   );
   const scopeEvidence = batchesMatch
-    ? [input.evidenceRefs.alertBatch, input.evidenceRefs.catalogueBatch]
+    ? canonicalRefs([...scopeAssertionRefs, input.provenanceRefs.catalogueProduct])
     : [];
-  const scopeGap = batchesMatch
+  const scopeIssue = batchesMatch
     ? []
     : [{
         id: `demo:scope-gap:${input.matchId}`,
         code: batchConflict ? 'BATCH_CONFLICT' : 'BATCH_MISSING',
         message: batchConflict
-          ? 'The official warning and catalogue lot values conflict.'
-          : 'A confirmed lot boundary is unavailable; obtain batch evidence before calculating exposure.',
+          ? 'Trusted alert and catalogue lot facts conflict.'
+          : 'A trusted lot boundary is unavailable; obtain batch evidence before calculating exposure.',
         critical: true,
         subjectRefs: [input.productId],
         evidenceRefs: batchConflict
-          ? [input.evidenceRefs.alert, input.evidenceRefs.catalogueProduct]
+          ? canonicalRefs([
+              input.trustedAlertFacts.sourceObservationRef,
+              ...scopeAssertionRefs,
+              input.provenanceRefs.catalogueProduct
+            ])
           : []
       }];
-  const conflicts = [
-    ...identityConflict,
-    ...(batchConflict ? scopeGap : [])
-  ];
-  const gaps = batchConflict ? [] : scopeGap;
-  const evidenceRefs = [...new Set([...identityEvidence, ...scopeEvidence])];
+  const conflicts = [...identityConflict, ...(batchConflict ? scopeIssue : [])];
+  const gaps = batchConflict ? [] : scopeIssue;
+  const evidenceRefs = canonicalRefs([
+    ...identityEvidence,
+    ...scopeEvidence,
+    ...scopeIssue.flatMap((issue) => issue.evidenceRefs)
+  ]);
 
   return investigationOutcomeSchema.parse({
     schemaVersion: 1,
@@ -124,15 +171,15 @@ export function produceInvestigationOutcome(
       ? {
           kind: 'BATCH_LOT',
           knowledgeStatus: 'KNOWN',
-          lots: [input.catalogueBatch!],
+          lots: [input.catalogueBatch!.trim()],
           evidenceRefs: scopeEvidence,
           decisionRefs: []
         }
       : {
           kind: 'UNRESOLVED',
           knowledgeStatus: batchConflict ? 'CONFLICTED' : 'UNKNOWN',
-          reason: scopeGap[0].message,
-          evidenceRefs: [],
+          reason: scopeIssue[0].message,
+          evidenceRefs: batchConflict ? scopeIssue[0].evidenceRefs : [],
           decisionRefs: []
         },
     evidenceRefs,

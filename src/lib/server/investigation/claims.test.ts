@@ -10,6 +10,7 @@ import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
+import { rebaseUndecidedDemoMatchFixture } from '../testing/alert-provenance-fixtures';
 import { readCaseSnapshot } from '../workflow/case-lifecycle';
 import { confirmReviewMatch } from '../workflow/review';
 import {
@@ -511,6 +512,11 @@ describe('investigation claims', () => {
     const match = fixtures.matches[0];
     connection.db.update(schema.alerts).set({ ean: null })
       .where(eq(schema.alerts.id, match.alertId)).run();
+    rebaseUndecidedDemoMatchFixture(connection.db, {
+      matchId: match.id,
+      sourceFields: { ean: null },
+      observedAt: '2026-09-09T09:59:00.000Z'
+    });
     const confirmed = confirmReviewMatch(
       connection.db,
       { matchId: match.id, actorName: 'demo_operator' },

@@ -206,8 +206,8 @@ export function getDashboardView(database: RecallDatabase): DashboardView {
       title: alert.productName,
       description: alert.bestMatch
         ? `Compare with ${alert.bestMatch.product.name} (${alert.bestMatch.product.sku}) before deciding.`
-        : 'Review the official identifiers and decide whether this alert relates to your catalogue.',
-      meta: `${alert.sourceReference} · ${alert.harm.level} source-harm priority · ${alert.bestMatch ? `${alert.bestMatch.totalScore}% confidence` : 'No catalogue candidate'}`,
+        : 'Review the attributed source identifiers and decide whether this alert relates to your catalogue.',
+      meta: `${alert.sourceReference} · ${alert.harm.level} source-harm priority · ${alert.bestMatch ? `${alert.bestMatch.totalScore} match score` : 'No catalogue candidate'}`,
       href: '/review',
       actionLabel:
         alert.identityOutcome === 'high_confidence' ? 'Confirm identity' : 'Review match',

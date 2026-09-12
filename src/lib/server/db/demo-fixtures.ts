@@ -2,7 +2,14 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import type { AlertStatus, AlertSourceName } from '../../types/domain';
+import {
+  alertContentSha256,
+  buildAlertFieldAssertion
+} from '../alerts/alert-provenance';
+import { normalizeAlert } from '../alerts/normalization';
 import type {
+  alertFieldAssertions,
+  alertSourceObservations,
   NewAlert,
   NewCustomer,
   NewProduct,
@@ -23,6 +30,8 @@ type NewCaseItem = typeof caseItems.$inferInsert;
 type NewCaseTask = typeof caseTasks.$inferInsert;
 type NewActionDraft = typeof actionDrafts.$inferInsert;
 type NewAuditEvent = typeof auditEvents.$inferInsert;
+type NewAlertSourceObservation = typeof alertSourceObservations.$inferInsert;
+type NewAlertFieldAssertion = typeof alertFieldAssertions.$inferInsert;
 
 interface ProductFixture {
   id: string;
@@ -67,6 +76,8 @@ export interface DemoFixtures {
   purchases: NewPurchase[];
   alerts: NewAlert[];
   matches: NewMatch[];
+  alertSourceObservations: NewAlertSourceObservation[];
+  alertFieldAssertions: NewAlertFieldAssertion[];
   cases: NewCase[];
   caseItems: NewCaseItem[];
   caseTasks: NewCaseTask[];
@@ -240,13 +251,14 @@ function loadAlert(
   id: string,
   status: AlertStatus
 ): NewAlert {
-  const source = parseAlert(readJson(fixturePath), fixturePath);
+  const rawPayload = readFileSync(resolve(fixturePath), 'utf8');
+  const source = parseAlert(JSON.parse(rawPayload) as unknown, fixturePath);
 
   return {
     id,
     ...source,
     status,
-    rawJson: JSON.stringify(source),
+    rawJson: rawPayload,
     createdAt: fixtureTimestamp
   };
 }
@@ -272,6 +284,57 @@ export function loadDemoFixtures(): DemoFixtures {
       'not_relevant'
     )
   ];
+  const alertSourceObservations = alerts.map((alert, index) => {
+    const normalized = normalizeAlert(JSON.parse(alert.rawJson) as unknown);
+    const contentSha256 = alertContentSha256(alert.rawJson);
+    return {
+      observationRef: `demo:alert-observation:${index + 1}`,
+      alertId: alert.id,
+      recordKind: 'RAW_SOURCE' as const,
+      source: normalized.source,
+      provider: 'demo_archive',
+      sourceReference: normalized.sourceReference,
+      sourceUrl: normalized.sourceUrl,
+      sourceVersionIdentifier: `sha256:${contentSha256}`,
+      predecessorObservationRef: null,
+      payloadFormat: 'application/json',
+      rawPayload: alert.rawJson,
+      contentSha256,
+      publishedAt: normalized.publishedAt,
+      sourceUpdatedAt: null,
+      observedAt: fixtureTimestamp,
+      demo: true
+    };
+  });
+  const sourceFields = [
+    ['productName', 'PRODUCT_NAME'],
+    ['brand', 'BRAND'],
+    ['ean', 'EAN_GTIN'],
+    ['batch', 'BATCH_LOT'],
+    ['category', 'CATEGORY']
+  ] as const;
+  const alertFieldAssertions = alerts.flatMap((alert, alertIndex) => {
+    const raw = JSON.parse(alert.rawJson) as Record<string, unknown>;
+    const observation = alertSourceObservations[alertIndex];
+    return sourceFields.flatMap(([sourceField, fieldKind]) => {
+      const value = raw[sourceField];
+      if (typeof value !== 'string' || !value.trim()) return [];
+      return [buildAlertFieldAssertion({
+        alertId: alert.id,
+        sourceObservationRef: observation.observationRef,
+        fieldKind,
+        rawValue: value,
+        originKind: 'SOURCE_ASSERTED',
+        sourceLocator: `/${sourceField}`,
+        producerIdentifier: 'verirecall-structured-alert-parser',
+        producerVersion: 'v1',
+        modelIdentifier: null,
+        basisAssertionRefs: [],
+        createdAt: fixtureTimestamp,
+        demo: true
+      }, `demo:alert-assertion:${alertIndex + 1}:${sourceField}`)];
+    });
+  });
 
   return {
     settings: [
@@ -288,6 +351,8 @@ export function loadDemoFixtures(): DemoFixtures {
     customers,
     purchases,
     alerts,
+    alertSourceObservations,
+    alertFieldAssertions,
     matches: [
       {
         id: '50000000-0000-4000-8000-000000000001',

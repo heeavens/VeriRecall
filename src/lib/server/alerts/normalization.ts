@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { alertSourceNames, type NormalizedAlert } from '../../types/domain';
+import { normalizeGtin } from './gtin';
 
 const archivedAlertSchema = z.object({
   source: z.enum(alertSourceNames),
@@ -57,5 +58,5 @@ export function normalizeBatch(value: string | null | undefined): string {
 }
 
 export function normalizeEan(value: string | null | undefined): string {
-  return (value ?? '').replace(/\s+/g, '').trim();
+  return normalizeGtin(value);
 }

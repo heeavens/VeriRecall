@@ -62,7 +62,7 @@
   }
 
   function sourceLabel(source: string): string {
-    return source === 'safety_gate' ? 'EU Safety Gate' : 'RASFF';
+    return source === 'safety_gate' ? 'Synthetic Safety Gate-format archive' : 'Synthetic RASFF-format archive';
   }
 
   function statusLabel(status: string): string {

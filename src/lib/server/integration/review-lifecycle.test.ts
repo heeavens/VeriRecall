@@ -13,6 +13,7 @@ import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
+import { rebaseUndecidedDemoMatchFixture } from '../testing/alert-provenance-fixtures';
 import { confirmReviewMatch, legacyReviewCaseMode } from '../workflow/review';
 import {
   createRecallService,
@@ -123,6 +124,11 @@ describe('review to versioned case integration', () => {
       .where(eq(schema.alerts.id, match.alertId)).run();
     connection.db.update(schema.products).set({ batch: null })
       .where(eq(schema.products.id, match.productId)).run();
+    rebaseUndecidedDemoMatchFixture(connection.db, {
+      matchId,
+      sourceFields: { batch: null },
+      observedAt: '2026-09-08T11:59:00.000Z'
+    });
 
     const result = confirmReviewMatch(
       connection.db,
@@ -172,6 +178,11 @@ describe('review to versioned case integration', () => {
       .where(eq(schema.alerts.id, match.alertId)).run();
     connection.db.update(schema.products).set({ batch: null })
       .where(eq(schema.products.id, match.productId)).run();
+    rebaseUndecidedDemoMatchFixture(connection.db, {
+      matchId,
+      sourceFields: { batch: null },
+      observedAt: '2026-09-08T11:59:00.000Z'
+    });
 
     const legacy = confirmReviewMatch(
       connection.db,
@@ -212,6 +223,11 @@ describe('review to versioned case integration', () => {
       .where(eq(schema.alerts.id, match.alertId)).run();
     connection.db.update(schema.products).set({ batch: null })
       .where(eq(schema.products.id, match.productId)).run();
+    rebaseUndecidedDemoMatchFixture(connection.db, {
+      matchId,
+      sourceFields: { batch: null },
+      observedAt: '2026-09-08T11:59:00.000Z'
+    });
 
     const legacy = confirmReviewMatch(
       connection.db,
@@ -246,6 +262,11 @@ describe('review to versioned case integration', () => {
       batchScore: 10,
       hasHardConflict: false
     }).where(eq(schema.matches.id, matchId)).run();
+    rebaseUndecidedDemoMatchFixture(connection.db, {
+      matchId,
+      sourceFields: { ean: null },
+      observedAt: '2026-09-08T11:59:00.000Z'
+    });
 
     const result = confirmReviewMatch(
       connection.db,

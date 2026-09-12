@@ -64,7 +64,7 @@ describe('Stage 6 case reports', () => {
     const csvBytes = await exporter.exportCase(caseId, 'csv');
     const csv = new TextDecoder().decode(csvBytes);
     expect(csv).toContain('Case summary');
-    expect(csv).toContain('Official alert');
+    expect(csv).toContain('Source alert');
     expect(csv).toContain('Decision');
     expect(csv).toContain('Affected products');
     expect(csv).toContain('Affected customers');

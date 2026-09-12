@@ -71,7 +71,7 @@
   ];
 
   function sourceLabel(source: 'safety_gate' | 'rasff'): string {
-    return source === 'safety_gate' ? 'EU Safety Gate' : 'RASFF';
+    return source === 'safety_gate' ? 'Synthetic Safety Gate-format archive' : 'Synthetic RASFF-format archive';
   }
 
   function formatDate(value: string): string {
@@ -108,7 +108,7 @@
       return 'A key identifier conflicts between the two records, and another identity value cannot be compared.';
     }
     if (hasConflict) {
-      return 'A key identifier conflicts between the official warning and the catalogue record.';
+      return 'A key identifier conflicts between the attributed source alert and the catalogue record.';
     }
     if (hasMissing) {
       return 'One or more identity values are missing, so the records cannot be compared completely.';
@@ -190,7 +190,7 @@
             {matchStatusLabel(selected.match.status, selected.isHighConfidence)}
           </span>
         </div>
-        <p>Compare the official warning with your catalogue record before taking action.</p>
+        <p>Compare the attributed source alert with your catalogue record before taking action.</p>
         <div class="review-heading__meta">
           <span>{sourceLabel(selected.alert.source)} · {selected.alert.sourceReference}</span>
           <span>Published {formatDate(selected.alert.publishedAt)}</span>
@@ -225,9 +225,9 @@
     </header>
 
     <article class:confidence-context--recommended={selected.isHighConfidence} class="card confidence-context">
-      <div class="confidence-context__score" aria-label={`${selected.match.totalScore}% match confidence`}>
+      <div class="confidence-context__score" aria-label={`${selected.match.totalScore} match score`}>
         <strong>{selected.match.totalScore}%</strong>
-        <span>match confidence</span>
+        <span>match score</span>
       </div>
       <div class="confidence-context__copy">
         <span>{selected.isHighConfidence ? 'Agent recommendation' : 'Why this needs review'}</span>
@@ -245,8 +245,8 @@
           {selected.isHighConfidence
             ? `The ${selected.match.totalScore}% score is above the ${selected.threshold}% recommendation threshold. Review the source record and confirm or reject it yourself.`
             : `The score is below the ${selected.threshold}% recommendation threshold. Review the signals below and choose a human-controlled outcome.`}
-          Match confidence measures product identity; the {selected.harm.level} harm priority describes
-          the official warning if its source product is involved.
+          Match score ranks product candidates; the {selected.harm.level} harm priority describes
+          the source alert if its source product is involved.
         </small>
       </div>
     </article>
@@ -255,7 +255,7 @@
       <article class="card comparison-card comparison-card--official">
         <header>
           <div>
-            <span>Official alert</span>
+            <span>Source alert</span>
             <h2>{sourceLabel(selected.alert.source)} record</h2>
           </div>
           <span class="badge badge-red">{selected.harm.level} harm · {selected.alert.risk}</span>
@@ -266,7 +266,7 @@
               {#if selected.alert.imageUrl}
                 <img
                   src={selected.alert.imageUrl}
-                  alt={`${selected.alert.productName} from the official alert`}
+                  alt={`${selected.alert.productName} from the source alert`}
                 />
               {:else}
                 <Icon name="triangle-alert" size={30} />
@@ -461,7 +461,7 @@
       </header>
       <div class="decision-dialog__body">
         <div class="decision-dialog__records">
-          <div><span>Official alert</span><strong>{selected.alert.productName}</strong></div>
+          <div><span>Source alert</span><strong>{selected.alert.productName}</strong></div>
           <Icon name="arrow-right" size={16} />
           <div><span>Catalogue product</span><strong>{selected.product.name}</strong></div>
         </div>

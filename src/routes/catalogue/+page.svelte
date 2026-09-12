@@ -55,7 +55,7 @@
   }
 
   function sourceLabel(source: string): string {
-    return source === 'safety_gate' ? 'Safety Gate' : 'RASFF';
+    return source === 'safety_gate' ? 'Safety Gate-format fixture' : 'RASFF-format fixture';
   }
 </script>
 
@@ -93,7 +93,7 @@
       <h2>No catalogue uploaded</h2>
       <p>
         Upload a CSV or XLSX catalogue before running monitoring. The agent needs your product
-        identifiers to compare official alerts with company stock.
+        identifiers to compare attributed source alerts with company stock.
       </p>
       <a class="btn btn-primary" href="/onboarding">
         <Icon name="upload" size={16} />
@@ -230,7 +230,7 @@
                           {alertStatusLabel(item.alerts[0].alertStatus, item.alerts[0].matchStatus)}
                         </span>
                         <small>
-                          {sourceLabel(item.alerts[0].source)} · {item.alerts[0].totalScore}% confidence
+                          {sourceLabel(item.alerts[0].source)} · {item.alerts[0].totalScore} match score
                         </small>
                       </div>
                     {:else}

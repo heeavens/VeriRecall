@@ -44,6 +44,41 @@ export interface NormalizedAlert {
   publishedAt: string;
 }
 
+export interface AlertSourceRecord {
+  alert: NormalizedAlert;
+  provider: string;
+  payloadFormat: 'application/json';
+  rawPayload: string;
+  sourceVersionIdentifier?: string;
+  sourceUpdatedAt?: string;
+  observedAt: string;
+  demo: boolean;
+}
+
+export interface AlertProposalFields {
+  productName?: string;
+  brand?: string;
+  ean?: string;
+  batch?: string;
+  category?: string;
+}
+
+export interface AlertProposalExtraction {
+  proposals: AlertProposalFields;
+  origin: 'AI_GENERATED' | 'NONE';
+  extractorIdentifier: string;
+  extractorVersion: string;
+  modelIdentifier: string | null;
+}
+
+export interface MatchExplanation {
+  text: string;
+  origin: 'DETERMINISTIC' | 'AI_GENERATED';
+  generatorIdentifier: string;
+  generatorVersion: string;
+  modelIdentifier: string | null;
+}
+
 export interface ScoreBreakdown {
   total: number;
   ean: number;
@@ -56,7 +91,7 @@ export interface ScoreBreakdown {
 }
 
 export interface AlertSource {
-  getNewAlerts(existingReferences: Set<string>): Promise<NormalizedAlert[]>;
+  readAlerts(): Promise<AlertSourceRecord[]>;
 }
 
 export interface FuzzyMatcher {
@@ -65,8 +100,8 @@ export interface FuzzyMatcher {
 }
 
 export interface LlmClient {
-  extractAlert(input: string): Promise<NormalizedAlert>;
-  explainMatch(input: ScoreBreakdown): Promise<string>;
+  extractAlert(input: string): Promise<AlertProposalExtraction>;
+  explainMatch(input: ScoreBreakdown): Promise<MatchExplanation>;
   draftAction(type: ActionType, context: Record<string, unknown>): Promise<string>;
 }
 

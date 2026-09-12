@@ -21,6 +21,7 @@ import { clearDemoData, seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
 import { readCaseSnapshot } from '../workflow/case-lifecycle';
 import { confirmReviewMatch } from '../workflow/review';
+import { rebaseUndecidedDemoMatchFixture } from '../testing/alert-provenance-fixtures';
 import {
   batchContradictionRule,
   demoHumanAssessorIdentifier,
@@ -192,6 +193,11 @@ function seedBaseChallenge(): BaseChallengeSeed {
     .where(eq(schema.alerts.id, match.alertId)).run();
   connection.db.update(schema.matches).set({ hasHardConflict: false })
     .where(eq(schema.matches.id, matchId)).run();
+  rebaseUndecidedDemoMatchFixture(connection.db, {
+    matchId,
+    sourceFields: { ean: product.ean },
+    observedAt: '2026-09-11T09:59:00.000Z'
+  });
   const confirmed = confirmReviewMatch(
     connection.db,
     { matchId, actorName: demoHumanAssessorIdentifier },

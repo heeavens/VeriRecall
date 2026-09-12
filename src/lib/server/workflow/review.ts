@@ -6,6 +6,11 @@ import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import { produceInvestigationOutcome } from '../investigation/outcome-producer';
 import { ensureCurrentInvestigationQuestionRegistered } from '../investigation/questions';
+import {
+  AlertMatchBasisError,
+  assertAlertMatchBasisCurrentInTransaction,
+  readAlertMatchBasisInTransaction
+} from '../matching/match-basis';
 import { assessHarm, type HarmAssessment } from '../risk/harm';
 import { applyConfirmedReviewOutcomeInTransaction, readCaseSnapshot, type LifecycleContext } from './case-lifecycle';
 import { nextCaseNumber, severityForRisk } from './case-record';
@@ -211,7 +216,7 @@ function scoreSignals(record: ReviewRecord): ReviewSignal[] {
         match.brandScore >= 15
           ? 'Brand names are strongly aligned'
           : !alert.brand
-            ? 'The official alert does not provide a brand'
+            ? 'The source alert does not provide a brand'
             : 'Brand names provide limited evidence',
       earned: match.brandScore,
       maximum: 20,
@@ -255,7 +260,8 @@ function evidenceLabel(type: EvidenceType): string {
 function ensureCase(
   database: RecallDatabase,
   record: ReviewRecord,
-  createdAt: string
+  createdAt: string,
+  sourceMaterial: { risk: string; description: string } = record.alert
 ): { caseRecord: CaseRecord; created: boolean } {
   const existing = database
     .select()
@@ -269,7 +275,7 @@ function ensureCase(
     caseNumber: nextCaseNumber(database),
     alertId: record.alert.id,
     status: 'open',
-    severity: severityForRisk(record.alert.risk, record.alert.description),
+    severity: severityForRisk(sourceMaterial.risk, sourceMaterial.description),
     openedAt: createdAt,
     closedAt: null
   };
@@ -447,12 +453,55 @@ export function confirmReviewMatch(
     if (record.match.status === 'rejected') {
       throw new ReviewWorkflowError('invalid_state', 'A rejected match cannot be confirmed.');
     }
+    const existingCase = transaction
+      .select()
+      .from(schema.cases)
+      .where(eq(schema.cases.alertId, record.alert.id))
+      .get();
+    if (
+      versioned &&
+      record.match.status === 'confirmed' &&
+      existingCase &&
+      hasCaseLifecycle(transaction, existingCase.id)
+    ) {
+      return {
+        matchId: record.match.id,
+        caseId: existingCase.id,
+        caseNumber: existingCase.caseNumber,
+        changed: false,
+        versioned: true,
+        lifecycleChanged: false
+      };
+    }
     if (record.match.status !== 'confirmed') assertPendingReview(record);
 
+    let trustedFacts;
+    try {
+      const matchBasis = readAlertMatchBasisInTransaction(transaction, record.match.id);
+      trustedFacts = {
+        basis: matchBasis,
+        facts: assertAlertMatchBasisCurrentInTransaction(transaction, matchBasis)
+      };
+    } catch (error) {
+      if (error instanceof AlertMatchBasisError) {
+        throw new ReviewWorkflowError(
+          'invalid_state',
+          `This match cannot authorize a new decision: ${error.message}`
+        );
+      }
+      throw error;
+    }
+
     const createdAt = now.toISOString();
-    const ensuredCase = ensureCase(transaction, record, createdAt);
+    const ensuredCase = ensureCase(
+      transaction,
+      record,
+      createdAt,
+      trustedFacts.facts.sourceAlert
+    );
     if (!versioned) {
-      const batch = record.product.batch ?? record.alert.batch ?? 'Unknown';
+      const trustedBatch = trustedFacts.facts.authoritative.batch?.rawValues[0];
+      const batch = record.product.batch ?? trustedBatch ?? 'Unknown';
       const existingItem = transaction
         .select({ id: schema.caseItems.id })
         .from(schema.caseItems)
@@ -505,7 +554,7 @@ export function confirmReviewMatch(
       transaction
         .insert(schema.auditEvents)
         .values({
-          id: randomUUID(),
+          id: `demo:review-decision:${record.match.id}`,
           caseId: ensuredCase.caseRecord.id,
           alertId: record.alert.id,
           eventType: 'match_confirmed',
@@ -528,22 +577,27 @@ export function confirmReviewMatch(
         matchId: record.match.id,
         materialRevision: 1,
         updatedAt: record.match.decidedAt ?? createdAt,
-        alertEan: record.alert.ean,
         catalogueEan: record.product.ean,
-        alertBatch: record.alert.batch,
         catalogueBatch: record.product.batch,
-        hasHardIdentityConflict: record.match.hasHardConflict,
-        evidenceRefs: {
-          alert: `demo:alert:${record.alert.id}`,
-          catalogueProduct: `demo:catalogue:${record.product.id}`,
-          match: `demo:match:${record.match.id}`,
-          alertBatch: `demo:alert-batch:${record.alert.id}`,
-          catalogueBatch: `demo:catalogue-batch:${record.product.id}`
+        trustedAlertFacts: {
+          sourceObservationRef: trustedFacts.facts.sourceObservation.observationRef,
+          eans: trustedFacts.facts.authoritative.eanValues.map((item) => ({
+            normalizedValue: item.normalizedValue,
+            assertionRefs: item.assertionRefs
+          })),
+          batches: trustedFacts.facts.authoritative.batchValues.map((item) => ({
+            normalizedValue: item.normalizedValue,
+            assertionRefs: item.assertionRefs
+          }))
+        },
+        provenanceRefs: {
+          catalogueProduct: record.product.id,
+          matchBasis: trustedFacts.basis.basis.matchId
         },
         decisionRefs: {
           review: `demo:review-decision:${record.match.id}`
         },
-        demo: true
+        demo: trustedFacts.facts.sourceObservation.demo
       });
       const integrated = applyConfirmedReviewOutcomeInTransaction(transaction, {
         caseId: ensuredCase.caseRecord.id,

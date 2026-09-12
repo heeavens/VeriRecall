@@ -38,7 +38,7 @@
   }
 
   function sourceLabel(source: DashboardAlert['source']): string {
-    return source === 'safety_gate' ? 'Safety Gate' : 'RASFF';
+    return source === 'safety_gate' ? 'Safety Gate-format fixture' : 'RASFF-format fixture';
   }
 
   function formatDate(value: string): string {
@@ -190,7 +190,7 @@
           <p>
             {data.archive.total > 0
               ? 'All current archive results have a recorded outcome. Check the archive again when you are ready.'
-              : 'Upload or review your catalogue, then check the local archive for official alerts.'}
+              : 'Upload or review your catalogue, then check the synthetic local source archive.'}
           </p>
           <a class="btn btn-secondary" href="/catalogue">Review catalogue</a>
         </div>
@@ -270,7 +270,7 @@
   <section class="latest-alerts" aria-labelledby="latest-alerts-title">
     <header class="latest-alerts__heading">
       <div>
-        <h2 id="latest-alerts-title">Latest official alerts</h2>
+        <h2 id="latest-alerts-title">Latest monitored source alerts</h2>
         <p>Recent records from the local archive and their current catalogue outcome.</p>
       </div>
       <span>{recentAlerts.length} of {data.alerts.length} records</span>
@@ -293,7 +293,7 @@
               <span class="latest-alert__match">
                 {#if alert.bestMatch}
                   <strong>{alert.bestMatch.product.name}</strong>
-                  <small>{alert.bestMatch.product.sku} · {alert.bestMatch.totalScore}% confidence</small>
+                  <small>{alert.bestMatch.product.sku} · {alert.bestMatch.totalScore} match score</small>
                 {:else}
                   <strong>No catalogue candidate</strong>
                   <small>Open the record for details</small>

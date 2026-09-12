@@ -1,10 +1,10 @@
 import type {
   ActionType,
+  AlertProposalExtraction,
   LlmClient,
-  NormalizedAlert,
+  MatchExplanation,
   ScoreBreakdown
 } from '../../types/domain';
-import { normalizeAlert } from '../alerts/normalization';
 
 function stringValue(context: Record<string, unknown>, key: string, fallback: string): string {
   const value = context[key];
@@ -17,15 +17,27 @@ function numberValue(context: Record<string, unknown>, key: string): number {
 }
 
 export class FallbackLlmClient implements LlmClient {
-  async extractAlert(input: string): Promise<NormalizedAlert> {
-    return normalizeAlert(JSON.parse(input) as unknown);
+  async extractAlert(_input: string): Promise<AlertProposalExtraction> {
+    return {
+      proposals: {},
+      origin: 'NONE',
+      extractorIdentifier: 'no-ai-extraction',
+      extractorVersion: 'v1',
+      modelIdentifier: null
+    };
   }
 
-  async explainMatch(input: ScoreBreakdown): Promise<string> {
+  async explainMatch(input: ScoreBreakdown): Promise<MatchExplanation> {
     const evidence = input.requestedEvidence.length
       ? `Requested evidence: ${input.requestedEvidence.join(', ')}.`
       : 'No additional matching evidence is required.';
-    return `${input.reasons.join(' ')} ${evidence}`;
+    return {
+      text: `${input.reasons.join(' ')} ${evidence}`,
+      origin: 'DETERMINISTIC',
+      generatorIdentifier: 'verirecall-match-explainer',
+      generatorVersion: 'v1',
+      modelIdentifier: null
+    };
   }
 
   async draftAction(type: ActionType, context: Record<string, unknown>): Promise<string> {

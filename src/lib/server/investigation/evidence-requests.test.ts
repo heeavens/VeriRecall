@@ -11,6 +11,7 @@ import { createDatabaseConnection } from '../db/client';
 import { loadDemoFixtures } from '../db/demo-fixtures';
 import { seedDemoData } from '../db/repositories';
 import * as schema from '../db/schema';
+import { rebaseUndecidedDemoMatchFixture } from '../testing/alert-provenance-fixtures';
 import { readCaseSnapshot } from '../workflow/case-lifecycle';
 import { confirmReviewMatch } from '../workflow/review';
 import {
@@ -237,6 +238,11 @@ describe('versioned investigation evidence requests', () => {
     const match = fixtures.matches[0];
     connection.db.update(schema.alerts).set({ ean: null })
       .where(eq(schema.alerts.id, match.alertId)).run();
+    rebaseUndecidedDemoMatchFixture(connection.db, {
+      matchId: match.id,
+      sourceFields: { ean: null },
+      observedAt: '2026-09-09T07:59:00.000Z'
+    });
     const confirmed = confirmReviewMatch(
       connection.db,
       { matchId: match.id, actorName: 'demo_operator' },
@@ -305,6 +311,7 @@ describe('versioned investigation evidence requests', () => {
 
   it('rejects missing and ambiguous derived matches instead of choosing one', () => {
     const missing = versionedGapCase();
+    connection.db.delete(schema.alertMatchBases).where(eq(schema.alertMatchBases.matchId, gapMatchId)).run();
     connection.db.delete(schema.matches).where(eq(schema.matches.id, gapMatchId)).run();
     expectRequestError(() => request(inputFor(
       missing.snapshot.caseId,

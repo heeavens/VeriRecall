@@ -18,7 +18,7 @@ const rules: readonly HarmRule[] = [
   {
     level: 'critical',
     score: 100,
-    reason: 'The official alert describes a potentially life-threatening or severe systemic harm.',
+    reason: 'The source alert describes a potentially life-threatening or severe systemic harm.',
     signals: [
       'fatal',
       'death',
@@ -33,7 +33,7 @@ const rules: readonly HarmRule[] = [
   {
     level: 'high',
     score: 75,
-    reason: 'The official alert describes choking, injury, burn, shock or another serious harm.',
+    reason: 'The source alert describes choking, injury, burn, shock or another serious harm.',
     signals: [
       'choking',
       'injur',
@@ -48,7 +48,7 @@ const rules: readonly HarmRule[] = [
   {
     level: 'medium',
     score: 50,
-    reason: 'The official alert describes a material harm that should be reviewed promptly.',
+    reason: 'The source alert describes a material harm that should be reviewed promptly.',
     signals: ['allerg', 'irrit', 'cut', 'suffocation', 'damage to sight']
   }
 ];
@@ -69,7 +69,7 @@ export function assessHarm(input: { risk: string; description?: string }): HarmA
   return matchedRule ?? {
     level: 'low',
     score: 25,
-    reason: 'The official alert does not contain a recognised high-harm signal in the demo rules.'
+    reason: 'The source alert does not contain a recognised high-harm signal in the demo rules.'
   };
 }
 

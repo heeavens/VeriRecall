@@ -555,19 +555,22 @@ describe('investigation question lineage', () => {
         matchId: match.id,
         materialRevision: 1,
         updatedAt: registeredAt,
-        alertEan: alert.ean ?? null,
         catalogueEan: product.ean ?? null,
-        alertBatch: alert.batch ?? null,
         catalogueBatch: product.batch ?? null,
-        hasHardIdentityConflict: match.hasHardConflict ?? false,
-        evidenceRefs: {
-          alert: `demo:alert:${alert.id}`,
-          catalogueProduct: `demo:catalogue:${product.id}`,
-          match: `demo:match:${match.id}`,
-          alertBatch: `demo:alert-batch:${alert.id}`,
-          catalogueBatch: `demo:catalogue-batch:${product.id}`
+        trustedAlertFacts: {
+          sourceObservationRef: `demo:alert-observation:${alert.id}`,
+          eans: alert.ean
+            ? [{ normalizedValue: alert.ean, assertionRefs: [`demo:alert-assertion:${alert.id}:ean`] }]
+            : [],
+          batches: alert.batch
+            ? [{ normalizedValue: alert.batch, assertionRefs: [`demo:alert-assertion:${alert.id}:batch`] }]
+            : []
         },
-        decisionRefs: { review: `demo:review-decision:${match.id}` },
+        provenanceRefs: {
+          catalogueProduct: product.id,
+          matchBasis: match.id
+        },
+        decisionRefs: { review: `review-decision:${match.id}` },
         demo: true
       });
       existing.db.update(schema.matches).set({

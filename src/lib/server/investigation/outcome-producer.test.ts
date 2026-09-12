@@ -12,169 +12,105 @@ const baseInput = {
   matchId: '30000000-0000-4000-8000-000000000001',
   materialRevision: 1,
   updatedAt: '2026-09-08T12:00:00.000Z',
-  alertEan: '3073646035990',
-  catalogueEan: '3073646035990',
-  alertBatch: 'MFT24',
+  trustedAlertFacts: {
+    sourceObservationRef: 'observation:1',
+    eans: [{ normalizedValue: '4006381333931', assertionRefs: ['assertion:ean'] }],
+    batches: [{ normalizedValue: 'mft24', assertionRefs: ['assertion:batch'] }]
+  },
+  catalogueEan: '4006381333931',
   catalogueBatch: 'MFT24',
-  hasHardIdentityConflict: false,
-  evidenceRefs: {
-    alert: 'demo:alert:1',
-    catalogueProduct: 'demo:catalogue:1',
-    match: 'demo:match:1',
-    alertBatch: 'demo:alert-batch:1',
-    catalogueBatch: 'demo:catalogue-batch:1'
+  provenanceRefs: {
+    catalogueProduct: '20000000-0000-4000-8000-000000000001',
+    matchBasis: '30000000-0000-4000-8000-000000000001'
   },
-  decisionRefs: {
-    review: 'demo:review-decision:1'
-  },
+  decisionRefs: { review: 'review-decision:1' },
   demo: true
 } satisfies ProduceInvestigationOutcomeInput;
 
-function produce(
-  overrides: Partial<ProduceInvestigationOutcomeInput> = {}
-) {
+function produce(overrides: Partial<ProduceInvestigationOutcomeInput> = {}) {
   return produceInvestigationOutcome({ ...baseInput, ...overrides });
 }
 
-describe('InvestigationOutcome producer', () => {
-  it('uses an exact non-empty EAN match as deterministic known identity evidence', () => {
+describe('InvestigationOutcome producer trusted-fact boundary', () => {
+  it('uses an exact valid trusted GTIN and normalized batch as known evidence', () => {
     const outcome = produce();
-
     expect(outcome).toMatchObject({
       knowledgeStatus: 'KNOWN',
-      identity: {
-        knowledgeStatus: 'KNOWN',
-        conclusion: 'MATCH'
-      },
-      scope: {
-        kind: 'BATCH_LOT',
-        knowledgeStatus: 'KNOWN',
-        lots: ['MFT24']
-      },
+      identity: { knowledgeStatus: 'KNOWN', conclusion: 'MATCH' },
+      scope: { kind: 'BATCH_LOT', knowledgeStatus: 'KNOWN', lots: ['MFT24'] },
       gaps: [],
       conflicts: []
     });
     expect(investigationOutcomeSchema.parse(outcome)).toEqual(outcome);
   });
 
-  it('uses the existing EAN normalization for equivalent persisted values', () => {
-    const outcome = produce({ alertEan: ' 3073 6460 3599 0 ' });
-
-    expect(outcome.identity).toMatchObject({
-      knowledgeStatus: 'KNOWN',
-      conclusion: 'MATCH'
+  it('keeps identity unknown when the alert has no trusted GTIN', () => {
+    const outcome = produce({
+      trustedAlertFacts: { ...baseInput.trustedAlertFacts, eans: [] }
     });
+    expect(outcome.identity).toMatchObject({ knowledgeStatus: 'UNKNOWN', conclusion: 'UNRESOLVED' });
   });
 
-  it.each([
-    ['alert EAN', { alertEan: null }],
-    ['catalogue EAN', { catalogueEan: null }],
-    ['both EANs', { alertEan: null, catalogueEan: null }]
-  ] as const)('keeps identity unknown when %s is missing despite Review confirmation', (_label, eans) => {
-    const outcome = produce(eans);
+  it('does not accept an invalid catalogue GTIN as comparable identity', () => {
+    const outcome = produce({ catalogueEan: '4006381333932' });
+    expect(outcome.identity).toMatchObject({ knowledgeStatus: 'UNKNOWN', conclusion: 'UNRESOLVED' });
+  });
 
-    expect(outcome).toMatchObject({
-      knowledgeStatus: 'UNRESOLVED',
-      identity: {
-        knowledgeStatus: 'UNKNOWN',
-        conclusion: 'UNRESOLVED',
-        decisionRefs: [baseInput.decisionRefs.review]
-      },
-      scope: {
-        kind: 'BATCH_LOT',
-        knowledgeStatus: 'KNOWN',
-        lots: ['MFT24']
+  it('rejects an invalid value mislabeled as a trusted alert GTIN', () => {
+    expect(() => produce({
+      trustedAlertFacts: {
+        ...baseInput.trustedAlertFacts,
+        eans: [{ normalizedValue: '4006381333932', assertionRefs: ['assertion:invalid-ean'] }]
+      }
+    })).toThrow(/not valid attributed provenance/);
+  });
+
+  it('preserves trusted GTIN disagreement as a factual conflict', () => {
+    const outcome = produce({ catalogueEan: '3073646035993' });
+    expect(outcome.identity).toMatchObject({ knowledgeStatus: 'CONFLICTED', conclusion: 'UNRESOLVED' });
+    expect(outcome.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'EAN_CONFLICT' })
+    ]));
+  });
+
+  it('preserves conflicting trusted alert assertions', () => {
+    const outcome = produce({
+      trustedAlertFacts: {
+        ...baseInput.trustedAlertFacts,
+        eans: [
+          ...baseInput.trustedAlertFacts.eans,
+          { normalizedValue: '3073646035993', assertionRefs: ['assertion:ean:2'] }
+        ]
       }
     });
+    expect(outcome.identity.knowledgeStatus).toBe('CONFLICTED');
   });
 
-  it.each([
-    { alertBatch: null, catalogueBatch: 'MFT24' },
-    { alertBatch: 'MFT24', catalogueBatch: null },
-    { alertBatch: null, catalogueBatch: null }
-  ])('keeps missing batch data unresolved without inventing a lot', (batches) => {
-    const outcome = produce(batches);
-
-    expect(outcome).toMatchObject({
-      knowledgeStatus: 'UNRESOLVED',
-      identity: {
-        knowledgeStatus: 'KNOWN',
-        conclusion: 'MATCH'
-      },
-      scope: {
-        kind: 'UNRESOLVED',
-        knowledgeStatus: 'UNKNOWN'
-      },
-      gaps: [expect.objectContaining({ code: 'BATCH_MISSING' })],
-      conflicts: []
+  it('keeps an absent trusted batch unresolved and BATCH_MISSING reachable', () => {
+    const outcome = produce({
+      trustedAlertFacts: { ...baseInput.trustedAlertFacts, batches: [] }
     });
-    expect('lots' in outcome.scope).toBe(false);
+    expect(outcome.scope).toMatchObject({ kind: 'UNRESOLVED', knowledgeStatus: 'UNKNOWN' });
+    expect(outcome.gaps).toEqual([expect.objectContaining({ code: 'BATCH_MISSING' })]);
   });
 
-  it('preserves a batch conflict as conflicted scope and outcome', () => {
+  it('preserves trusted batch disagreement as BATCH_CONFLICT', () => {
     const outcome = produce({ catalogueBatch: 'MFT25' });
-
-    expect(outcome).toMatchObject({
-      knowledgeStatus: 'CONFLICTED',
-      identity: {
-        knowledgeStatus: 'KNOWN',
-        conclusion: 'MATCH'
-      },
-      scope: {
-        kind: 'UNRESOLVED',
-        knowledgeStatus: 'CONFLICTED'
-      },
-      gaps: [],
-      conflicts: [expect.objectContaining({ code: 'BATCH_CONFLICT' })]
-    });
+    expect(outcome.scope).toMatchObject({ kind: 'UNRESOLVED', knowledgeStatus: 'CONFLICTED' });
+    expect(outcome.conflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'BATCH_CONFLICT' })
+    ]));
   });
 
-  it.each([
-    ['differing persisted EANs', { catalogueEan: '3073646035991' }],
-    ['the persisted hard-conflict flag', { hasHardIdentityConflict: true }]
-  ] as const)('preserves %s as a hard identity conflict without erasing known scope', (_label, conflict) => {
-    const outcome = produce(conflict);
-
-    expect(outcome).toMatchObject({
-      knowledgeStatus: 'CONFLICTED',
-      identity: {
-        knowledgeStatus: 'CONFLICTED',
-        conclusion: 'UNRESOLVED'
-      },
-      scope: {
-        kind: 'BATCH_LOT',
-        knowledgeStatus: 'KNOWN',
-        lots: ['MFT24']
-      },
-      conflicts: [expect.objectContaining({ code: 'EAN_CONFLICT' })]
-    });
-  });
-
-  it.each([
-    ['known', {}],
-    ['unknown', { alertEan: null }],
-    ['conflicted', { catalogueEan: '3073646035991' }]
-  ] as const)('keeps the Review decision reference attached to %s identity', (_label, identity) => {
-    const outcome = produce(identity);
-
-    expect(outcome.identity.decisionRefs).toEqual([baseInput.decisionRefs.review]);
-    expect(outcome.decisionRefs).toContain(baseInput.decisionRefs.review);
-  });
-
-  it('keeps nested evidence and decision references in the outcome-level sets', () => {
+  it('carries immutable observation, assertion and match-basis refs', () => {
     const outcome = produce();
-
-    expect(outcome.identity.evidenceRefs.every((ref) => outcome.evidenceRefs.includes(ref))).toBe(true);
-    expect(outcome.scope.evidenceRefs.every((ref) => outcome.evidenceRefs.includes(ref))).toBe(true);
-    expect(outcome.identity.decisionRefs.every((ref) => outcome.decisionRefs.includes(ref))).toBe(true);
-    expect(outcome.scope.decisionRefs.every((ref) => outcome.decisionRefs.includes(ref))).toBe(true);
-    expect(outcome.evidenceRefs).toEqual([
-      baseInput.evidenceRefs.alert,
-      baseInput.evidenceRefs.catalogueProduct,
-      baseInput.evidenceRefs.match,
-      baseInput.evidenceRefs.alertBatch,
-      baseInput.evidenceRefs.catalogueBatch
-    ]);
+    expect(outcome.evidenceRefs).toEqual(expect.arrayContaining([
+      'observation:1',
+      'assertion:ean',
+      'assertion:batch',
+      baseInput.provenanceRefs.matchBasis,
+      baseInput.provenanceRefs.catalogueProduct
+    ]));
     expect(outcome.decisionRefs).toEqual([baseInput.decisionRefs.review]);
   });
 });

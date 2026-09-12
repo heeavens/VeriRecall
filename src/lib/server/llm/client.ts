@@ -1,4 +1,10 @@
-import type { ActionType, LlmClient, NormalizedAlert, ScoreBreakdown } from '../../types/domain';
+import type {
+  ActionType,
+  AlertProposalExtraction,
+  LlmClient,
+  MatchExplanation,
+  ScoreBreakdown
+} from '../../types/domain';
 import { FallbackLlmClient } from './fallback-client';
 import { OpenAiLlmClient, ResponsesApiTransport } from './openai-client';
 
@@ -8,7 +14,7 @@ export class ResilientLlmClient implements LlmClient {
     private readonly fallback: LlmClient
   ) {}
 
-  async extractAlert(input: string): Promise<NormalizedAlert> {
+  async extractAlert(input: string): Promise<AlertProposalExtraction> {
     try {
       return await this.primary.extractAlert(input);
     } catch {
@@ -16,7 +22,7 @@ export class ResilientLlmClient implements LlmClient {
     }
   }
 
-  async explainMatch(input: ScoreBreakdown): Promise<string> {
+  async explainMatch(input: ScoreBreakdown): Promise<MatchExplanation> {
     try {
       return await this.primary.explainMatch(input);
     } catch {

@@ -361,8 +361,14 @@ export const recallCommandSchema = z.discriminatedUnion('type', [
   if (value.type !== 'ACCEPT_INVESTIGATION' && value.expectedCaseVersion === 0) {
     context.addIssue({ code: 'custom', message: 'Only initial ingestion may expect version zero' });
   }
-  if ('evidenceRefs' in value && value.evidenceRefs.some((ref) => !ref.startsWith('demo:'))) {
-    context.addIssue({ code: 'custom', message: 'Local demo commands require explicitly demo evidence references' });
+  if (
+    'evidenceRefs' in value &&
+    value.evidenceRefs.some((ref) => !ref.startsWith('demo:') && !id.safeParse(ref).success)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Local demo commands require demo locators or immutable persisted evidence identifiers'
+    });
   }
 });
 export const getSnapshotQuerySchema = z.strictObject({
