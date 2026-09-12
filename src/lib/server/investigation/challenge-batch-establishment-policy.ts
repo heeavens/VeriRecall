@@ -15,16 +15,28 @@ export const demoInheritedChallengeBatchEstablishmentPolicy = {
   policyVersion: 'v2'
 } as const;
 
+export const demoConflictContinuationBatchEstablishmentPolicy = {
+  ...demoChallengeBatchEstablishmentPolicy,
+  policyVersion: 'v3'
+} as const;
+
 export type DemoChallengeBatchEstablishmentPolicy =
   | typeof demoChallengeBatchEstablishmentPolicy
-  | typeof demoInheritedChallengeBatchEstablishmentPolicy;
+  | typeof demoInheritedChallengeBatchEstablishmentPolicy
+  | typeof demoConflictContinuationBatchEstablishmentPolicy;
 
 export function challengeBatchEstablishmentPolicyForBaseline(
-  baselineKind: 'INITIAL_UNASSOCIATED' | 'APPLIED_CHALLENGE_BATCH'
+  baselineKind:
+    | 'INITIAL_UNASSOCIATED'
+    | 'APPLIED_CHALLENGE_BATCH'
+    | 'APPLIED_CHALLENGE_CONFLICT'
 ): DemoChallengeBatchEstablishmentPolicy {
-  return baselineKind === 'INITIAL_UNASSOCIATED'
-    ? demoChallengeBatchEstablishmentPolicy
-    : demoInheritedChallengeBatchEstablishmentPolicy;
+  if (baselineKind === 'INITIAL_UNASSOCIATED') {
+    return demoChallengeBatchEstablishmentPolicy;
+  }
+  return baselineKind === 'APPLIED_CHALLENGE_BATCH'
+    ? demoInheritedChallengeBatchEstablishmentPolicy
+    : demoConflictContinuationBatchEstablishmentPolicy;
 }
 
 export function isSupportedChallengeBatchEstablishmentPolicy(value: {
@@ -35,7 +47,8 @@ export function isSupportedChallengeBatchEstablishmentPolicy(value: {
 }): boolean {
   return value.policyIdentifier === demoChallengeBatchEstablishmentPolicy.policyIdentifier &&
     (value.policyVersion === demoChallengeBatchEstablishmentPolicy.policyVersion ||
-      value.policyVersion === demoInheritedChallengeBatchEstablishmentPolicy.policyVersion) &&
+      value.policyVersion === demoInheritedChallengeBatchEstablishmentPolicy.policyVersion ||
+      value.policyVersion === demoConflictContinuationBatchEstablishmentPolicy.policyVersion) &&
     value.evaluatorKind === demoChallengeBatchEstablishmentPolicy.evaluatorKind &&
     value.evaluatorIdentifier === demoChallengeBatchEstablishmentPolicy.evaluatorIdentifier;
 }
@@ -69,7 +82,7 @@ export interface ChallengeBatchAssessmentClassification {
   divergentClaimRefsWithoutTrustedRejection: string[];
 }
 
-/** Shared assessment categorization for live v1/v2 policy and provenance validation. */
+/** Shared assessment categorization for live v1/v2/v3 policy and provenance validation. */
 export function classifyChallengeBatchEstablishmentAssessments(input: {
   activeClaims: readonly InvestigationClaim[];
   structuralAssessmentHeads: readonly InvestigationAssessment[];

@@ -2,13 +2,15 @@ import { eq } from 'drizzle-orm';
 
 import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
-import type { CurrentInvestigationChallengeForWrite } from './challenges';
+import type { CurrentInvestigationContextForWrite } from './challenges';
 
 export type ChallengeArtifactPartition = string | null;
 export type ChallengeEvidenceRelevance =
   | 'CURRENT_CHALLENGE'
+  | 'CURRENT_CONTINUATION'
   | 'INITIAL_BASELINE'
   | 'INHERITED_BASELINE'
+  | 'AUTHORITATIVE_CONFLICT_BASELINE'
   | 'OTHER_CHALLENGE';
 
 export interface ChallengeEvidenceRecord {
@@ -69,13 +71,22 @@ export function getInvestigationEstablishmentChallengeRef(
 export function classifyEvidenceForInvestigationChallenge(
   database: RecallDatabase,
   evidence: ChallengeEvidenceRecord,
-  authorization: CurrentInvestigationChallengeForWrite
+  authorization: CurrentInvestigationContextForWrite
 ): ChallengeEvidenceRelevance {
   if (
     evidence.caseId !== authorization.challenge.caseId ||
     evidence.questionRef !== authorization.challenge.questionRef
   ) {
     return 'OTHER_CHALLENGE';
+  }
+
+  const conflictContinuation = authorization.authoritativeBaseline.kind ===
+    'APPLIED_CHALLENGE_CONFLICT';
+  if (
+    authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_CONFLICT' &&
+    authorization.authoritativeBaseline.conflictEvidenceRefs.includes(evidence.evidenceRef)
+  ) {
+    return 'AUTHORITATIVE_CONFLICT_BASELINE';
   }
 
   if (evidence.evidenceRequestId !== null) {
@@ -85,7 +96,7 @@ export function classifyEvidenceForInvestigationChallenge(
     );
     if (requestChallengeRef !== null) {
       if (requestChallengeRef === authorization.challenge.challengeRef) {
-        return 'CURRENT_CHALLENGE';
+        return conflictContinuation ? 'CURRENT_CONTINUATION' : 'CURRENT_CHALLENGE';
       }
       if (
         authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH' &&
@@ -94,6 +105,13 @@ export function classifyEvidenceForInvestigationChallenge(
         )
       ) {
         return 'INHERITED_BASELINE';
+      }
+      if (conflictContinuation) {
+        const receivedAt = Date.parse(evidence.receivedAt);
+        const conflictAt = Date.parse(authorization.challengedRevision.createdAt);
+        return Number.isFinite(receivedAt) && Number.isFinite(conflictAt) && receivedAt > conflictAt
+          ? 'CURRENT_CONTINUATION'
+          : 'OTHER_CHALLENGE';
       }
       return 'OTHER_CHALLENGE';
     }
@@ -104,10 +122,11 @@ export function classifyEvidenceForInvestigationChallenge(
   return Number.isFinite(receivedAt) &&
     Number.isFinite(challengedAt) &&
     receivedAt > challengedAt
-    ? 'CURRENT_CHALLENGE'
+    ? conflictContinuation ? 'CURRENT_CONTINUATION' : 'CURRENT_CHALLENGE'
     : authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
       ? 'INITIAL_BASELINE'
-      : authorization.authoritativeBaseline.resultBaselineEvidenceRefs.includes(
+      : authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH' &&
+        authorization.authoritativeBaseline.resultBaselineEvidenceRefs.includes(
           evidence.evidenceRef
         )
         ? 'INHERITED_BASELINE'

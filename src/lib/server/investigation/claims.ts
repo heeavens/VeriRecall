@@ -11,8 +11,8 @@ import {
 } from './challenge-artifacts';
 import {
   InvestigationChallengeError,
-  resolveCurrentInvestigationChallengeForWrite,
-  type CurrentInvestigationChallengeForWrite
+  resolveCurrentInvestigationContextForWrite,
+  type CurrentInvestigationContextForWrite
 } from './challenges';
 import { ensureCurrentInvestigationQuestionRegistered } from './questions';
 import {
@@ -184,9 +184,9 @@ function challengeRefOf(input: PreparedClaimInput): string | null {
 function resolveChallengeAuthorization(
   database: RecallDatabase,
   input: PreparedClaimInput & { challengeRef: string; expectedMaterialRevision: number }
-): CurrentInvestigationChallengeForWrite {
+): CurrentInvestigationContextForWrite {
   try {
-    return resolveCurrentInvestigationChallengeForWrite(database, {
+    return resolveCurrentInvestigationContextForWrite(database, {
       caseId: input.caseId,
       questionRef: input.questionRef,
       challengeRef: input.challengeRef,
@@ -310,7 +310,7 @@ function validateEvidenceOwnership(
 function validateChallengeEvidenceBasis(
   database: RecallDatabase,
   evidence: readonly (typeof schema.investigationEvidence.$inferSelect)[],
-  authorization: CurrentInvestigationChallengeForWrite
+  authorization: CurrentInvestigationContextForWrite
 ): void {
   const relevance = evidence.map((item) =>
     classifyEvidenceForInvestigationChallenge(database, item, authorization)
@@ -321,7 +321,9 @@ function validateChallengeEvidenceBasis(
       'Challenge claims cannot use Evidence exclusively associated with another Challenge.'
     );
   }
-  if (!relevance.includes('CURRENT_CHALLENGE')) {
+  const requiredCurrentRelevance = authorization.authoritativeBaseline.kind ===
+    'APPLIED_CHALLENGE_CONFLICT' ? 'CURRENT_CONTINUATION' : 'CURRENT_CHALLENGE';
+  if (!relevance.includes(requiredCurrentRelevance)) {
     throw new InvestigationClaimError(
       'CHALLENGE_EVIDENCE_REQUIRED',
       'A Challenge claim requires at least one Evidence item relevant to that Challenge.'
@@ -416,6 +418,8 @@ export function recordInvestigationClaim(
     const challengeAuthorization = 'challengeRef' in prepared
       ? resolveChallengeAuthorization(transaction, prepared)
       : null;
+    const authorizationContext = challengeAuthorization?.authoritativeBaseline.kind ===
+      'APPLIED_CHALLENGE_CONFLICT' ? 'APPLIED_CHALLENGE_CONFLICT' : 'OPEN_CHALLENGE';
     const current = challengeAuthorization?.snapshot ??
       readCaseSnapshot(transaction, prepared.caseId);
     if (!current) {
@@ -511,7 +515,9 @@ export function recordInvestigationClaim(
       actorName: 'investigation_claim_registry',
       summary: challengeRef === null
         ? 'Recorded an untrusted evidence-derived investigation claim.'
-        : 'Recorded an untrusted evidence-derived claim under a current investigation Challenge.',
+        : challengeAuthorization?.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_CONFLICT'
+          ? 'Recorded an untrusted evidence-derived claim under an applied-conflict continuation.'
+          : 'Recorded an untrusted evidence-derived claim under a current investigation Challenge.',
       metadataJson: JSON.stringify({
         claimRef: prepared.claimRef,
         caseId: current.caseId,
@@ -526,7 +532,7 @@ export function recordInvestigationClaim(
         supersedesClaimRef: prepared.supersedesClaimRef,
         ...(challengeRef === null
           ? {}
-          : { authorizationContext: 'OPEN_CHALLENGE', challengeRef }),
+          : { authorizationContext, challengeRef }),
         demo: prepared.demo
       }),
       createdAt

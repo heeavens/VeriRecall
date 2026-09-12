@@ -15,7 +15,7 @@ import {
 } from './challenge-artifacts';
 import {
   InvestigationChallengeError,
-  resolveCurrentInvestigationChallengeForWrite
+  resolveCurrentInvestigationContextForWrite
 } from './challenges';
 import { demoHumanAssessorIdentifier } from './demo-context';
 import { ensureCurrentInvestigationQuestionRegistered } from './questions';
@@ -122,7 +122,7 @@ function resolveChallengeAuthorization(
   input: z.infer<typeof challengeRequestInputSchema>
 ) {
   try {
-    return resolveCurrentInvestigationChallengeForWrite(database, {
+    return resolveCurrentInvestigationContextForWrite(database, {
       caseId: input.caseId,
       questionRef: input.questionRef,
       challengeRef: input.challengeRef,
@@ -208,9 +208,14 @@ export function requestInvestigationEvidence(
     }
 
     const challengeRef = challengeRefOf(parsed.data);
-    const current = 'challengeRef' in parsed.data
-      ? resolveChallengeAuthorization(transaction, parsed.data).snapshot
+    const challengeAuthorization = 'challengeRef' in parsed.data
+      ? resolveChallengeAuthorization(transaction, parsed.data)
+      : null;
+    const current = challengeAuthorization
+      ? challengeAuthorization.snapshot
       : readCaseSnapshot(transaction, parsed.data.caseId);
+    const authorizationContext = challengeAuthorization?.authoritativeBaseline.kind ===
+      'APPLIED_CHALLENGE_CONFLICT' ? 'APPLIED_CHALLENGE_CONFLICT' : 'OPEN_CHALLENGE';
     if (!current) {
       throw new InvestigationEvidenceRequestError(
         'VERSIONED_CASE_REQUIRED',
@@ -326,7 +331,9 @@ export function requestInvestigationEvidence(
       actorName: actorId,
       summary: challengeRef === null
         ? 'Recorded a pending evidence-request attempt for a current investigation gap.'
-        : 'Recorded a pending evidence-request attempt under a current investigation Challenge.',
+        : challengeAuthorization?.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_CONFLICT'
+          ? 'Recorded a pending evidence-request attempt under an applied-conflict continuation.'
+          : 'Recorded a pending evidence-request attempt under a current investigation Challenge.',
       metadataJson: JSON.stringify({
         requestId: parsed.data.requestId,
         caseId: current.caseId,
@@ -337,7 +344,7 @@ export function requestInvestigationEvidence(
         matchId: candidateMatches[0].id,
         ...(challengeRef === null
           ? {}
-          : { authorizationContext: 'OPEN_CHALLENGE', challengeRef }),
+          : { authorizationContext, challengeRef }),
         demo: true
       }),
       createdAt

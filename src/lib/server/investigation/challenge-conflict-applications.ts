@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -11,25 +11,33 @@ import * as schema from '../db/schema';
 import {
   applyAuthoritativeInvestigationOutcomeInTransaction,
   readCaseRevisionByCaseVersion,
-  readCaseRevisionById,
   readCaseSnapshot,
   type LifecycleContext,
   type StoredCaseRevision
 } from '../workflow/case-lifecycle';
 import {
-  challengeConflictApplicationBasisFormatVersion,
-  challengeConflictApplicationPolicy,
-  inheritedChallengeConflictApplicationBasisFormatVersion,
-  inheritedChallengeConflictApplicationPolicy,
   readChallengeConflictApplicationBasisInTransaction
 } from './challenge-conflict-basis';
 import {
-  AuthoritativeChallengeBaselineError,
-  resolveAuthoritativeChallengeBaselineInTransaction
+  challengeConflictApplicationCommandPayload,
+  getInvestigationChallengeConflictApplication,
+  InvestigationChallengeConflictApplicationError,
+  readInvestigationChallengeConflictApplicationResult,
+  type InvestigationChallengeConflictApplication,
+  type InvestigationChallengeConflictApplicationErrorCode
 } from './authoritative-challenge-baseline';
-import { getInvestigationChallenge } from './challenges';
 import { demoHumanAssessorIdentifier } from './demo-context';
 import { getInvestigationQuestion } from './questions';
+
+export {
+  getInvestigationChallengeConflictApplication,
+  InvestigationChallengeConflictApplicationError,
+  readInvestigationChallengeConflictApplicationResult
+} from './authoritative-challenge-baseline';
+export type {
+  InvestigationChallengeConflictApplication,
+  InvestigationChallengeConflictApplicationErrorCode
+} from './authoritative-challenge-baseline';
 
 const opaqueReferenceSchema = z.string().min(1).max(500).refine(
   (value) => value.trim().length > 0,
@@ -37,11 +45,6 @@ const opaqueReferenceSchema = z.string().min(1).max(500).refine(
 );
 const rationaleSchema = z.string().trim().min(1).max(10_000);
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
-const canonicalReferenceArraySchema = z.array(opaqueReferenceSchema).min(1).refine(
-  (values) => new Set(values).size === values.length &&
-    values.every((value, index) => index === 0 || values[index - 1] < value),
-  'Reference arrays must be unique and lexically ordered.'
-);
 
 const applyInvestigationChallengeConflictInputSchema = z.strictObject({
   applicationRef: z.string().uuid(),
@@ -55,100 +58,9 @@ const applyInvestigationChallengeConflictInputSchema = z.strictObject({
   demo: z.literal(true)
 });
 
-const investigationChallengeConflictApplicationSchema = z.strictObject({
-  applicationRef: z.string().uuid(),
-  caseId: z.string().uuid(),
-  questionRef: opaqueReferenceSchema,
-  challengeRef: z.string().uuid(),
-  policyIdentifier: z.literal(challengeConflictApplicationPolicy.identifier),
-  policyVersion: z.union([
-    z.literal(challengeConflictApplicationPolicy.version),
-    z.literal(inheritedChallengeConflictApplicationPolicy.version)
-  ]),
-  basisFormatVersion: z.union([
-    z.literal(challengeConflictApplicationBasisFormatVersion),
-    z.literal(inheritedChallengeConflictApplicationBasisFormatVersion)
-  ]),
-  basisDigest: digestSchema,
-  reviewedClaimRefs: canonicalReferenceArraySchema,
-  reviewedAssessmentRefs: canonicalReferenceArraySchema,
-  completeEvidenceRefs: canonicalReferenceArraySchema,
-  appliedClaimRefs: canonicalReferenceArraySchema,
-  appliedAssessmentRefs: canonicalReferenceArraySchema,
-  appliedEvidenceRefs: canonicalReferenceArraySchema,
-  sourceRevisionId: z.string().uuid(),
-  sourceCaseVersion: z.number().int().positive(),
-  sourceMaterialRevision: z.number().int().positive(),
-  resultingRevisionId: z.string().uuid(),
-  resultingCaseVersion: z.number().int().positive(),
-  resultingMaterialRevision: z.number().int().positive(),
-  actorKind: z.literal('HUMAN'),
-  actorIdentifier: z.literal(demoHumanAssessorIdentifier),
-  rationale: rationaleSchema,
-  createdAt: z.string().datetime(),
-  demo: z.literal(true)
-}).superRefine((value, validation) => {
-  const validVersionPair =
-    (value.basisFormatVersion === challengeConflictApplicationBasisFormatVersion &&
-      value.policyVersion === challengeConflictApplicationPolicy.version) ||
-    (value.basisFormatVersion === inheritedChallengeConflictApplicationBasisFormatVersion &&
-      value.policyVersion === inheritedChallengeConflictApplicationPolicy.version);
-  if (!validVersionPair) {
-    validation.addIssue({
-      code: 'custom',
-      path: ['basisFormatVersion'],
-      message: 'Conflict basis and policy versions must be an exact supported pair.'
-    });
-  }
-  if (value.resultingCaseVersion !== value.sourceCaseVersion + 1) {
-    validation.addIssue({
-      code: 'custom',
-      path: ['resultingCaseVersion'],
-      message: 'The resulting case version must be exactly one greater than its source.'
-    });
-  }
-  if (value.resultingMaterialRevision !== value.sourceMaterialRevision + 1) {
-    validation.addIssue({
-      code: 'custom',
-      path: ['resultingMaterialRevision'],
-      message: 'The resulting material revision must be exactly one greater than its source.'
-    });
-  }
-});
-
 export type ApplyInvestigationChallengeConflictInput = z.infer<
   typeof applyInvestigationChallengeConflictInputSchema
 >;
-export type InvestigationChallengeConflictApplication = z.infer<
-  typeof investigationChallengeConflictApplicationSchema
->;
-
-export type InvestigationChallengeConflictApplicationErrorCode =
-  | 'INVALID_INPUT'
-  | 'FORBIDDEN'
-  | 'APPLICATION_NOT_FOUND'
-  | 'APPLICATION_CONFLICT'
-  | 'CHALLENGE_ALREADY_APPLIED'
-  | 'CHALLENGE_RESOLUTION_CONFLICT'
-  | 'COMMAND_ID_CONFLICT'
-  | 'VERSIONED_CASE_REQUIRED'
-  | 'STALE_CASE_VERSION'
-  | 'STALE_MATERIAL_REVISION'
-  | 'STALE_APPLICATION_BASIS'
-  | 'APPLICATION_NOT_ELIGIBLE'
-  | 'APPLICATION_PROVENANCE_INVALID'
-  | 'SOURCE_REVISION_UNRESOLVED'
-  | 'RESULT_REVISION_UNRESOLVED';
-
-export class InvestigationChallengeConflictApplicationError extends Error {
-  constructor(
-    public readonly code: InvestigationChallengeConflictApplicationErrorCode,
-    message: string
-  ) {
-    super(message);
-    this.name = 'InvestigationChallengeConflictApplicationError';
-  }
-}
 
 export interface ApplyInvestigationChallengeConflictResult {
   application: InvestigationChallengeConflictApplication;
@@ -185,45 +97,6 @@ function parseInput(input: unknown): ApplyInvestigationChallengeConflictInput {
   return parsed.data;
 }
 
-function hydrateApplication(
-  row: typeof schema.investigationChallengeConflictApplications.$inferSelect
-): InvestigationChallengeConflictApplication {
-  try {
-    return investigationChallengeConflictApplicationSchema.parse({
-      applicationRef: row.applicationRef,
-      caseId: row.caseId,
-      questionRef: row.questionRef,
-      challengeRef: row.challengeRef,
-      policyIdentifier: row.policyIdentifier,
-      policyVersion: row.policyVersion,
-      basisFormatVersion: row.basisFormatVersion,
-      basisDigest: row.basisDigest,
-      reviewedClaimRefs: JSON.parse(row.reviewedClaimRefsJson),
-      reviewedAssessmentRefs: JSON.parse(row.reviewedAssessmentRefsJson),
-      completeEvidenceRefs: JSON.parse(row.completeEvidenceRefsJson),
-      appliedClaimRefs: JSON.parse(row.appliedClaimRefsJson),
-      appliedAssessmentRefs: JSON.parse(row.appliedAssessmentRefsJson),
-      appliedEvidenceRefs: JSON.parse(row.appliedEvidenceRefsJson),
-      sourceRevisionId: row.sourceRevisionId,
-      sourceCaseVersion: row.sourceCaseVersion,
-      sourceMaterialRevision: row.sourceMaterialRevision,
-      resultingRevisionId: row.resultingRevisionId,
-      resultingCaseVersion: row.resultingCaseVersion,
-      resultingMaterialRevision: row.resultingMaterialRevision,
-      actorKind: row.actorKind,
-      actorIdentifier: row.actorIdentifier,
-      rationale: row.rationale,
-      createdAt: row.createdAt,
-      demo: row.demo
-    });
-  } catch {
-    throw new InvestigationChallengeConflictApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Stored Challenge conflict application provenance is malformed.'
-    );
-  }
-}
-
 function immutableSemanticsMatch(
   row: typeof schema.investigationChallengeConflictApplications.$inferSelect,
   input: ApplyInvestigationChallengeConflictInput
@@ -234,187 +107,6 @@ function immutableSemanticsMatch(
     row.challengeRef === input.challengeRef &&
     row.rationale === input.rationale &&
     row.demo === input.demo;
-}
-
-function internalCommandPayload(
-  application: Pick<
-    InvestigationChallengeConflictApplication,
-    | 'applicationRef'
-    | 'caseId'
-    | 'questionRef'
-    | 'challengeRef'
-    | 'basisDigest'
-    | 'sourceCaseVersion'
-    | 'sourceMaterialRevision'
-  >
-): string {
-  return JSON.stringify({
-    operation: 'APPLY_INVESTIGATION_CHALLENGE_CONFLICT',
-    applicationRef: application.applicationRef,
-    caseId: application.caseId,
-    questionRef: application.questionRef,
-    challengeRef: application.challengeRef,
-    applicationBasisDigest: application.basisDigest,
-    sourceCaseVersion: application.sourceCaseVersion,
-    sourceMaterialRevision: application.sourceMaterialRevision
-  });
-}
-
-function readRevision(
-  database: RecallDatabase,
-  application: InvestigationChallengeConflictApplication,
-  kind: 'source' | 'result'
-): StoredCaseRevision {
-  const revisionId = kind === 'source'
-    ? application.sourceRevisionId
-    : application.resultingRevisionId;
-  let revision: StoredCaseRevision | null;
-  try {
-    revision = readCaseRevisionById(database, application.caseId, revisionId);
-  } catch {
-    revision = null;
-  }
-  if (!revision) {
-    throw new InvestigationChallengeConflictApplicationError(
-      kind === 'source' ? 'SOURCE_REVISION_UNRESOLVED' : 'RESULT_REVISION_UNRESOLVED',
-      `The exact ${kind} authoritative case revision cannot be resolved.`
-    );
-  }
-  const expectedCaseVersion = kind === 'source'
-    ? application.sourceCaseVersion
-    : application.resultingCaseVersion;
-  const expectedMaterialRevision = kind === 'source'
-    ? application.sourceMaterialRevision
-    : application.resultingMaterialRevision;
-  if (
-    revision.caseVersion !== expectedCaseVersion ||
-    revision.materialRevision !== expectedMaterialRevision
-  ) {
-    throw new InvestigationChallengeConflictApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      `Stored Challenge application ${kind} revision lineage is inconsistent.`
-    );
-  }
-  return revision;
-}
-
-function validateApplicationProvenance(
-  database: RecallDatabase,
-  application: InvestigationChallengeConflictApplication
-): CaseSnapshot {
-  let question: ReturnType<typeof getInvestigationQuestion>;
-  let challenge: ReturnType<typeof getInvestigationChallenge>;
-  try {
-    question = getInvestigationQuestion(
-      database,
-      application.caseId,
-      application.questionRef
-    );
-    challenge = getInvestigationChallenge(
-      database,
-      application.caseId,
-      application.challengeRef
-    );
-  } catch {
-    throw new InvestigationChallengeConflictApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Stored Challenge application Question or Challenge provenance is malformed.'
-    );
-  }
-  if (
-    !question ||
-    !challenge ||
-    challenge.questionRef !== application.questionRef ||
-    challenge.challengedMaterialRevision !== application.sourceMaterialRevision ||
-    question.questionType !== 'AFFECTED_BATCH_LOT' ||
-    !question.demo ||
-    !challenge.demo
-  ) {
-    throw new InvestigationChallengeConflictApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Stored Challenge application Question or Challenge ownership is inconsistent.'
-    );
-  }
-  let authoritativeBaseline;
-  try {
-    authoritativeBaseline = resolveAuthoritativeChallengeBaselineInTransaction(database, {
-      caseId: application.caseId,
-      questionRef: application.questionRef,
-      challengeRef: application.challengeRef,
-      challengedRevisionId: challenge.challengedRevisionId,
-      challengedMaterialRevision: challenge.challengedMaterialRevision,
-      openedCaseVersion: challenge.openedCaseVersion,
-      currentCaseVersion: application.sourceCaseVersion
-    });
-  } catch (error) {
-    if (error instanceof AuthoritativeChallengeBaselineError) {
-      throw new InvestigationChallengeConflictApplicationError(
-        'APPLICATION_PROVENANCE_INVALID',
-        error.message
-      );
-    }
-    throw error;
-  }
-  const expectedV1 = authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED' &&
-    application.basisFormatVersion === challengeConflictApplicationBasisFormatVersion &&
-    application.policyVersion === challengeConflictApplicationPolicy.version;
-  const expectedV2 = authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH' &&
-    application.basisFormatVersion === inheritedChallengeConflictApplicationBasisFormatVersion &&
-    application.policyVersion === inheritedChallengeConflictApplicationPolicy.version;
-  if (!expectedV1 && !expectedV2) {
-    throw new InvestigationChallengeConflictApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Stored conflict basis version does not match its authoritative Challenge baseline.'
-    );
-  }
-  const positiveApplication = database.select({
-    applicationRef: schema.investigationChallengeBatchApplications.applicationRef
-  }).from(schema.investigationChallengeBatchApplications).where(eq(
-    schema.investigationChallengeBatchApplications.challengeRef,
-    application.challengeRef
-  )).get();
-  if (positiveApplication) {
-    throw new InvestigationChallengeConflictApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Positive and conflict applications coexist for one Challenge.'
-    );
-  }
-  const source = readRevision(database, application, 'source');
-  const result = readRevision(database, application, 'result');
-  const command = database.select().from(schema.caseCommands).where(and(
-    eq(schema.caseCommands.caseId, application.caseId),
-    eq(schema.caseCommands.commandId, application.applicationRef)
-  )).get();
-  if (
-    !command ||
-    command.appliedCaseVersion !== application.resultingCaseVersion ||
-    command.payloadJson !== internalCommandPayload(application) ||
-    source.snapshot.productId !== question.subjectRef ||
-    source.snapshot.investigation?.scope.kind !== 'BATCH_LOT' ||
-    source.snapshot.investigation.scope.knowledgeStatus !== 'KNOWN' ||
-    result.snapshot.productId !== question.subjectRef ||
-    result.snapshot.investigation?.scope.kind !== 'UNRESOLVED' ||
-    result.snapshot.investigation.scope.knowledgeStatus !== 'CONFLICTED' ||
-    !result.snapshot.investigation.scope.decisionRefs.includes(application.applicationRef) ||
-    !sameReferences(
-      result.snapshot.investigation.scope.evidenceRefs,
-      application.appliedEvidenceRefs
-    ) ||
-    !result.snapshot.investigation.decisionRefs.includes(application.applicationRef) ||
-    !result.snapshot.investigation.conflicts.some((issue) =>
-      issue.id === application.questionRef &&
-      issue.code === 'BATCH_CONFLICT' &&
-      issue.subjectRefs.length === 1 &&
-      issue.subjectRefs[0] === question.subjectRef &&
-      sameReferences(issue.evidenceRefs, application.appliedEvidenceRefs)
-    )
-  ) {
-    throw new InvestigationChallengeConflictApplicationError(
-      'APPLICATION_PROVENANCE_INVALID',
-      'Stored Challenge application execution or authoritative result is inconsistent.'
-    );
-  }
-  return result.snapshot;
 }
 
 function deriveConflictOutcome(
@@ -496,22 +188,6 @@ function deriveConflictOutcome(
   });
 }
 
-export function getInvestigationChallengeConflictApplication(
-  database: RecallDatabase,
-  caseId: string,
-  applicationRef: string
-): InvestigationChallengeConflictApplication | null {
-  const row = database.select().from(schema.investigationChallengeConflictApplications)
-    .where(and(
-      eq(schema.investigationChallengeConflictApplications.caseId, caseId),
-      eq(schema.investigationChallengeConflictApplications.applicationRef, applicationRef)
-    )).get();
-  if (!row) return null;
-  const application = hydrateApplication(row);
-  validateApplicationProvenance(database, application);
-  return application;
-}
-
 export function applyInvestigationChallengeConflict(
   database: RecallDatabase,
   input: unknown,
@@ -540,11 +216,21 @@ export function applyInvestigationChallengeConflict(
           'This application reference already identifies different immutable semantics.'
         );
       }
-      const application = hydrateApplication(existing);
+      const replay = readInvestigationChallengeConflictApplicationResult(
+        transaction,
+        parsed.caseId,
+        parsed.applicationRef
+      );
+      if (!replay) {
+        throw new InvestigationChallengeConflictApplicationError(
+          'APPLICATION_PROVENANCE_INVALID',
+          'The stored Challenge conflict application could not be validated.'
+        );
+      }
       return {
-        application,
+        application: replay.application,
         replayed: true,
-        snapshot: validateApplicationProvenance(transaction, application)
+        snapshot: replay.snapshot
       };
     }
 
@@ -679,7 +365,7 @@ export function applyInvestigationChallengeConflict(
       sourceCaseVersion: current.caseVersion,
       sourceMaterialRevision: current.materialRevision
     };
-    const commandPayloadJson = internalCommandPayload(applicationCommand);
+    const commandPayloadJson = challengeConflictApplicationCommandPayload(applicationCommand);
     const transition = applyAuthoritativeInvestigationOutcomeInTransaction(transaction, {
       current,
       outcome,

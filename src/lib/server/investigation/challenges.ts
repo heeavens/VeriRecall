@@ -8,6 +8,8 @@ import type { RecallDatabase } from '../db/repositories';
 import * as schema from '../db/schema';
 import {
   getCaseHistory,
+  readCaseRevisionByCaseVersion,
+  readCaseRevisionById,
   readCaseSnapshot,
   type LifecycleContext
 } from '../workflow/case-lifecycle';
@@ -16,6 +18,12 @@ import {
   resolveAuthoritativeChallengeBaselineInTransaction,
   type AuthoritativeChallengeBaseline
 } from './authoritative-challenge-baseline';
+import {
+  AuthoritativeConflictContinuationError,
+  resolveAuthoritativeConflictContinuationAnchorInTransaction,
+  resolveAuthoritativeConflictContinuationInTransaction,
+  type AuthoritativeConflictContinuation
+} from './authoritative-conflict-continuation';
 import { demoHumanAssessorIdentifier } from './demo-context';
 import {
   listInvestigationEvidence,
@@ -47,6 +55,16 @@ const openInvestigationChallengeInputSchema = z.strictObject({
   triggerEvidenceRefs: z.array(opaqueReferenceSchema).min(1),
   rationale: rationaleSchema,
   demo: z.boolean()
+});
+
+const openInvestigationConflictContinuationInputSchema = z.strictObject({
+  challengeRef: z.string().uuid(),
+  caseId: z.string().uuid(),
+  questionRef: opaqueReferenceSchema,
+  expectedCaseVersion: z.number().int().positive(),
+  expectedMaterialRevision: z.number().int().positive(),
+  rationale: z.string().trim().min(1).max(10_000),
+  demo: z.literal(true)
 });
 
 const investigationChallengeSchema = z.strictObject({
@@ -92,6 +110,9 @@ const currentChallengeReadInputSchema = z.strictObject({
 export type OpenInvestigationChallengeInput = z.infer<
   typeof openInvestigationChallengeInputSchema
 >;
+export type OpenInvestigationConflictContinuationInput = z.infer<
+  typeof openInvestigationConflictContinuationInputSchema
+>;
 export type InvestigationChallenge = z.infer<typeof investigationChallengeSchema>;
 
 export type InvestigationChallengeErrorCode =
@@ -112,7 +133,10 @@ export type InvestigationChallengeErrorCode =
   | 'LATE_EVIDENCE_REQUIRED'
   | 'TRIGGER_EVIDENCE_MISMATCH'
   | 'CHALLENGE_ALREADY_EXISTS'
-  | 'CHALLENGE_CONFLICT';
+  | 'CHALLENGE_CONFLICT'
+  | 'CONFLICT_CONTINUATION_UNPROVEN'
+  | 'CONFLICT_CONTINUATION_AMBIGUOUS'
+  | 'CONFLICT_CONTINUATION_PROVENANCE_INVALID';
 
 export class InvestigationChallengeError extends Error {
   constructor(
@@ -156,6 +180,18 @@ export interface CurrentInvestigationChallengeForWrite {
   authoritativeBaseline: AuthoritativeChallengeBaseline;
 }
 
+export interface CurrentInvestigationConflictContinuationForWrite {
+  snapshot: CaseSnapshot;
+  question: InvestigationQuestion;
+  challenge: InvestigationChallenge;
+  challengedRevision: AnswerRevision;
+  authoritativeBaseline: AuthoritativeConflictContinuation;
+}
+
+export type CurrentInvestigationContextForWrite =
+  | CurrentInvestigationChallengeForWrite
+  | CurrentInvestigationConflictContinuationForWrite;
+
 export type CurrentInvestigationChallengeForRead = CurrentInvestigationChallengeForWrite;
 
 function compareText(left: string, right: string): number {
@@ -182,6 +218,17 @@ function parseInput(input: OpenInvestigationChallengeInput) {
     ...parsed.data,
     triggerEvidenceRefs: canonicalReferences(parsed.data.triggerEvidenceRefs)
   };
+}
+
+function parseConflictContinuationInput(input: OpenInvestigationConflictContinuationInput) {
+  const parsed = openInvestigationConflictContinuationInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new InvestigationChallengeError(
+      'INVALID_INPUT',
+      'Invalid investigation conflict continuation request.'
+    );
+  }
+  return parsed.data;
 }
 
 function hydrateChallenge(
@@ -681,6 +728,322 @@ export function resolveCurrentInvestigationChallengeForWrite(
     challengedRevision: derived.challengedRevision,
     authoritativeBaseline: derived.authoritativeBaseline
   };
+}
+
+function mapConflictContinuationError(
+  error: AuthoritativeConflictContinuationError
+): InvestigationChallengeError {
+  return new InvestigationChallengeError(error.code, error.message);
+}
+
+/**
+ * Transaction-compatible authorization for the distinct investigation partition that follows
+ * an authoritative HUMAN-applied Challenge conflict.
+ */
+export function resolveCurrentInvestigationConflictContinuationForWrite(
+  database: RecallDatabase,
+  input: {
+    caseId: string;
+    questionRef: string;
+    challengeRef: string;
+    expectedCaseVersion: number;
+    expectedMaterialRevision: number;
+    demo: true;
+  }
+): CurrentInvestigationConflictContinuationForWrite {
+  const parsed = currentChallengeWriteInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new InvestigationChallengeError(
+      'INVALID_INPUT',
+      'Invalid current conflict continuation authorization input.'
+    );
+  }
+  const challenge = getInvestigationChallenge(
+    database,
+    parsed.data.caseId,
+    parsed.data.challengeRef
+  );
+  if (!challenge) {
+    throw new InvestigationChallengeError(
+      'CHALLENGE_NOT_FOUND',
+      'The selected conflict continuation Challenge does not exist.'
+    );
+  }
+  const question = getInvestigationQuestion(database, parsed.data.caseId, parsed.data.questionRef);
+  const snapshot = readCaseSnapshot(database, parsed.data.caseId);
+  if (!snapshot) {
+    throw new InvestigationChallengeError(
+      'VERSIONED_CASE_REQUIRED',
+      'The owning case does not have a versioned investigation lifecycle.'
+    );
+  }
+  if (snapshot.caseVersion !== parsed.data.expectedCaseVersion) {
+    throw new InvestigationChallengeError(
+      'STALE_CASE_VERSION',
+      'Refresh the case before writing under its conflict continuation.'
+    );
+  }
+  if (snapshot.materialRevision !== parsed.data.expectedMaterialRevision) {
+    throw new InvestigationChallengeError(
+      'STALE_MATERIAL_REVISION',
+      'Refresh the authoritative conflict before writing under its continuation.'
+    );
+  }
+  if (
+    !question || challenge.questionRef !== parsed.data.questionRef ||
+    question.subjectRef !== snapshot.productId || question.caseId !== parsed.data.caseId
+  ) {
+    throw new InvestigationChallengeError(
+      'QUESTION_OWNERSHIP_MISMATCH',
+      'The continuation Challenge does not match the permanent Question or product.'
+    );
+  }
+  if (!parsed.data.demo || !challenge.demo || !question.demo || !snapshot.demo) {
+    throw new InvestigationChallengeError(
+      'FORBIDDEN',
+      'Conflict-continuation writes require explicit matching demo provenance.'
+    );
+  }
+  let authoritativeBaseline: AuthoritativeConflictContinuation;
+  try {
+    authoritativeBaseline = resolveAuthoritativeConflictContinuationInTransaction(database, {
+      caseId: parsed.data.caseId,
+      questionRef: parsed.data.questionRef,
+      continuationChallengeRef: parsed.data.challengeRef,
+      currentCaseVersion: snapshot.caseVersion
+    });
+  } catch (error) {
+    if (error instanceof AuthoritativeConflictContinuationError) {
+      throw mapConflictContinuationError(error);
+    }
+    throw error;
+  }
+  const resultRevision = readCaseRevisionById(
+    database,
+    parsed.data.caseId,
+    authoritativeBaseline.resultingRevisionId
+  );
+  const currentRevision = readCaseRevisionByCaseVersion(
+    database,
+    parsed.data.caseId,
+    snapshot.caseVersion
+  );
+  if (
+    !resultRevision || !currentRevision ||
+    JSON.stringify(currentRevision.snapshot) !== JSON.stringify(snapshot)
+  ) {
+    throw new InvestigationChallengeError(
+      'CONFLICT_CONTINUATION_PROVENANCE_INVALID',
+      'The continuation conflict result or current revision is missing or divergent.'
+    );
+  }
+  return {
+    snapshot,
+    question,
+    challenge,
+    challengedRevision: {
+      id: resultRevision.revisionId,
+      caseVersion: resultRevision.caseVersion,
+      materialRevision: resultRevision.materialRevision!,
+      createdAt: resultRevision.createdAt
+    },
+    authoritativeBaseline
+  };
+}
+
+/** Selects the exact current investigation partition without falling back after conflict evidence. */
+export function resolveCurrentInvestigationContextForWrite(
+  database: RecallDatabase,
+  input: {
+    caseId: string;
+    questionRef: string;
+    challengeRef: string;
+    expectedCaseVersion: number;
+    expectedMaterialRevision: number;
+    demo: true;
+  }
+): CurrentInvestigationContextForWrite {
+  const challenge = getInvestigationChallenge(database, input.caseId, input.challengeRef);
+  if (challenge) {
+    const snapshot = readCaseSnapshot(database, input.caseId);
+    const isCurrentConflictPartition = snapshot?.materialRevision ===
+        challenge.challengedMaterialRevision &&
+      snapshot.investigation?.knowledgeStatus === 'CONFLICTED' &&
+      snapshot.investigation.scope.kind === 'UNRESOLVED' &&
+      snapshot.investigation.scope.knowledgeStatus === 'CONFLICTED';
+    const attemptedConflictAnchors = database.select({
+      applicationRef: schema.investigationChallengeConflictApplications.applicationRef
+    }).from(schema.investigationChallengeConflictApplications).where(and(
+      eq(schema.investigationChallengeConflictApplications.caseId, input.caseId),
+      eq(schema.investigationChallengeConflictApplications.questionRef, input.questionRef),
+      eq(
+        schema.investigationChallengeConflictApplications.resultingMaterialRevision,
+        challenge.challengedMaterialRevision
+      )
+    )).all();
+    if (isCurrentConflictPartition || attemptedConflictAnchors.length > 0) {
+      return resolveCurrentInvestigationConflictContinuationForWrite(database, input);
+    }
+  }
+  return resolveCurrentInvestigationChallengeForWrite(database, input);
+}
+
+export function openInvestigationConflictContinuation(
+  database: RecallDatabase,
+  input: OpenInvestigationConflictContinuationInput,
+  context: LifecycleContext,
+  now = new Date()
+): { challenge: InvestigationChallenge; replayed: boolean } {
+  if (context.mode !== 'demo') {
+    throw new InvestigationChallengeError(
+      'FORBIDDEN',
+      'Opening an investigation conflict continuation requires explicit local demo mode.'
+    );
+  }
+  const parsed = parseConflictContinuationInput(input);
+  return database.transaction((transaction) => {
+    const existing = transaction.select().from(schema.investigationChallenges)
+      .where(eq(schema.investigationChallenges.challengeRef, parsed.challengeRef)).get();
+    if (existing) {
+      const challenge = hydrateChallenge(existing);
+      if (
+        challenge.caseId !== parsed.caseId || challenge.questionRef !== parsed.questionRef ||
+        challenge.rationale !== parsed.rationale || challenge.demo !== parsed.demo
+      ) {
+        throw new InvestigationChallengeError(
+          'CHALLENGE_CONFLICT',
+          'This Challenge reference already identifies different immutable semantics.'
+        );
+      }
+      try {
+        resolveAuthoritativeConflictContinuationInTransaction(transaction, {
+          caseId: challenge.caseId,
+          questionRef: challenge.questionRef,
+          continuationChallengeRef: challenge.challengeRef,
+          currentCaseVersion: challenge.openedCaseVersion
+        });
+      } catch (error) {
+        if (error instanceof AuthoritativeConflictContinuationError) {
+          throw mapConflictContinuationError(error);
+        }
+        throw error;
+      }
+      return { challenge, replayed: true };
+    }
+
+    const current = readCaseSnapshot(transaction, parsed.caseId);
+    const question = getInvestigationQuestion(transaction, parsed.caseId, parsed.questionRef);
+    if (!current) {
+      throw new InvestigationChallengeError(
+        'VERSIONED_CASE_REQUIRED',
+        'The owning case does not have a versioned investigation lifecycle.'
+      );
+    }
+    if (current.caseVersion !== parsed.expectedCaseVersion) {
+      throw new InvestigationChallengeError(
+        'STALE_CASE_VERSION',
+        'Refresh the case before opening its conflict continuation.'
+      );
+    }
+    if (
+      current.materialRevision === null ||
+      current.materialRevision !== parsed.expectedMaterialRevision
+    ) {
+      throw new InvestigationChallengeError(
+        'STALE_MATERIAL_REVISION',
+        'Refresh the authoritative conflict before opening its continuation.'
+      );
+    }
+    if (
+      !question || question.questionType !== 'AFFECTED_BATCH_LOT' ||
+      question.subjectRef !== current.productId || !question.demo || !current.demo
+    ) {
+      throw new InvestigationChallengeError(
+        question ? 'QUESTION_OWNERSHIP_MISMATCH' : 'QUESTION_NOT_FOUND',
+        'A matching permanent demo Question is required for conflict continuation.'
+      );
+    }
+
+    let baseline: AuthoritativeConflictContinuation;
+    try {
+      baseline = resolveAuthoritativeConflictContinuationAnchorInTransaction(transaction, {
+        caseId: parsed.caseId,
+        questionRef: parsed.questionRef,
+        continuationChallengeRef: parsed.challengeRef,
+        currentCaseVersion: current.caseVersion,
+        currentMaterialRevision: current.materialRevision!
+      });
+    } catch (error) {
+      if (error instanceof AuthoritativeConflictContinuationError) {
+        throw mapConflictContinuationError(error);
+      }
+      throw error;
+    }
+    const sameCycle = transaction.select({ challengeRef: schema.investigationChallenges.challengeRef })
+      .from(schema.investigationChallenges).where(and(
+        eq(schema.investigationChallenges.caseId, parsed.caseId),
+        eq(schema.investigationChallenges.questionRef, parsed.questionRef),
+        eq(
+          schema.investigationChallenges.challengedMaterialRevision,
+          baseline.resultingMaterialRevision
+        )
+      )).get();
+    if (sameCycle) {
+      throw new InvestigationChallengeError(
+        'CHALLENGE_ALREADY_EXISTS',
+        'This authoritative conflict already has a continuation Challenge.'
+      );
+    }
+    const caseRecord = transaction.select({ alertId: schema.cases.alertId }).from(schema.cases)
+      .where(eq(schema.cases.id, parsed.caseId)).get();
+    if (!caseRecord) {
+      throw new InvestigationChallengeError(
+        'VERSIONED_CASE_REQUIRED',
+        'The versioned lifecycle has no owning case record.'
+      );
+    }
+    const triggerEvidenceRefs = canonicalReferences(baseline.conflictEvidenceRefs);
+    const createdAt = now.toISOString();
+    transaction.insert(schema.investigationChallenges).values({
+      challengeRef: parsed.challengeRef,
+      caseId: parsed.caseId,
+      questionRef: parsed.questionRef,
+      challengedRevisionId: baseline.resultingRevisionId,
+      challengedMaterialRevision: baseline.resultingMaterialRevision,
+      openedCaseVersion: current.caseVersion,
+      triggerEvidenceRefsJson: JSON.stringify(triggerEvidenceRefs),
+      openedByKind: 'HUMAN',
+      openedByIdentifier: demoHumanAssessorIdentifier,
+      rationale: parsed.rationale,
+      createdAt,
+      demo: true
+    }).run();
+    transaction.insert(schema.auditEvents).values({
+      id: randomUUID(),
+      caseId: parsed.caseId,
+      alertId: caseRecord.alertId,
+      eventType: 'investigation_conflict_continuation_opened',
+      actorType: 'human',
+      actorName: demoHumanAssessorIdentifier,
+      summary: 'Opened a distinct investigation continuation for an authoritative applied conflict.',
+      metadataJson: JSON.stringify({
+        challengeRef: parsed.challengeRef,
+        questionRef: parsed.questionRef,
+        conflictApplicationRef: baseline.conflictApplicationRef,
+        sourceChallengeRef: baseline.sourceChallengeRef,
+        challengedRevisionId: baseline.resultingRevisionId,
+        challengedMaterialRevision: baseline.resultingMaterialRevision,
+        openedCaseVersion: current.caseVersion,
+        triggerEvidenceRefs,
+        demo: true
+      }),
+      createdAt
+    }).run();
+    const inserted = transaction.select().from(schema.investigationChallenges)
+      .where(eq(schema.investigationChallenges.challengeRef, parsed.challengeRef)).get();
+    if (!inserted) throw new Error('Conflict continuation Challenge insert did not persist.');
+    return { challenge: hydrateChallenge(inserted), replayed: false };
+  }, { behavior: 'immediate' });
 }
 
 export function openInvestigationChallenge(

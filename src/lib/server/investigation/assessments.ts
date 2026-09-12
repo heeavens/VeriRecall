@@ -13,8 +13,8 @@ import {
 } from './challenge-artifacts';
 import {
   InvestigationChallengeError,
-  resolveCurrentInvestigationChallengeForWrite,
-  type CurrentInvestigationChallengeForWrite
+  resolveCurrentInvestigationContextForWrite,
+  type CurrentInvestigationContextForWrite
 } from './challenges';
 import { demoHumanAssessorIdentifier } from './demo-context';
 import { ensureCurrentInvestigationQuestionRegistered } from './questions';
@@ -243,9 +243,9 @@ function challengeRefOf(input: PreparedAssessmentInput): string | null {
 function resolveChallengeAuthorization(
   database: RecallDatabase,
   input: PreparedAssessmentInput & { challengeRef: string; expectedMaterialRevision: number }
-): CurrentInvestigationChallengeForWrite {
+): CurrentInvestigationContextForWrite {
   try {
-    return resolveCurrentInvestigationChallengeForWrite(database, {
+    return resolveCurrentInvestigationContextForWrite(database, {
       caseId: input.caseId,
       questionRef: input.questionRef,
       challengeRef: input.challengeRef,
@@ -413,7 +413,7 @@ function validateClaimBasis(
   input: PreparedAssessmentInput,
   subjectRef: string,
   partition: string | null,
-  challengeAuthorization: CurrentInvestigationChallengeForWrite | null
+  challengeAuthorization: CurrentInvestigationContextForWrite | null
 ): ClaimRow[] {
   const claimRefs = [
     ...(input.targetClaimRef === null ? [] : [input.targetClaimRef]),
@@ -424,7 +424,9 @@ function validateClaimBasis(
     ? new Set<string>()
     : new Set(challengeAuthorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
       ? challengeAuthorization.authoritativeBaseline.baselineClaimRefs
-      : challengeAuthorization.authoritativeBaseline.resultBaselineClaimRefs);
+      : challengeAuthorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+        ? challengeAuthorization.authoritativeBaseline.resultBaselineClaimRefs
+        : challengeAuthorization.authoritativeBaseline.conflictClaimRefs);
   if (claims.some((claim) => {
     const claimPartition = getInvestigationClaimChallengeRef(database, claim.claimRef);
     return partition === null
@@ -527,7 +529,7 @@ function validateEvidenceOwnership(
 function validateChallengeEvidenceBasis(
   database: RecallDatabase,
   evidence: readonly (typeof schema.investigationEvidence.$inferSelect)[],
-  authorization: CurrentInvestigationChallengeForWrite
+  authorization: CurrentInvestigationContextForWrite
 ): void {
   const relevance = evidence.map((item) =>
     classifyEvidenceForInvestigationChallenge(database, item, authorization)
@@ -538,7 +540,9 @@ function validateChallengeEvidenceBasis(
       'Challenge assessments cannot use Evidence exclusively associated with another Challenge.'
     );
   }
-  if (!relevance.includes('CURRENT_CHALLENGE')) {
+  const requiredCurrentRelevance = authorization.authoritativeBaseline.kind ===
+    'APPLIED_CHALLENGE_CONFLICT' ? 'CURRENT_CONTINUATION' : 'CURRENT_CHALLENGE';
+  if (!relevance.includes(requiredCurrentRelevance)) {
     throw new InvestigationAssessmentError(
       'CHALLENGE_EVIDENCE_REQUIRED',
       'A Challenge assessment requires at least one Evidence item relevant to that Challenge.'
@@ -663,6 +667,8 @@ export function recordInvestigationAssessment(
     const challengeAuthorization = 'challengeRef' in prepared
       ? resolveChallengeAuthorization(transaction, prepared)
       : null;
+    const authorizationContext = challengeAuthorization?.authoritativeBaseline.kind ===
+      'APPLIED_CHALLENGE_CONFLICT' ? 'APPLIED_CHALLENGE_CONFLICT' : 'OPEN_CHALLENGE';
     const current = challengeAuthorization?.snapshot ??
       readCaseSnapshot(transaction, prepared.caseId);
     if (!current) {
@@ -768,7 +774,9 @@ export function recordInvestigationAssessment(
       actorName: prepared.assessorIdentifier,
       summary: challengeRef === null
         ? 'Recorded non-authoritative analysis of investigation evidence and claims.'
-        : 'Recorded non-authoritative analysis under a current investigation Challenge.',
+        : challengeAuthorization?.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_CONFLICT'
+          ? 'Recorded non-authoritative analysis under an applied-conflict continuation.'
+          : 'Recorded non-authoritative analysis under a current investigation Challenge.',
       metadataJson: JSON.stringify({
         assessmentRef: prepared.assessmentRef,
         caseId: current.caseId,
@@ -785,7 +793,7 @@ export function recordInvestigationAssessment(
         supersedesAssessmentRef: prepared.supersedesAssessmentRef,
         ...(challengeRef === null
           ? {}
-          : { authorizationContext: 'OPEN_CHALLENGE', challengeRef }),
+          : { authorizationContext, challengeRef }),
         demo: prepared.demo
       }),
       createdAt

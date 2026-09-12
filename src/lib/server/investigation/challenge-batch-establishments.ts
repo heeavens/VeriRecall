@@ -13,26 +13,32 @@ import {
   resolveAuthoritativeChallengeBaselineInTransaction
 } from './authoritative-challenge-baseline';
 import {
+  AuthoritativeConflictContinuationError,
+  resolveAuthoritativeConflictContinuationInTransaction
+} from './authoritative-conflict-continuation';
+import {
   getInvestigationAssessmentChallengeRef,
   getInvestigationClaimChallengeRef,
   getInvestigationEstablishmentChallengeRef
 } from './challenge-artifacts';
 import {
   InvestigationChallengeError,
-  resolveCurrentInvestigationChallengeForWrite
+  resolveCurrentInvestigationContextForWrite
 } from './challenges';
 import {
   challengeBatchEstablishmentPolicyForBaseline,
   classifyChallengeBatchEstablishmentAssessments,
   demoChallengeBatchEstablishmentPolicy,
+  demoConflictContinuationBatchEstablishmentPolicy,
   demoInheritedChallengeBatchEstablishmentPolicy,
   isSupportedChallengeBatchEstablishmentPolicy,
 } from './challenge-batch-establishment-policy';
 import type { InvestigationClaim } from './claims';
 import {
   EffectiveAnalysisError,
+  readConflictContinuationEffectiveInvestigationAnalysisInTransaction,
   readChallengeEffectiveInvestigationAnalysisInTransaction,
-  type ChallengeEffectiveInvestigationAnalysis
+  type InvestigationPartitionEffectiveAnalysis
 } from './effective-analysis';
 import {
   evaluateDemoBatchSourceDiversity,
@@ -48,6 +54,7 @@ import {
 export {
   classifyChallengeBatchEstablishmentAssessments,
   demoChallengeBatchEstablishmentPolicy,
+  demoConflictContinuationBatchEstablishmentPolicy,
   demoInheritedChallengeBatchEstablishmentPolicy
 } from './challenge-batch-establishment-policy';
 export type { ChallengeBatchAssessmentClassification } from './challenge-batch-establishment-policy';
@@ -58,6 +65,7 @@ export type DemoChallengeBatchEstablishmentBlockerCode =
   | 'AUTHORITATIVE_BATCH_NOT_KNOWN'
   | 'AUTHORITATIVE_BATCH_AMBIGUOUS'
   | 'AUTHORITATIVE_BATCH_CLAIM_MISSING'
+  | 'AUTHORITATIVE_CONFLICT_NOT_CURRENT'
   | 'NOT_DEMO'
   | 'TARGET_NOT_ACTIVE'
   | 'TARGET_NOT_SELECTED_CHALLENGE'
@@ -84,6 +92,7 @@ const blockerOrder: DemoChallengeBatchEstablishmentBlockerCode[] = [
   'AUTHORITATIVE_BATCH_NOT_KNOWN',
   'AUTHORITATIVE_BATCH_AMBIGUOUS',
   'AUTHORITATIVE_BATCH_CLAIM_MISSING',
+  'AUTHORITATIVE_CONFLICT_NOT_CURRENT',
   'NOT_DEMO',
   'TARGET_NOT_ACTIVE',
   'TARGET_NOT_SELECTED_CHALLENGE',
@@ -126,7 +135,7 @@ export interface DemoChallengeBatchEstablishmentPolicyEvaluation {
 
 export interface EvaluateDemoChallengeBatchEstablishmentPolicyInput {
   snapshot: CaseSnapshot;
-  projection: ChallengeEffectiveInvestigationAnalysis;
+  projection: InvestigationPartitionEffectiveAnalysis;
   evidence: readonly InvestigationEvidence[];
   targetClaimRef: string;
   claimChallengeRef: string | null;
@@ -274,8 +283,23 @@ export function evaluateDemoChallengeBatchEstablishmentPolicy(
     blockers.add('IDENTITY_NOT_KNOWN_MATCH');
   }
   const scope = snapshot.investigation?.scope;
+  const conflictBaseline = projection.authoritativeBaseline.kind ===
+    'APPLIED_CHALLENGE_CONFLICT' ? projection.authoritativeBaseline : null;
+  const resolvesAppliedConflict = conflictBaseline !== null;
   let authoritativeLot: string | null = null;
-  if (scope?.kind !== 'BATCH_LOT' || scope.knowledgeStatus !== 'KNOWN') {
+  if (resolvesAppliedConflict) {
+    const exactConflict = snapshot.investigation?.knowledgeStatus === 'CONFLICTED' &&
+      scope?.kind === 'UNRESOLVED' && scope.knowledgeStatus === 'CONFLICTED' &&
+      snapshot.investigation.gaps.length === 0 &&
+      snapshot.investigation.conflicts.length === 1 &&
+      snapshot.investigation.conflicts[0].id === analysis.questionRef &&
+      snapshot.investigation.conflicts[0].code === 'BATCH_CONFLICT' &&
+      sameRefs(
+        snapshot.investigation.conflicts[0].evidenceRefs,
+        conflictBaseline!.conflictEvidenceRefs
+      );
+    if (!exactConflict) blockers.add('AUTHORITATIVE_CONFLICT_NOT_CURRENT');
+  } else if (scope?.kind !== 'BATCH_LOT' || scope.knowledgeStatus !== 'KNOWN') {
     blockers.add('AUTHORITATIVE_BATCH_NOT_KNOWN');
   } else {
     const authoritativeLots = canonicalRefs(scope.lots.map((lot) => normalizeBatch(lot)));
@@ -291,7 +315,8 @@ export function evaluateDemoChallengeBatchEstablishmentPolicy(
     !analysis.activeClaims.some((claim) =>
       (projection.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
         ? input.claimChallengeRefs.get(claim.claimRef) === null
-        : projection.authoritativeBaseline.resultBaselineClaimRefs.includes(claim.claimRef)) &&
+        : projection.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH' &&
+          projection.authoritativeBaseline.resultBaselineClaimRefs.includes(claim.claimRef)) &&
       normalizeBatch(claim.value.lot) === authoritativeLot
     )
   ) {
@@ -456,15 +481,33 @@ function loadPolicyInput(
   challengeRef: string,
   claimRef: string
 ): EvaluateDemoChallengeBatchEstablishmentPolicyInput {
-  let projection: ChallengeEffectiveInvestigationAnalysis;
+  let projection: InvestigationPartitionEffectiveAnalysis;
   try {
-    projection = readChallengeEffectiveInvestigationAnalysisInTransaction(
-      database,
+    const authorization = resolveCurrentInvestigationContextForWrite(database, {
       caseId,
       questionRef,
-      challengeRef
-    );
+      challengeRef,
+      expectedCaseVersion: snapshot.caseVersion,
+      expectedMaterialRevision: snapshot.materialRevision!,
+      demo: true
+    });
+    projection = authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_CONFLICT'
+      ? readConflictContinuationEffectiveInvestigationAnalysisInTransaction(
+          database,
+          caseId,
+          questionRef,
+          challengeRef
+        )
+      : readChallengeEffectiveInvestigationAnalysisInTransaction(
+          database,
+          caseId,
+          questionRef,
+          challengeRef
+        );
   } catch (error) {
+    if (error instanceof InvestigationChallengeError) {
+      mapChallengeAuthorizationError(error);
+    }
     if (error instanceof EffectiveAnalysisError) {
       if (error.code === 'CHALLENGE_NOT_FOUND') {
         throw new InvestigationChallengeBatchEstablishmentError(
@@ -560,6 +603,26 @@ export function getInvestigationChallengeBatchEstablishment(
       );
     }
   }
+  if (establishment.policyVersion === demoConflictContinuationBatchEstablishmentPolicy.policyVersion) {
+    try {
+      const baseline = resolveAuthoritativeConflictContinuationInTransaction(database, {
+        caseId: establishment.caseId,
+        questionRef: establishment.questionRef,
+        continuationChallengeRef: challengeRef,
+        currentCaseVersion: establishment.basisCaseVersion
+      });
+      if (baseline.kind !== 'APPLIED_CHALLENGE_CONFLICT') {
+        throw new Error('Conflict continuation Establishment resolved the wrong baseline kind.');
+      }
+    } catch (error) {
+      throw new InvestigationChallengeBatchEstablishmentError(
+        'CHALLENGE_ASSOCIATION_REQUIRED',
+        error instanceof AuthoritativeConflictContinuationError
+          ? error.message
+          : 'The conflict continuation Establishment baseline provenance is invalid.'
+      );
+    }
+  }
   return establishment;
 }
 
@@ -616,7 +679,7 @@ export function recordInvestigationChallengeBatchEstablishment(
 
     let authorization;
     try {
-      authorization = resolveCurrentInvestigationChallengeForWrite(transaction, {
+      authorization = resolveCurrentInvestigationContextForWrite(transaction, {
         caseId: parsed.caseId,
         questionRef: parsed.questionRef,
         challengeRef: parsed.challengeRef,
@@ -697,7 +760,7 @@ export function recordInvestigationChallengeBatchEstablishment(
         challengeRef: parsed.challengeRef,
         claimRef: parsed.claimRef,
         ...selectedPolicy,
-        ...(policyInput.projection.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+        ...(policyInput.projection.authoritativeBaseline.kind !== 'INITIAL_UNASSOCIATED'
           ? {
               authoritativeBaseline: structuredClone(
                 policyInput.projection.authoritativeBaseline
@@ -712,7 +775,8 @@ export function recordInvestigationChallengeBatchEstablishment(
         reliedUponRejectionAssessmentRefs: policy.reliedUponRejectionAssessmentRefs,
         basisCaseVersion: authorization.snapshot.caseVersion,
         basisMaterialRevision: authorization.snapshot.materialRevision,
-        authorizationContext: 'OPEN_CHALLENGE',
+        authorizationContext: policyInput.projection.authoritativeBaseline.kind ===
+          'APPLIED_CHALLENGE_CONFLICT' ? 'APPLIED_CHALLENGE_CONFLICT' : 'OPEN_CHALLENGE',
         demo: true
       }),
       createdAt

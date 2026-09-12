@@ -112,21 +112,27 @@ function deriveChallengeBatchOutcome(
   updatedAt: string
 ): InvestigationOutcome {
   const investigation = current.investigation;
+  const knownSource = investigation?.knowledgeStatus === 'KNOWN' &&
+    investigation.scope.kind === 'BATCH_LOT' &&
+    investigation.scope.knowledgeStatus === 'KNOWN' &&
+    investigation.scope.lots.length === 1 &&
+    investigation.gaps.length === 0 && investigation.conflicts.length === 0;
+  const conflictContinuationSource = investigation?.knowledgeStatus === 'CONFLICTED' &&
+    investigation.scope.kind === 'UNRESOLVED' &&
+    investigation.scope.knowledgeStatus === 'CONFLICTED' &&
+    investigation.gaps.length === 0 && investigation.conflicts.length === 1 &&
+    investigation.conflicts[0].code === 'BATCH_CONFLICT';
   if (
     !investigation || current.materialRevision === null ||
     investigation.materialRevision !== current.materialRevision ||
-    investigation.knowledgeStatus !== 'KNOWN' ||
     investigation.identity.knowledgeStatus !== 'KNOWN' ||
     investigation.identity.conclusion !== 'MATCH' ||
-    investigation.scope.kind !== 'BATCH_LOT' ||
-    investigation.scope.knowledgeStatus !== 'KNOWN' ||
-    investigation.scope.lots.length !== 1 ||
-    investigation.gaps.length !== 0 || investigation.conflicts.length !== 0 ||
+    (!knownSource && !conflictContinuationSource) ||
     !investigation.demo || appliedLot.length === 0
   ) {
     throw new InvestigationChallengeBatchApplicationError(
       'APPLICATION_NOT_ELIGIBLE',
-      'The authoritative source is not a clean known-batch state.'
+      'The authoritative source is neither a clean known-batch state nor one exact applied conflict.'
     );
   }
   const appliedEvidence = canonicalReferences(appliedEvidenceRefs);

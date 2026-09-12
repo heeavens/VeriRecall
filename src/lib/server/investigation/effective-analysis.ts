@@ -17,10 +17,13 @@ import {
 import {
   getInvestigationChallenge,
   InvestigationChallengeError,
+  resolveCurrentInvestigationConflictContinuationForWrite,
   resolveCurrentInvestigationChallengeForRead,
-  type CurrentInvestigationChallengeForRead
+  type CurrentInvestigationChallengeForRead,
+  type CurrentInvestigationContextForWrite
 } from './challenges';
 import type { AuthoritativeChallengeBaseline } from './authoritative-challenge-baseline';
+import type { AuthoritativeConflictContinuation } from './authoritative-conflict-continuation';
 import {
   listInvestigationClaims,
   type InvestigationClaim
@@ -139,6 +142,26 @@ export interface ChallengeEffectiveInvestigationAnalysis {
   };
   analysis: EffectiveInvestigationAnalysis;
 }
+
+export interface ConflictContinuationEffectiveInvestigationAnalysis {
+  authoritativeBaseline: AuthoritativeConflictContinuation;
+  analysisContext: {
+    kind: 'APPLIED_CHALLENGE_CONFLICT';
+    challengeRef: string;
+    conflictApplicationRef: string;
+    sourceChallengeRef: string;
+    challengedRevisionId: string;
+    challengedMaterialRevision: number;
+    currentCaseVersion: number;
+    currentMaterialRevision: number;
+  };
+  projectionBasis: ChallengeEffectiveInvestigationAnalysis['projectionBasis'];
+  analysis: EffectiveInvestigationAnalysis;
+}
+
+export type InvestigationPartitionEffectiveAnalysis =
+  | ChallengeEffectiveInvestigationAnalysis
+  | ConflictContinuationEffectiveInvestigationAnalysis;
 
 const staleReasonOrder: AssessmentStaleReason[] = [
   'ASSESSMENT_SUPERSEDED',
@@ -689,14 +712,18 @@ function assertIncludedAssessmentClaimBoundaries(
   claimPartitionByRef: ReadonlyMap<string, ChallengeArtifactPartition>,
   assessmentPartitionByRef: ReadonlyMap<string, ChallengeArtifactPartition>,
   selectedChallengeRef: string,
-  authoritativeBaseline: AuthoritativeChallengeBaseline
+  authoritativeBaseline: AuthoritativeChallengeBaseline | AuthoritativeConflictContinuation
 ): void {
   const inheritedClaimRefs = new Set(authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
     ? authoritativeBaseline.baselineClaimRefs
-    : authoritativeBaseline.resultBaselineClaimRefs);
+    : authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+      ? authoritativeBaseline.resultBaselineClaimRefs
+      : authoritativeBaseline.conflictClaimRefs);
   const inheritedAssessmentRefs = new Set(authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
     ? authoritativeBaseline.baselineAssessmentRefs
-    : authoritativeBaseline.resultBaselineAssessmentRefs);
+    : authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+      ? authoritativeBaseline.resultBaselineAssessmentRefs
+      : authoritativeBaseline.conflictAssessmentRefs);
   for (const assessment of assessments) {
     const assessmentPartition = assessmentPartitionByRef.get(assessment.assessmentRef) ?? null;
     const isInheritedAssessment = inheritedAssessmentRefs.has(assessment.assessmentRef);
@@ -771,7 +798,7 @@ function assertArtifactEvidenceIntegrity(
     | { assessmentRef: string; evidenceRefs: readonly string[] },
   partition: ChallengeArtifactPartition,
   evidenceByRef: ReadonlyMap<string, InvestigationEvidence>,
-  authorization: CurrentInvestigationChallengeForRead
+  authorization: CurrentInvestigationContextForWrite
 ): void {
   const evidence = artifact.evidenceRefs.map((evidenceRef) => {
     const item = evidenceByRef.get(evidenceRef);
@@ -791,7 +818,9 @@ function assertArtifactEvidenceIntegrity(
   const inheritedEvidenceRefs = new Set(
     authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
       ? authorization.authoritativeBaseline.baselineEvidenceRefs
-      : authorization.authoritativeBaseline.resultBaselineEvidenceRefs
+      : authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+        ? authorization.authoritativeBaseline.resultBaselineEvidenceRefs
+        : authorization.authoritativeBaseline.conflictEvidenceRefs
   );
   const inheritedArtifactRefs = authorization.authoritativeBaseline.kind ===
       'INITIAL_UNASSOCIATED'
@@ -799,9 +828,14 @@ function assertArtifactEvidenceIntegrity(
         ...authorization.authoritativeBaseline.baselineClaimRefs,
         ...authorization.authoritativeBaseline.baselineAssessmentRefs
       ])
-    : new Set([
+    : authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+      ? new Set([
         ...authorization.authoritativeBaseline.resultBaselineClaimRefs,
         ...authorization.authoritativeBaseline.resultBaselineAssessmentRefs
+      ])
+      : new Set([
+        ...authorization.authoritativeBaseline.conflictClaimRefs,
+        ...authorization.authoritativeBaseline.conflictAssessmentRefs
       ]);
   const artifactRef = 'claimRef' in artifact ? artifact.claimRef : artifact.assessmentRef;
   const isInheritedArtifact = inheritedArtifactRefs.has(artifactRef);
@@ -833,7 +867,8 @@ function assertArtifactEvidenceIntegrity(
   });
   if (
     relevance.includes('OTHER_CHALLENGE') ||
-    !relevance.includes('CURRENT_CHALLENGE')
+    !relevance.includes(authorization.authoritativeBaseline.kind ===
+      'APPLIED_CHALLENGE_CONFLICT' ? 'CURRENT_CONTINUATION' : 'CURRENT_CHALLENGE')
   ) {
     throw challengeBoundaryError(
       'A selected-Challenge artifact has invalid or exclusively cross-Challenge Evidence.'
@@ -845,18 +880,13 @@ function assertArtifactEvidenceIntegrity(
  * Build the current Challenge projection inside a transaction owned by the caller.
  * Structural/currentness failures retain the public Challenge projection error semantics.
  */
-export function readChallengeEffectiveInvestigationAnalysisInTransaction(
+function buildInvestigationPartitionAnalysisInTransaction(
   database: RecallDatabase,
   caseId: string,
   questionRef: string,
-  challengeRef: string
-): ChallengeEffectiveInvestigationAnalysis {
-  const authorization = resolveChallengeForAnalysis(
-    database,
-    caseId,
-    questionRef,
-    challengeRef
-  );
+  challengeRef: string,
+  authorization: CurrentInvestigationContextForWrite
+): InvestigationPartitionEffectiveAnalysis {
   const history = getCaseHistory(database, caseId);
 
   const claims = listInvestigationClaims(database, caseId, questionRef);
@@ -900,12 +930,16 @@ export function readChallengeEffectiveInvestigationAnalysisInTransaction(
   const inheritedClaimRefs = new Set(
     authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
       ? authorization.authoritativeBaseline.baselineClaimRefs
-      : authorization.authoritativeBaseline.resultBaselineClaimRefs
+      : authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+        ? authorization.authoritativeBaseline.resultBaselineClaimRefs
+        : authorization.authoritativeBaseline.conflictClaimRefs
   );
   const inheritedAssessmentRefs = new Set(
     authorization.authoritativeBaseline.kind === 'INITIAL_UNASSOCIATED'
       ? authorization.authoritativeBaseline.baselineAssessmentRefs
-      : authorization.authoritativeBaseline.resultBaselineAssessmentRefs
+      : authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_BATCH'
+        ? authorization.authoritativeBaseline.resultBaselineAssessmentRefs
+        : authorization.authoritativeBaseline.conflictAssessmentRefs
   );
   const includedClaims = claims.filter((claim) => {
     const partition = claimPartitionByRef.get(claim.claimRef) ?? null;
@@ -957,16 +991,8 @@ export function readChallengeEffectiveInvestigationAnalysisInTransaction(
     })),
     currentMaterialRevision: authorization.challenge.challengedMaterialRevision
   });
-  return {
+  const common = {
     authoritativeBaseline: structuredClone(authorization.authoritativeBaseline),
-    analysisContext: {
-      kind: 'OPEN_CHALLENGE',
-      challengeRef: authorization.challenge.challengeRef,
-      challengedRevisionId: authorization.challenge.challengedRevisionId,
-      challengedMaterialRevision: authorization.challenge.challengedMaterialRevision,
-      currentCaseVersion: authorization.snapshot.caseVersion,
-      currentMaterialRevision: authorization.snapshot.materialRevision!
-    },
     projectionBasis: {
       claimRefs: includedClaims.map((claim) => claim.claimRef).sort(compareText),
       assessmentRefs: includedAssessments
@@ -979,6 +1005,93 @@ export function readChallengeEffectiveInvestigationAnalysisInTransaction(
     },
     analysis
   };
+  return authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_CONFLICT'
+    ? {
+        ...common,
+        authoritativeBaseline: structuredClone(authorization.authoritativeBaseline),
+        analysisContext: {
+          kind: 'APPLIED_CHALLENGE_CONFLICT',
+          challengeRef: authorization.challenge.challengeRef,
+          conflictApplicationRef: authorization.authoritativeBaseline.conflictApplicationRef,
+          sourceChallengeRef: authorization.authoritativeBaseline.sourceChallengeRef,
+          challengedRevisionId: authorization.challenge.challengedRevisionId,
+          challengedMaterialRevision: authorization.challenge.challengedMaterialRevision,
+          currentCaseVersion: authorization.snapshot.caseVersion,
+          currentMaterialRevision: authorization.snapshot.materialRevision!
+        }
+      }
+    : {
+        ...common,
+        authoritativeBaseline: structuredClone(authorization.authoritativeBaseline),
+        analysisContext: {
+          kind: 'OPEN_CHALLENGE',
+          challengeRef: authorization.challenge.challengeRef,
+          challengedRevisionId: authorization.challenge.challengedRevisionId,
+          challengedMaterialRevision: authorization.challenge.challengedMaterialRevision,
+          currentCaseVersion: authorization.snapshot.caseVersion,
+          currentMaterialRevision: authorization.snapshot.materialRevision!
+        }
+      };
+}
+
+export function readChallengeEffectiveInvestigationAnalysisInTransaction(
+  database: RecallDatabase,
+  caseId: string,
+  questionRef: string,
+  challengeRef: string
+): ChallengeEffectiveInvestigationAnalysis {
+  return buildInvestigationPartitionAnalysisInTransaction(
+    database,
+    caseId,
+    questionRef,
+    challengeRef,
+    resolveChallengeForAnalysis(database, caseId, questionRef, challengeRef)
+  ) as ChallengeEffectiveInvestigationAnalysis;
+}
+
+export function readConflictContinuationEffectiveInvestigationAnalysisInTransaction(
+  database: RecallDatabase,
+  caseId: string,
+  questionRef: string,
+  challengeRef: string
+): ConflictContinuationEffectiveInvestigationAnalysis {
+  const snapshot = readCaseSnapshot(database, caseId);
+  if (!snapshot || snapshot.materialRevision === null) {
+    throw new EffectiveAnalysisError(
+      'VERSIONED_CASE_REQUIRED',
+      'Conflict continuation analysis requires an authoritative versioned investigation.'
+    );
+  }
+  let authorization;
+  try {
+    authorization = resolveCurrentInvestigationConflictContinuationForWrite(database, {
+      caseId,
+      questionRef,
+      challengeRef,
+      expectedCaseVersion: snapshot.caseVersion,
+      expectedMaterialRevision: snapshot.materialRevision,
+      demo: true
+    });
+  } catch (error) {
+    if (error instanceof InvestigationChallengeError) {
+      throw new EffectiveAnalysisError(
+        error.code === 'QUESTION_OWNERSHIP_MISMATCH'
+          ? 'QUESTION_OWNERSHIP_MISMATCH'
+          : error.code === 'CHALLENGE_NOT_FOUND'
+            ? 'CHALLENGE_NOT_FOUND'
+            : 'CHALLENGE_BASELINE_UNPROVEN',
+        error.message
+      );
+    }
+    throw error;
+  }
+  return buildInvestigationPartitionAnalysisInTransaction(
+    database,
+    caseId,
+    questionRef,
+    challengeRef,
+    authorization
+  ) as ConflictContinuationEffectiveInvestigationAnalysis;
 }
 
 export function readChallengeEffectiveInvestigationAnalysis(
@@ -989,6 +1102,22 @@ export function readChallengeEffectiveInvestigationAnalysis(
 ): ChallengeEffectiveInvestigationAnalysis {
   return database.transaction((transaction) =>
     readChallengeEffectiveInvestigationAnalysisInTransaction(
+      transaction,
+      caseId,
+      questionRef,
+      challengeRef
+    )
+  );
+}
+
+export function readConflictContinuationEffectiveInvestigationAnalysis(
+  database: RecallDatabase,
+  caseId: string,
+  questionRef: string,
+  challengeRef: string
+): ConflictContinuationEffectiveInvestigationAnalysis {
+  return database.transaction((transaction) =>
+    readConflictContinuationEffectiveInvestigationAnalysisInTransaction(
       transaction,
       caseId,
       questionRef,

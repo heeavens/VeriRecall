@@ -11,23 +11,24 @@ import {
   type AnalysisAmbiguity,
   type AssessmentStaleReason,
   type ChallengeEffectiveInvestigationAnalysis,
+  type InvestigationPartitionEffectiveAnalysis,
   type TargetedAssessmentState
 } from './effective-analysis';
 import { listInvestigationEvidence } from './evidence-registry';
 import type { AppliedChallengeBatchBaseline } from './authoritative-challenge-baseline';
+import {
+  challengeConflictApplicationBasisFormatVersion,
+  challengeConflictApplicationPolicy,
+  inheritedChallengeConflictApplicationBasisFormatVersion,
+  inheritedChallengeConflictApplicationPolicy
+} from './challenge-conflict-application-policy';
 
-export const challengeConflictApplicationBasisFormatVersion =
-  'challenge-conflict-application-basis/v1' as const;
-export const challengeConflictApplicationPolicy = {
-  identifier: 'demo-challenge-conflict-application-policy',
-  version: 'v1'
-} as const;
-export const inheritedChallengeConflictApplicationBasisFormatVersion =
-  'challenge-conflict-application-basis/v2' as const;
-export const inheritedChallengeConflictApplicationPolicy = {
-  identifier: 'demo-challenge-conflict-application-policy',
-  version: 'v2'
-} as const;
+export {
+  challengeConflictApplicationBasisFormatVersion,
+  challengeConflictApplicationPolicy,
+  inheritedChallengeConflictApplicationBasisFormatVersion,
+  inheritedChallengeConflictApplicationPolicy
+} from './challenge-conflict-application-policy';
 
 export const challengeConflictApplicationBlockerCodes = [
   'NO_CURRENT_CONTRADICTION',
@@ -153,7 +154,7 @@ function canonicalAmbiguities(values: readonly AnalysisAmbiguity[]): AnalysisAmb
 }
 
 export function canonicalChallengeAnalysisState(
-  projection: ChallengeEffectiveInvestigationAnalysis
+  projection: InvestigationPartitionEffectiveAnalysis
 ): ChallengeConflictApplicationAnalysisState {
   const analysis = projection.analysis;
   return {

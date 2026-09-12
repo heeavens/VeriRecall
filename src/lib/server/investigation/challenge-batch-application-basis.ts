@@ -22,20 +22,26 @@ import { challengeBatchEstablishmentPolicyForBaseline } from './challenge-batch-
 import {
   challengeBatchApplicationBasisFormatVersion,
   challengeBatchApplicationPolicy,
+  conflictContinuationChallengeBatchApplicationBasisFormatVersion,
   inheritedChallengeBatchApplicationBasisFormatVersion,
   type ChallengeBatchApplicationBasisFormatVersion
 } from './challenge-batch-application-policy';
 import type { AppliedChallengeBatchBaseline } from './authoritative-challenge-baseline';
+import type { AuthoritativeConflictContinuation } from './authoritative-conflict-continuation';
 import {
   canonicalChallengeAnalysisState,
   type ChallengeConflictApplicationAnalysisState
 } from './challenge-conflict-basis';
-import { getInvestigationChallenge } from './challenges';
+import {
+  getInvestigationChallenge,
+  resolveCurrentInvestigationContextForWrite
+} from './challenges';
 import { getInvestigationClaim, listInvestigationClaims } from './claims';
 import {
   readChallengeEffectiveInvestigationAnalysisInTransaction,
+  readConflictContinuationEffectiveInvestigationAnalysisInTransaction,
   EffectiveAnalysisError,
-  type ChallengeEffectiveInvestigationAnalysis
+  type InvestigationPartitionEffectiveAnalysis
 } from './effective-analysis';
 import { listInvestigationEvidence } from './evidence-registry';
 import type { InvestigationEstablishment } from './establishments';
@@ -44,6 +50,7 @@ import { getInvestigationQuestion } from './questions';
 export {
   challengeBatchApplicationBasisFormatVersion,
   challengeBatchApplicationPolicy,
+  conflictContinuationChallengeBatchApplicationBasisFormatVersion,
   inheritedChallengeBatchApplicationBasisFormatVersion
 } from './challenge-batch-application-policy';
 
@@ -95,10 +102,10 @@ export interface ChallengeBatchApplicationBasis {
     createdAt: string;
     demo: true;
   };
-  analysisContext: ChallengeEffectiveInvestigationAnalysis['analysisContext'] | null;
-  projectionBasis: ChallengeEffectiveInvestigationAnalysis['projectionBasis'] | null;
+  analysisContext: InvestigationPartitionEffectiveAnalysis['analysisContext'] | null;
+  projectionBasis: InvestigationPartitionEffectiveAnalysis['projectionBasis'] | null;
   analysisState: ChallengeConflictApplicationAnalysisState | null;
-  authoritativeBaseline?: AppliedChallengeBatchBaseline;
+  authoritativeBaseline?: AppliedChallengeBatchBaseline | AuthoritativeConflictContinuation;
   firstCyclePartitions: {
     claims: Array<{ claimRef: string; partition: 'BASELINE' | 'SELECTED_CHALLENGE' }>;
     assessments: Array<{
@@ -144,7 +151,7 @@ export interface ChallengeBatchApplicationBasis {
     challengeRef: string | null;
     demo: boolean;
   } | null;
-  resolutionKind: 'REAFFIRM' | 'REPLACE' | null;
+  resolutionKind: 'REAFFIRM' | 'REPLACE' | 'RESOLVE_CONFLICT' | null;
   currentAuthoritativeNormalizedLot: string | null;
   targetNormalizedLot: string | null;
   reviewedClaimRefs: string[];
@@ -331,14 +338,29 @@ export function readChallengeBatchApplicationBasisInTransaction(
   const claims = listInvestigationClaims(database, caseId, questionRef);
   const assessments = listInvestigationAssessments(database, caseId, questionRef);
   const evidence = listInvestigationEvidence(database, caseId, questionRef);
-  let projection: ChallengeEffectiveInvestigationAnalysis | null = null;
+  let projection: InvestigationPartitionEffectiveAnalysis | null = null;
   try {
-    projection = readChallengeEffectiveInvestigationAnalysisInTransaction(
-      database,
+    const authorization = resolveCurrentInvestigationContextForWrite(database, {
       caseId,
       questionRef,
-      challengeRef
-    );
+      challengeRef,
+      expectedCaseVersion: snapshot.caseVersion,
+      expectedMaterialRevision: snapshot.materialRevision,
+      demo: true
+    });
+    projection = authorization.authoritativeBaseline.kind === 'APPLIED_CHALLENGE_CONFLICT'
+      ? readConflictContinuationEffectiveInvestigationAnalysisInTransaction(
+          database,
+          caseId,
+          questionRef,
+          challengeRef
+        )
+      : readChallengeEffectiveInvestigationAnalysisInTransaction(
+          database,
+          caseId,
+          questionRef,
+          challengeRef
+        );
   } catch (error) {
     if (error instanceof EffectiveAnalysisError && error.code === 'CHALLENGE_NOT_CURRENT') {
       projection = null;
@@ -390,7 +412,19 @@ export function readChallengeBatchApplicationBasisInTransaction(
 
   const investigation = snapshot.investigation;
   let currentAuthoritativeNormalizedLot: string | null = null;
-  if (
+  const authoritativeBaseline = projection?.authoritativeBaseline ?? null;
+  const resolvesAppliedConflict = authoritativeBaseline?.kind === 'APPLIED_CHALLENGE_CONFLICT';
+  if (resolvesAppliedConflict) {
+    if (
+      investigation.knowledgeStatus !== 'CONFLICTED' ||
+      investigation.identity.knowledgeStatus !== 'KNOWN' ||
+      investigation.identity.conclusion !== 'MATCH' ||
+      investigation.scope.kind !== 'UNRESOLVED' ||
+      investigation.scope.knowledgeStatus !== 'CONFLICTED'
+    ) {
+      blockers.add('AUTHORITATIVE_SOURCE_NOT_KNOWN_BATCH');
+    }
+  } else if (
     investigation.knowledgeStatus !== 'KNOWN' ||
     investigation.identity.knowledgeStatus !== 'KNOWN' ||
     investigation.identity.conclusion !== 'MATCH' ||
@@ -406,7 +440,13 @@ export function readChallengeBatchApplicationBasisInTransaction(
       currentAuthoritativeNormalizedLot = lots[0];
     }
   }
-  if (investigation.gaps.length > 0 || investigation.conflicts.length > 0) {
+  const hasOnlyResolvedConflict = resolvesAppliedConflict &&
+    investigation.gaps.length === 0 && investigation.conflicts.length === 1 &&
+    investigation.conflicts[0].id === questionRef &&
+    investigation.conflicts[0].code === 'BATCH_CONFLICT';
+  if (resolvesAppliedConflict
+    ? !hasOnlyResolvedConflict
+    : investigation.gaps.length > 0 || investigation.conflicts.length > 0) {
     blockers.add('OTHER_AUTHORITATIVE_UNCERTAINTY_PRESENT');
   }
   if (!evaluation.currentlyEligible) {
@@ -442,7 +482,6 @@ export function readChallengeBatchApplicationBasisInTransaction(
   if (positiveForChallenge !== null || positiveForEstablishment !== null) {
     blockers.add('POSITIVE_APPLICATION_EXISTS');
   }
-  const authoritativeBaseline = projection?.authoritativeBaseline ?? null;
   const expectedEstablishmentPolicy = authoritativeBaseline
     ? challengeBatchEstablishmentPolicyForBaseline(authoritativeBaseline.kind)
     : null;
@@ -478,14 +517,20 @@ export function readChallengeBatchApplicationBasisInTransaction(
     ...reliedUponRejectionRefs
   ]);
   const resultBaselineClaimRefs = target ? [target.claimRef] : [];
-  const resolutionKind = currentAuthoritativeNormalizedLot !== null && targetNormalizedLot.length > 0
-    ? currentAuthoritativeNormalizedLot === targetNormalizedLot ? 'REAFFIRM' : 'REPLACE'
-    : null;
+  const resolutionKind = targetNormalizedLot.length === 0
+    ? null
+    : resolvesAppliedConflict
+      ? 'RESOLVE_CONFLICT'
+      : currentAuthoritativeNormalizedLot !== null
+        ? currentAuthoritativeNormalizedLot === targetNormalizedLot ? 'REAFFIRM' : 'REPLACE'
+        : null;
   const includedClaimRefs = new Set(projection?.projectionBasis.claimRefs ?? []);
   const includedAssessmentRefs = new Set(projection?.projectionBasis.assessmentRefs ?? []);
-  const basisFormatVersion = authoritativeBaseline?.kind === 'APPLIED_CHALLENGE_BATCH'
-    ? inheritedChallengeBatchApplicationBasisFormatVersion
-    : challengeBatchApplicationBasisFormatVersion;
+  const basisFormatVersion = authoritativeBaseline?.kind === 'APPLIED_CHALLENGE_CONFLICT'
+    ? conflictContinuationChallengeBatchApplicationBasisFormatVersion
+    : authoritativeBaseline?.kind === 'APPLIED_CHALLENGE_BATCH'
+      ? inheritedChallengeBatchApplicationBasisFormatVersion
+      : challengeBatchApplicationBasisFormatVersion;
 
   const basis: BasisWithoutDigest = {
     basisFormatVersion,
@@ -528,7 +573,7 @@ export function readChallengeBatchApplicationBasisInTransaction(
       referencedEvidenceRefs: sortedUnique(projection.projectionBasis.referencedEvidenceRefs)
     } : null,
     analysisState: projection ? canonicalChallengeAnalysisState(projection) : null,
-    ...(authoritativeBaseline?.kind === 'APPLIED_CHALLENGE_BATCH'
+    ...(authoritativeBaseline && authoritativeBaseline.kind !== 'INITIAL_UNASSOCIATED'
       ? { authoritativeBaseline: structuredClone(authoritativeBaseline) }
       : {}),
     firstCyclePartitions: {
